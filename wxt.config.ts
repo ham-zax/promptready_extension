@@ -5,6 +5,31 @@ import path from "path";
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
+  manifest: {
+    name: "PromptReady",
+    description: "Clean and structure webpage content into prompt-ready formats with citations",
+    permissions: [
+      "activeTab",
+      "storage", 
+      "scripting",
+      "downloads"
+    ],
+    optional_permissions: [
+      "clipboardWrite"
+    ],
+    commands: {
+      "capture-selection": {
+        suggested_key: {
+          default: "Ctrl+Shift+P",
+          mac: "Command+Shift+P"
+        },
+        description: "Clean and structure selected content"
+      }
+    },
+    action: {
+      default_popup: "popup.html"
+    }
+  },
   vite: () => ({
     plugins: [tailwindcss()],
     resolve: {

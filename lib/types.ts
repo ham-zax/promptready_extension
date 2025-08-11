@@ -1,0 +1,186 @@
+// Core Types for PromptReady Extension
+// Based on PRD Section 14 (Machine-Readable Specs) and Architecture
+
+// =============================================================================
+// Settings & Configuration
+// =============================================================================
+
+export interface Settings {
+  mode: 'general' | 'code_docs';
+  templates: {
+    bundles: PromptBundle[];
+  };
+  byok: {
+    provider: 'openrouter' | 'custom';
+    apiBase: string;
+    apiKey: string; // Will be encrypted at rest
+    model: string;
+  };
+  privacy: {
+    telemetryEnabled: boolean;
+  };
+  isPro: boolean; // Local flag for Pro features
+}
+
+// =============================================================================
+// Export Data Models (PRD Section 14.1)
+// =============================================================================
+
+export interface PromptReadyExport {
+  version: '1.0';
+  metadata: ExportMetadata;
+  blocks: ContentBlock[];
+}
+
+export interface ExportMetadata {
+  title: string;
+  url: string;
+  capturedAt: string; // ISO 8601 format
+  selectionHash: string;
+}
+
+export interface ContentBlock {
+  type: 'heading' | 'paragraph' | 'list' | 'table' | 'code' | 'quote';
+  level?: number; // 1-3 for headings
+  text?: string;
+  items?: string[]; // For lists
+  table?: {
+    headers: string[];
+    rows: string[][];
+  };
+  code?: string;
+  language?: string;
+}
+
+// =============================================================================
+// Prompt Bundle Models (PRD Section 14.2)
+// =============================================================================
+
+export interface PromptBundle {
+  version: '1.0';
+  bundle: {
+    system: string;
+    task: string;
+    content: string;
+    metadata?: Record<string, any>;
+  };
+}
+
+// =============================================================================
+// Rules Engine Types (Architecture Section 5)
+// =============================================================================
+
+export enum FilterAction {
+  REMOVE = 'remove',
+  UNWRAP = 'unwrap',
+}
+
+export interface FilterRule {
+  description: string;
+  selector: string;
+  action: FilterAction;
+}
+
+// =============================================================================
+// Messaging Contracts (Architecture Section 6)
+// =============================================================================
+
+export type MessageType =
+  | 'CAPTURE_SELECTION'    // UI → Content Script
+  | 'CAPTURE_COMPLETE'     // Content Script → Service Worker
+  | 'PROCESSING_COMPLETE'  // Service Worker → UI
+  | 'EXPORT_REQUEST'       // UI → Service Worker
+  | 'BYOK_REQUEST'         // UI → Service Worker
+  | 'ERROR';               // Any → UI
+
+export interface Message<T extends MessageType, P = unknown> {
+  type: T;
+  payload?: P;
+}
+
+// Message type definitions
+export type CaptureSelectionMessage = Message<'CAPTURE_SELECTION'>;
+
+export type CaptureCompleteMessage = Message<'CAPTURE_COMPLETE', {
+  html: string;
+  url: string;
+  title: string;
+  selectionHash: string;
+}>;
+
+export type ProcessingCompleteMessage = Message<'PROCESSING_COMPLETE', {
+  exportMd: string;
+  exportJson: PromptReadyExport;
+}>;
+
+export type ExportRequestMessage = Message<'EXPORT_REQUEST', {
+  format: 'md' | 'json';
+  action: 'copy' | 'download';
+}>;
+
+export type ByokRequestMessage = Message<'BYOK_REQUEST', {
+  bundleContent: string;
+  model: string;
+}>;
+
+export type ErrorMessage = Message<'ERROR', {
+  message: string;
+  code?: string;
+}>;
+
+// =============================================================================
+// Processing State Types
+// =============================================================================
+
+export interface ProcessingState {
+  status: 'idle' | 'capturing' | 'cleaning' | 'structuring' | 'exporting' | 'complete' | 'error';
+  progress?: number;
+  message?: string;
+}
+
+// =============================================================================
+// BYOK Types
+// =============================================================================
+
+export interface ByokRequest {
+  model: string;
+  messages: Array<{
+    role: 'system' | 'user';
+    content: string;
+  }>;
+  temperature: number;
+}
+
+export interface ByokResponse {
+  choices: Array<{
+    message: {
+      content: string;
+    };
+  }>;
+}
+
+// =============================================================================
+// Telemetry Types (opt-in)
+// =============================================================================
+
+export interface TelemetryEvent {
+  event: 'clean' | 'export' | 'bundle_use';
+  data: {
+    mode?: 'general' | 'code_docs';
+    durationMs?: number;
+    type?: 'md' | 'json';
+    fileName?: string;
+    action?: 'validate' | 'export';
+    model?: string;
+  };
+  timestamp: string;
+}
+
+// =============================================================================
+// File Naming Convention
+// =============================================================================
+
+export interface FileNaming {
+  generateFileName(title: string, format: 'md' | 'json', hash: string): string;
+  sanitizeTitle(title: string): string;
+}
