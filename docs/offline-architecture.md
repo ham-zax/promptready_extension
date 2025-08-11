@@ -1,174 +1,263 @@
----
+# Offline Architecture — PromptReady (Local‑First, MV3)
 
-# PromptReady Chrome Extension - Offline Architecture & Implementation Plan
+Author: Winston (Architect)
+Version: 1.0 (MVP)
 
-**Version:** 1.0
-**Author:** Winston (Architect)
+## 1) Purpose & Scope
 
-## 1. Overview & Goals
+This document is the single source of truth for PromptReady’s offline‑first architecture. It translates the PRD into a concrete, implementable design that guarantees all core functions work without any server dependency. Network access is optional and only used with explicit user consent for BYOK validation.
 
-This document outlines the complete implementation plan for adding offline capabilities to the PromptReady Chrome extension. This feature enhances the core "One-Click Clean Copy" by allowing users to reliably access, create, and edit prompts even without an internet connection. It maintains our "local-first" privacy approach while preparing for robust cloud synchronization.
+In‑scope (MVP):
+- Clean, structure, and export selected page content to Markdown/JSON with citations
+- Popup UI with mode toggle (General | Code & Docs)
+- Local storage of settings; no cloud backends
+- Pro gating via a local flag; BYOK adapter for OpenAI‑compatible endpoints (optional)
 
-## 2. Technical Architecture
+Out‑of‑scope (MVP):
+- Pipelines, OCR, multi‑page binder, entity extraction, cloud sync, hosted inference
 
-### 2.1. Storage Strategy
+## 2) PRD Alignment Checklist (Offline Guarantees)
 
-We will implement a dual-storage architecture that prioritizes local data for speed and offline availability, while treating cloud storage as the primary source of truth when online.
+- One‑Click Clean Copy: fully local; deterministic heuristics; no network
+- Code & Docs Mode: local heuristics for code fences, API tables, stack traces
+- Cite‑First Capture: local URL/timestamp/selection hash; never sent to server
+- Export MD/JSON: local clipboard and downloads API only
+- BYOK: OpenAI‑compatible calls are explicitly consented and rate‑limited; only prompt bundles are sent; never raw page HTML
+- Telemetry: default off; counts only; stored locally; no content or URLs
+- Permissions: minimal — `activeTab`, `scripting`, `storage`, `downloads`, optional `clipboardWrite`
+
+No architectural element contradicts the PRD’s local‑first requirements.
+
+## 3) High‑Level Architecture (MV3)
+
+Core components:
+- Content Script (ephemeral): Captures selection DOM and metadata. Sends to Service Worker.
+- Service Worker (background): Orchestrates offline pipeline (clean → structure), manages downloads, storage, telemetry, optional BYOK.
+- Popup UI (React via WXT): Triggers capture, shows progress/results, exposes copy/download actions, BYOK settings, Pro toggle.
+
+Key properties of MV3:
+- Background is a Service Worker (ephemeral). No long‑lived global state; use `chrome.storage.*` and in‑message payloads.
+- All heavy processing runs off the page context (in Service Worker) to keep page responsive.
+
+### 3.1 Directory Expectations (WXT)
 
 ```
-PromptReady Extension
-├── Cloud Storage [Decision Needed: Specify the service, e.g., Firebase Firestore, Supabase, etc.]
-│   └── User's prompts, templates, and settings
-└── Local Storage (Primary when offline)
-    ├── IndexedDB (For prompt content and metadata)
-    ├── Chrome Storage API (For user settings and sync state)
-    └── Service Worker Cache (For application assets)
+entrypoints/
+  background.ts      # Service Worker orchestration (offline pipeline + BYOK)
+  content.ts         # Selection capture + metadata
+  popup/
+    index.html
+    main.tsx
+core/
+  cleaner.ts         # Deterministic DOM cleaning + rules engine
+  structurer.ts      # JSON + Markdown generation
+  filters/
+    boilerplate-filters.ts
+pro/
+  byok-client.ts     # OpenAI‑compatible client with consent + safeguards
+  rate-limit.ts
+lib/
+  types.ts           # Shared types (Settings, Export models, messaging)
+  storage.ts         # AES‑GCM helpers and storage wrappers
+  fileNaming.ts      # <title>__YYYY-MM-DD__hhmm__hash.(md|json)
+  telemetry.ts       # Opt‑in, counts‑only events
+styles/
+  tailwind.css
 ```
 
-### 2.2. Key Components
+## 4) Data Flow (Offline Pipeline)
 
-#### a. Storage Manager (`lib/storage/StorageManager.ts`)
+1. Popup UI sends `CAPTURE_SELECTION` → Content Script
+2. Content Script returns `CAPTURE_COMPLETE { html, url, title, selectionHash }` → Service Worker
+3. Service Worker executes cleaner → structurer
+4. Service Worker emits `PROCESSING_COMPLETE { exportMd, exportJson }` → Popup UI
+5. User selects Copy/Download action; Service Worker handles downloads naming; clipboard via UI with permissions
 
-The central orchestration layer managing all data flow between local and cloud storage.
+All steps 1–5 function offline. If BYOK is invoked, it is a separate, explicit action with a dedicated consent flow.
 
-```typescript
-export class StorageManager {
-  // Check online status
-  public isOnline(): boolean;
-  
-  // Store data with automatic routing to appropriate storage
-  public async store(key: string, data: any): Promise<void>;
-  
-  // Retrieve data with fallback to offline storage
-  public async retrieve(key: string): Promise<any>;
-  
-  // Sync local changes with cloud when connection is restored
-  public async syncWithCloud(): Promise<SyncResult>;
-  
-  // Handle conflict resolution
-  private resolveConflicts(localData: any, remoteData: any): any;
+## 5) Messaging Contracts (Typed)
+
+```ts
+export type MessageType =
+  | 'CAPTURE_SELECTION'    // UI → Content
+  | 'CAPTURE_COMPLETE'     // Content → SW
+  | 'PROCESSING_COMPLETE'  // SW → UI
+  | 'EXPORT_REQUEST'       // UI → SW
+  | 'ERROR';               // Any → UI
+
+export interface Message<T extends MessageType, P = unknown> {
+  type: T;
+  payload?: P;
+}
+
+export type CaptureComplete = Message<'CAPTURE_COMPLETE', {
+  html: string;
+  url: string;
+  title: string;
+  selectionHash: string;
+}>;
+
+export type ProcessingComplete = Message<'PROCESSING_COMPLETE', {
+  exportMd: string;
+  exportJson: PromptReadyExport;
+}>;
+```
+
+## 6) Data Models
+
+### 6.1 Settings (chrome.storage.local)
+
+```json
+{
+  "mode": "general" | "code_docs",
+  "templates": { "bundles": [] },
+  "byok": {
+    "provider": "openrouter",
+    "apiBase": "https://openrouter.ai/api",
+    "apiKey": "",         // encrypted-at-rest
+    "model": ""
+  },
+  "privacy": { "telemetryEnabled": false },
+  "isPro": false            // local flag only
 }
 ```
 
-#### b. Offline Service Worker (`entrypoints/sw.ts`)
+### 6.2 Export JSON (simplified)
 
-Manages offline asset caching and background synchronization tasks.
-
-```typescript
-// Cache static assets (styles, scripts, fonts)
-registerRoute(
-  ({ request }) => ['style', 'script', 'font'].includes(request.destination),
-  new CacheFirst({
-    cacheName: 'static-assets',
-    plugins: [new ExpirationPlugin({ maxEntries: 50 })]
-  })
-);
-
-// Handle background sync for pending changes
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-prompts') {
-    event.waitUntil(syncPrompts());
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PromptReadyExport",
+  "type": "object",
+  "required": ["version", "metadata", "blocks"],
+  "properties": {
+    "version": {"type": "string", "const": "1.0"},
+    "metadata": {
+      "type": "object",
+      "required": ["title", "url", "capturedAt"],
+      "properties": {
+        "title": {"type": "string"},
+        "url": {"type": "string", "format": "uri"},
+        "capturedAt": {"type": "string", "format": "date-time"},
+        "selectionHash": {"type": "string"}
+      }
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {"type": "string", "enum": ["heading", "paragraph", "list", "table", "code", "quote"]},
+          "level": {"type": "integer", "minimum": 1, "maximum": 3},
+          "text": {"type": "string"},
+          "items": {"type": "array", "items": {"type": "string"}},
+          "table": {
+            "type": "object",
+            "properties": {
+              "headers": {"type": "array", "items": {"type": "string"}},
+              "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
+            }
+          },
+          "code": {"type": "string"},
+          "language": {"type": "string"}
+        }
+      }
+    }
   }
-});
-```
-
-#### c. Connection Monitor (`lib/utils/ConnectionMonitor.ts`)
-
-A utility to detect and notify the application of network status changes.
-
-```typescript
-export class ConnectionMonitor {
-  private listeners: Array<(online: boolean) => void> = [];
-  
-  // Add listener for online/offline events
-  public addListener(callback: (online: boolean) => void): void;
-  
-  // Notify all listeners of status change
-  private notifyListeners(online: boolean): void;
 }
 ```
 
-## 3. Core Strategies
+## 7) Offline Processing Details
 
-### 3.1. Sync Strategy
+### 7.1 Cleaner
+- Deterministic pass using `filters/boilerplate-filters.ts` (rules engine)
+- Apply DOMPurify for sanitization
+- Article isolation with Readability where applicable
 
-1.  **Timestamp-Based Tracking**: Each prompt will have `createdAt`, `updatedAt`, and `lastSyncedAt` timestamps to track changes.
-2.  **Batch Synchronization**: Sync multiple local changes in batches to minimize API calls to the cloud backend.
-3.  **Background Sync**: Utilize the Background Sync API to automatically defer synchronization until a stable internet connection is available.
+### 7.2 Structurer
+- Convert cleaned DOM to `PromptReadyExport` blocks
+- Generate Markdown respecting code fences, lists, tables, quotes
 
-### 3.2. Conflict Resolution Strategy
+### 7.3 Selection Hash
+- Compute a stable hash from the selected DOM fragment (e.g., SHA‑256 of normalized HTML)
+- Stored only in export metadata; never transmitted by default
 
-**[Decision Needed]** A strategy for handling data conflicts must be defined.
+## 8) Permissions & Manifest (WXT)
 
-*   **Option A (Default): Last Write Wins.** The version with the most recent `updatedAt` timestamp (local or remote) will overwrite the other. This is the simplest strategy but can lead to unintentional data loss.
-*   **Option B (Advanced): User-Prompted Resolution.** When a conflict is detected, the UI will present both versions to the user and ask them to merge or choose one. This is safer but requires more complex UI implementation.
+Minimal set for offline MVP:
+- `activeTab`, `scripting`, `storage`, `downloads`, optional `clipboardWrite`
 
-### 3.3. Data Migration & Versioning
+Notes:
+- Avoid broad host permissions until needed. Use `activeTab` + `scripting.executeScript` on user action.
+- Side panel is optional; popup is primary UI for MVP.
 
-**[To be defined]** A strategy for handling future updates to the IndexedDB schema is required. This will involve versioning the local database and writing migration scripts to update the structure for existing users without data loss.
+## 9) Security & Privacy (Offline Guarantees)
 
-### 3.4. Initial Sync / Data Hydration
+API keys at rest:
+- Encrypt BYOK `apiKey` before saving in `chrome.storage.local` using WebCrypto AES‑GCM.
+- Derive key from user‑provided passphrase via PBKDF2 (sufficient iterations + salt in storage). Store passphrase only in `chrome.storage.session`.
 
-**[To be defined]** A process for the "first-time sync" must be designed. When a user logs in on a new device, this process will be responsible for pulling all their data from the cloud and populating the local IndexedDB database.
+Consent & data boundaries:
+- Show explicit consent modal before any BYOK call. Display “Using your key” indicator.
+- BYOK requests send only prompt bundles. Never send raw page HTML or exports.
 
-## 4. User Experience
+Telemetry (opt‑in):
+- Counts‑only events (`clean`, `export`, `bundle_use`).
+- Stored locally. No URLs, no content. Default off.
 
-1.  **Offline Indicator**: A clear, non-intrusive indicator will be displayed when the user is working offline.
-2.  **Sync Status**: Each prompt will have a visual status (synced, pending, conflict) to provide user confidence.
-3.  **Manual Sync**: A button will allow users to manually trigger a sync cycle.
+## 10) Performance & Resilience
 
-#### UI Example: Offline Indicator Hook (`hooks/useOfflineStatus.ts`)
+- Target: typical article <300ms; long documents <1.5s in SW
+- Use chunked processing and `setTimeout` yielding for very large DOMs
+- Service Worker lifecycle: ensure idempotent re‑entry of steps; persist in‑flight mode/state in message payloads if needed
 
-```typescript
-export function useOfflineStatus() {
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  
-  useEffect(() => {
-    const handleOnline = () => setIsOffline(false);
-    const handleOffline = () => setIsOffline(true);
-    
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    
-    return () => { /* cleanup listeners */ };
-  }, []);
-  
-  return isOffline;
-}
-```
+## 11) Pro Gating (Local)
 
-## 5. Implementation Phases
+- Local `isPro` flag stored in `chrome.storage.local`
+- UI gates Bundles editor and BYOK settings behind `isPro`
+- No store/remote license in MVP
 
-We will implement offline capabilities in four phases:
+## 12) BYOK Client (Optional, Explicit)
 
-*   **Phase 1: Core Storage Infrastructure (Week 1)**
-    1.  Setup IndexedDB schema with versioning.
-    2.  Implement `StorageManager` with dual-storage logic and a default conflict resolution strategy.
-    3.  Implement `ConnectionMonitor`.
+Endpoint contract (OpenAI‑compatible): `POST /v1/chat/completions`, `temperature: 0`
 
-*   **Phase 2: Service Worker & Caching (Week 1)**
-    1.  Configure the Service Worker with asset caching strategies.
-    2.  Implement background sync registration and handling.
+Safeguards:
+- Consent per call; visible activity badge
+- Local rate limit (e.g., 10/min, jittered backoff on retry)
+- 12s timeout; graceful fallback to local output on failure
 
-*   **Phase 3: UI Components (Week 2)**
-    1.  Create offline indicators and sync status components.
-    2.  Implement manual sync controls and any conflict resolution UI.
+## 13) Export Operations (Offline)
 
-*   **Phase 4: Testing & Optimization (Week 2)**
-    1.  Test thoroughly across various network conditions.
-    2.  Verify sync reliability and measure performance.
+- File naming: `<title>__YYYY-MM-DD__hhmm__hash.(md|json)` with sanitized title
+- Copy to clipboard (MD/JSON) via UI; downloads through SW
 
-## 6. Technical Considerations
+## 14) Accessibility & UX (Popup)
 
-1.  **Storage Limits**: Be mindful of browser storage limits (e.g., Chrome Storage API is 5MB).
-2.  **Performance**: Optimize IndexedDB queries for quick access.
-3.  **Security**: The `StorageManager` must be responsible for encrypting all sensitive data before writing to any local storage.
+- Keyboard‑first navigation; focus management; ESC closes menus/modals
+- ARIA labels; `aria-live` for status/toasts
+- High contrast; visible focus rings
 
-## 7. Success Metrics
+## 15) Open Risks & Mitigations
 
-1.  **Offline Functionality**: 100% of core features work without an internet connection.
-2.  **Sync Reliability**: 99.9% successful synchronization rate when the connection is restored.
-3.  **Performance**: <100ms access time for locally stored prompts.
-4.  **User Experience**: No perceptible difference between online and offline modes for core functionality.
+- DOM variance: cover with rules engine + Readability fallback → manual test matrix
+- MV3 SW lifecycle surprises: keep steps idempotent; avoid assuming in‑memory state
+- User confusion about BYOK: explicit consent UI and clear copy
+
+## 16) Implementation Notes (WXT)
+
+- Prefer WXT alias mapping in `wxt.config.ts`; keep TS path mapping minimal (see `docs/wxt_notes.md`)
+- Tailwind via `@tailwindcss/vite` with `assets/tailwind.css` imported in popup UI
+
+## 17) Acceptance Criteria (Architecture)
+
+- All core features run offline with no network access
+- No user content is sent over network unless BYOK is explicitly invoked
+- Minimal permissions manifest passes store review; privacy policy matches behavior
+- Processing performance meets targets on test matrix
 
 ---
+
+This offline architecture is fully aligned with the PRD and current code scaffolding. The team can implement modules incrementally without introducing any server dependency.
+
+
