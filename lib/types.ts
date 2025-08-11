@@ -20,6 +20,8 @@ export interface Settings {
     telemetryEnabled: boolean;
   };
   isPro: boolean; // Local flag for Pro features
+  // Optional: choose markdown renderer
+  renderer?: 'structurer' | 'turndown';
 }
 
 // =============================================================================
@@ -148,6 +150,7 @@ export type OffscreenProcessMessage = Message<'OFFSCREEN_PROCESS', {
   title: string;
   selectionHash: string;
   mode: 'general' | 'code_docs' | string;
+  renderer?: 'structurer' | 'turndown';
 }>;
 
 export type OffscreenProcessedMessage = Message<'OFFSCREEN_PROCESSED', {

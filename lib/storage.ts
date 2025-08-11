@@ -33,6 +33,7 @@ const DEFAULT_SETTINGS: Settings = {
     telemetryEnabled: false,
   },
   isPro: false,
+  renderer: 'turndown',
 };
 
 // =============================================================================

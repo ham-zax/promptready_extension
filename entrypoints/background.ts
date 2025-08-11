@@ -187,75 +187,13 @@ class ContentProcessor {
       };
       
       // If DOMParser isn't available in SW, delegate to offscreen document for processing
-      if (typeof DOMParser === 'undefined') {
-        console.warn('DOMParser not available in Service Worker. Delegating to offscreen for processing.');
-        await this.ensureOffscreenDocument();
-        await browser.runtime.sendMessage({
-          type: 'OFFSCREEN_PROCESS',
-          payload: { html, url, title, selectionHash, mode: settings.mode },
-        });
-        return;
-      }
-      
-      const { ContentCleaner } = await import('../core/cleaner.js');
-      const cleanResult = await ContentCleaner.clean(html, url, cleanerOptions);
-      
-      // Step 2: Structure the content
-      const metadata: ExportMetadata = {
-        title,
-        url,
-        capturedAt: new Date().toISOString(),
-        selectionHash,
-      };
-      
-      const structurerOptions = {
-        mode: settings.mode,
-        preserveCodeLanguages: settings.mode === 'code_docs',
-        maxHeadingLevel: 3,
-        includeTableHeaders: true,
-      };
-      
-      const { ContentStructurer } = await import('../core/structurer.js');
-      const exportData = await ContentStructurer.structure(
-        cleanResult.cleanedHtml,
-        metadata,
-        structurerOptions
-      );
-      
-      // Step 3: Generate Markdown (reuse the imported ContentStructurer)
-      const exportMd = ContentStructurer.blocksToMarkdown(exportData.blocks);
-      const citationFooter = ContentStructurer.generateCitationFooter(metadata);
-      const fullMarkdown = `${exportMd}\n\n${citationFooter}`;
-      
-      // Step 4: Store export data and broadcast results to popup
-      this.currentExportData = {
-        markdown: fullMarkdown,
-        json: exportData,
-        metadata,
-      };
-      
-      console.log('Export data stored. Markdown length:', fullMarkdown.length);
-      console.log('Markdown content preview (first 200 chars):', fullMarkdown.substring(0, 200));
-
-      const response: ProcessingCompleteMessage = {
-        type: 'PROCESSING_COMPLETE',
-        payload: {
-          exportMd: fullMarkdown,
-          exportJson: exportData,
-        },
-      };
-      
-      await this.broadcastToPopup(response);
-      
-      // Record telemetry
-      await Storage.recordTelemetry({
-        event: 'clean',
-        data: {
-          mode: settings.mode,
-          durationMs: Date.now() - new Date(metadata.capturedAt).getTime(),
-        },
-        timestamp: new Date().toISOString(),
+      // Always process in offscreen for consistency and Readability support
+      await this.ensureOffscreenDocument();
+      await browser.runtime.sendMessage({
+        type: 'OFFSCREEN_PROCESS',
+        payload: { html, url, title, selectionHash, mode: settings.mode, renderer: settings.renderer || 'structurer' },
       });
+      return;
       
     } catch (error) {
       console.error('Content processing failed:', error);
@@ -371,9 +309,7 @@ class ContentProcessor {
 
   private async ensureOffscreenDocument(): Promise<void> {
     const offscreenUrl = browser.runtime.getURL(this.offscreenPath);
-    // @ts-expect-error MV3 API
     const contexts = await browser.runtime.getContexts?.({
-      // @ts-expect-error MV3 API
       contextTypes: [browser.runtime.ContextType?.OFFSCREEN_DOCUMENT ?? 'OFFSCREEN_DOCUMENT'],
       documentUrls: [offscreenUrl],
     });
@@ -382,10 +318,8 @@ class ContentProcessor {
       return;
     }
 
-    // @ts-expect-error MV3 API
     await browser.offscreen.createDocument({
       url: this.offscreenPath,
-      // @ts-expect-error MV3 API
       reasons: [
         browser.offscreen.Reason?.CLIPBOARD ?? 'CLIPBOARD',
         browser.offscreen.Reason?.DOM_PARSER ?? 'DOM_PARSER',

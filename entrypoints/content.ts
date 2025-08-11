@@ -195,7 +195,7 @@ export default defineContentScript({
           await browser.runtime.sendMessage({
             type: 'ERROR',
             payload: {
-              message: error.message || 'Content script operation failed',
+              message: error instanceof Error ? error.message : 'Content script operation failed',
             },
           });
         }

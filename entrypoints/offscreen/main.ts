@@ -30,7 +30,7 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
     }
 
     if (message?.type === 'OFFSCREEN_PROCESS') {
-      const { html, url, title, selectionHash, mode } = message.payload ?? {};
+      const { html, url, title, selectionHash, mode, renderer } = message.payload ?? {};
       if (!html || !url || !title || !selectionHash) return true;
 
       // Helpers
@@ -92,25 +92,45 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
         cleanedHtml = cr.cleanedHtml;
       }
 
-      const { ContentStructurer } = await import('../../core/structurer.js');
-
+      const useTurndown = renderer === 'turndown' && mode === 'general';
       const metadata = {
         title,
         url,
         capturedAt: new Date().toISOString(),
         selectionHash,
       };
+      let fullMarkdown: string | undefined;
+      let exportData: any;
 
-      const exportData = await ContentStructurer.structure(cleanedHtml, metadata, {
-        mode,
-        preserveCodeLanguages: mode === 'code_docs',
-        maxHeadingLevel: 3,
-        includeTableHeaders: true,
-      });
+      try {
+        if (useTurndown) {
+          const { renderWithTurndown } = await import('../../lib/markdown/markdownload-adapter.js');
+          const td = await renderWithTurndown(cleanedHtml, { title, url });
+          fullMarkdown = td.markdown;
+          const { ContentStructurer } = await import('../../core/structurer.js');
+          exportData = await ContentStructurer.structure(cleanedHtml, metadata, {
+            mode,
+            preserveCodeLanguages: mode === 'code_docs',
+            maxHeadingLevel: 3,
+            includeTableHeaders: true,
+          });
+        }
+      } catch (err) {
+        console.warn('[offscreen] Turndown path failed, falling back to structurer:', err);
+      }
 
-      const exportMd = ContentStructurer.blocksToMarkdown(exportData.blocks);
-      const citationFooter = ContentStructurer.generateCitationFooter(metadata);
-      const fullMarkdown = `${exportMd}\n\n${citationFooter}`;
+      if (!fullMarkdown || !exportData) {
+        const { ContentStructurer } = await import('../../core/structurer.js');
+        exportData = await ContentStructurer.structure(cleanedHtml, metadata, {
+          mode,
+          preserveCodeLanguages: mode === 'code_docs',
+          maxHeadingLevel: 3,
+          includeTableHeaders: true,
+        });
+        const exportMd = ContentStructurer.blocksToMarkdown(exportData.blocks);
+        const citationFooter = ContentStructurer.generateCitationFooter(metadata);
+        fullMarkdown = `${exportMd}\n\n${citationFooter}`;
+      }
 
       await browser.runtime.sendMessage({
         type: 'OFFSCREEN_PROCESSED',
@@ -125,6 +145,12 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
     }
   } catch (err) {
     console.error('Offscreen error:', err);
+    try {
+      await browser.runtime.sendMessage({
+        type: 'ERROR',
+        payload: { message: (err as any)?.message || 'Offscreen processing failed' },
+      });
+    } catch {}
   }
 });
 
