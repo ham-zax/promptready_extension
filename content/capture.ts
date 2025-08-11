@@ -8,6 +8,7 @@ export interface CaptureResult {
   url: string;
   title: string;
   selectionHash: string;
+  isSelection?: boolean;
 }
 
 export class ContentCapture {
@@ -67,6 +68,7 @@ export class ContentCapture {
         url,
         title,
         selectionHash,
+        isSelection: true,
       };
       
     } catch (error) {
@@ -192,6 +194,7 @@ export class ContentCapture {
         url: window.location.href,
         title: this.extractPageTitle(),
         selectionHash,
+        isSelection: false,
       };
       
       console.log('captureFullPage: Capture completed successfully');
@@ -247,19 +250,23 @@ export namespace ContentCapture {
 
   export function markHiddenNodes(root: Element): void {
     try {
-      const iter = document.createNodeIterator(root, NodeFilter.SHOW_ELEMENT, (node: Element) => {
-        const nodeName = node.nodeName.toLowerCase();
-        if (nodeName === 'math') return NodeFilter.FILTER_REJECT;
-        // @ts-ignore offsetParent may be undefined in some cases
-        if ((node as any).offsetParent === void 0) return NodeFilter.FILTER_ACCEPT;
-        const cs = window.getComputedStyle(node);
-        if (cs.visibility === 'hidden' || cs.display === 'none') return NodeFilter.FILTER_ACCEPT;
-        return NodeFilter.FILTER_SKIP;
-      });
-      let current: Element | null;
-      // @ts-ignore
-      while ((current = iter.nextNode() as Element | null)) {
-        current.setAttribute('markdownload-hidden', 'true');
+      const filter: NodeFilter = {
+        acceptNode(node: Node): number {
+          if (node.nodeType !== Node.ELEMENT_NODE) return NodeFilter.FILTER_SKIP;
+          const el = node as Element;
+          const nodeName = el.nodeName.toLowerCase();
+          if (nodeName === 'math') return NodeFilter.FILTER_REJECT;
+          // @ts-ignore offsetParent may be undefined in some cases
+          if ((el as any).offsetParent === void 0) return NodeFilter.FILTER_ACCEPT;
+          const cs = window.getComputedStyle(el);
+          if (cs.visibility === 'hidden' || cs.display === 'none') return NodeFilter.FILTER_ACCEPT;
+          return NodeFilter.FILTER_SKIP;
+        },
+      };
+      const iter = document.createNodeIterator(root, NodeFilter.SHOW_ELEMENT, filter);
+      let current: Node | null;
+      while ((current = iter.nextNode())) {
+        (current as Element).setAttribute('markdownload-hidden', 'true');
       }
     } catch {}
   }

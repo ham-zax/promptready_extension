@@ -115,6 +115,7 @@ export type CaptureCompleteMessage = Message<'CAPTURE_COMPLETE', {
   url: string;
   title: string;
   selectionHash: string;
+  isSelection?: boolean;
 }>;
 
 export type ProcessingCompleteMessage = Message<'PROCESSING_COMPLETE', {

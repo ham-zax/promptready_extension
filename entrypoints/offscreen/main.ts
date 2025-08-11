@@ -135,6 +135,32 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
         fullMarkdown = `${exportMd}\n\n${citationFooter}`;
       }
 
+      // Fallback for pages like Google SERPs where Readability/Structurer may yield empty content
+      try {
+        const blocksCount = Array.isArray(exportData?.blocks) ? exportData.blocks.length : 0;
+        const fromSelection = Boolean(message.payload?.isSelection);
+        if (!fromSelection && (blocksCount === 0 || (fullMarkdown?.trim().length || 0) < 50)) {
+          const items: Array<{ title: string; href: string }> = [];
+          parsed.querySelectorAll('#search a h3').forEach((h3) => {
+            const a = h3.closest('a');
+            if (a && a instanceof HTMLAnchorElement && h3.textContent?.trim()) {
+              items.push({ title: h3.textContent.trim(), href: a.href });
+            }
+          });
+          if (items.length > 0) {
+            const listMd = items.map((it) => `- [${it.title}](${it.href})`).join('\n');
+            fullMarkdown = `# Search Results\n\n${listMd}\n\n` + `**Source:** ${url}`;
+            exportData = {
+              version: '1.0',
+              metadata,
+              blocks: items.map((it) => ({ type: 'paragraph', text: `- [${it.title}](${it.href})` })),
+            };
+          }
+        }
+      } catch (fallbackErr) {
+        console.warn('[offscreen] SERP fallback failed:', fallbackErr);
+      }
+
       await browser.runtime.sendMessage({
         type: 'OFFSCREEN_PROCESSED',
         payload: {
