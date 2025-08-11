@@ -154,46 +154,9 @@
     </div>
 
     <div style="text-align: right;">
-      <button class="button" onclick="saveSettings()">Save Settings</button>
+      <button class="button" id="saveBtn">Save Settings</button>
     </div>
   </div>
-
-  <script>
-    // Simple settings management
-    function saveSettings() {
-      const defaultMode = document.getElementById('defaultMode').value;
-      const telemetry = document.getElementById('telemetry').checked;
-      
-      // Store settings (simplified for now)
-      chrome.storage.local.set({
-        promptready_settings: {
-          mode: defaultMode,
-          privacy: { telemetryEnabled: telemetry }
-        }
-      });
-      
-      // Show feedback
-      const button = document.querySelector('.button');
-      const originalText = button.textContent;
-      button.textContent = '✅ Saved!';
-      button.style.backgroundColor = '#059669';
-      
-      setTimeout(() => {
-        button.textContent = originalText;
-        button.style.backgroundColor = '#2563eb';
-      }, 2000);
-    }
-
-    // Load settings on page load
-    document.addEventListener('DOMContentLoaded', () => {
-      chrome.storage.local.get(['promptready_settings']).then((result) => {
-        const settings = result.promptready_settings;
-        if (settings) {
-          document.getElementById('defaultMode').value = settings.mode || 'general';
-          document.getElementById('telemetry').checked = settings.privacy?.telemetryEnabled || false;
-        }
-      });
-    });
-  </script>
+  <script type="module" src="./options/main.ts"></script>
 </body>
 </html>

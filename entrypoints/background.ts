@@ -191,7 +191,7 @@ class ContentProcessor {
       await this.ensureOffscreenDocument();
       await browser.runtime.sendMessage({
         type: 'OFFSCREEN_PROCESS',
-        payload: { html, url, title, selectionHash, mode: settings.mode, renderer: settings.renderer || 'structurer' },
+        payload: { html, url, title, selectionHash, mode: settings.mode, renderer: settings.renderer || 'structurer', useReadability: settings.useReadability !== false },
       });
       return;
       

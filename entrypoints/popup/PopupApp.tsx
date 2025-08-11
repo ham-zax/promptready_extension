@@ -127,6 +127,32 @@ export default function PopupApp() {
     }
   };
 
+  const toggleReadability = async () => {
+    try {
+      const currentlyOn = state.settings.useReadability !== false;
+      const next = !currentlyOn;
+      await Storage.updateSettings({ useReadability: next });
+      setState(prev => ({
+        ...prev,
+        settings: { ...prev.settings, useReadability: next },
+      }));
+    } catch (e) {
+      console.error('Failed to toggle Readability:', e);
+      showToast('Failed to update setting', 'error');
+    }
+  };
+
+  const handleRendererChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    try {
+      const renderer = e.target.value as 'turndown' | 'structurer';
+      await Storage.updateSettings({ renderer });
+      setState(prev => ({ ...prev, settings: { ...prev.settings, renderer } }));
+    } catch (e) {
+      console.error('Failed to change renderer:', e);
+      showToast('Failed to update setting', 'error');
+    }
+  };
+
   const handleCleanAndExport = async () => {
     try {
       setState(prev => ({
@@ -228,6 +254,34 @@ export default function PopupApp() {
         >
           Clean & Export
         </PrimaryButton>
+
+        {/* Settings toggles */}
+        <div className="flex items-center justify-between text-sm text-gray-700">
+          <span>Use Readability (articles)</span>
+          <label className="inline-flex items-center cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={state.settings.useReadability !== false}
+              onChange={toggleReadability}
+              className="sr-only"
+            />
+            <span className={`w-10 h-6 inline-flex items-center rounded-full transition-colors ${state.settings.useReadability !== false ? 'bg-green-500' : 'bg-gray-300'}`}>
+              <span className={`w-4 h-4 bg-white rounded-full transform transition-transform ${state.settings.useReadability !== false ? 'translate-x-5' : 'translate-x-1'}`}></span>
+            </span>
+          </label>
+        </div>
+
+        <div className="flex items-center justify-between text-sm text-gray-700">
+          <span>Renderer</span>
+          <select
+            value={state.settings.renderer || 'turndown'}
+            onChange={handleRendererChange}
+            className="border rounded px-2 py-1 bg-white text-gray-900"
+          >
+            <option value="turndown">Turndown (GFM)</option>
+            <option value="structurer">Structurer</option>
+          </select>
+        </div>
 
         {/* Export Actions */}
         {state.exportData && (

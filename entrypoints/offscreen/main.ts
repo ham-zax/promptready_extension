@@ -65,7 +65,8 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
 
       // Decide processing pipeline
       let cleanedHtml: string;
-      if (mode === 'general') {
+      const readabilityEnabled = (renderer === 'turndown' || renderer === 'structurer') && (message.payload?.useReadability !== false);
+      if (mode === 'general' && readabilityEnabled) {
         // Readability-first for general content
         try {
           const reader = new Readability(parsed.cloneNode(true) as Document);

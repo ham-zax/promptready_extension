@@ -34,6 +34,7 @@ const DEFAULT_SETTINGS: Settings = {
   },
   isPro: false,
   renderer: 'turndown',
+  useReadability: true,
 };
 
 // =============================================================================

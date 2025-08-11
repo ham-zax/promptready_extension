@@ -22,6 +22,8 @@ export interface Settings {
   isPro: boolean; // Local flag for Pro features
   // Optional: choose markdown renderer
   renderer?: 'structurer' | 'turndown';
+  // Enable/disable Readability for general mode
+  useReadability?: boolean;
 }
 
 // =============================================================================
@@ -151,6 +153,7 @@ export type OffscreenProcessMessage = Message<'OFFSCREEN_PROCESS', {
   selectionHash: string;
   mode: 'general' | 'code_docs' | string;
   renderer?: 'structurer' | 'turndown';
+  useReadability?: boolean;
 }>;
 
 export type OffscreenProcessedMessage = Message<'OFFSCREEN_PROCESSED', {

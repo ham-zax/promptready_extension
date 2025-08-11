@@ -6,69 +6,6 @@ export default defineContentScript({
   world: 'ISOLATED',
   
   main(ctx) {
-    // Add a test button to the page for direct copy testing
-    const addTestButton = () => {
-      const button = document.createElement('button');
-      button.textContent = 'PromptReady Test Copy';
-      button.style.position = 'fixed';
-      button.style.bottom = '20px';
-      button.style.right = '20px';
-      button.style.zIndex = '9999';
-      button.style.padding = '10px 15px';
-      button.style.background = '#4a90e2';
-      button.style.color = 'white';
-      button.style.border = 'none';
-      button.style.borderRadius = '4px';
-      button.style.cursor = 'pointer';
-      
-      button.addEventListener('click', async () => {
-        try {
-          const testContent = "This is a PromptReady test copy. If you see this in your clipboard, the copy functionality is working correctly.";
-          
-          // Try navigator.clipboard
-          try {
-            await navigator.clipboard.writeText(testContent);
-            alert('Copied with navigator.clipboard!');
-            return;
-          } catch (clipError) {
-            console.warn('navigator.clipboard failed:', clipError);
-          }
-          
-          // Try execCommand
-          try {
-            const textArea = document.createElement('textarea');
-            textArea.value = testContent;
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            const success = document.execCommand('copy');
-            document.body.removeChild(textArea);
-            
-            if (success) {
-              alert('Copied with execCommand!');
-              return;
-            } else {
-              alert('execCommand returned false');
-            }
-          } catch (execError) {
-            console.warn('execCommand failed:', execError);
-            alert('All copy methods failed. See console for details.');
-          }
-        } catch (error) {
-          console.error('Test copy failed:', error);
-        }
-      });
-      
-      document.body.appendChild(button);
-    };
-    
-    // Wait for DOM to be ready
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', addTestButton);
-    } else {
-      addTestButton();
-    }
-    
     // Import capture module at runtime
     import('../content/capture.js').then(({ ContentCapture }) => {
       console.log('ContentCapture module loaded');
