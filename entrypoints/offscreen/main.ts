@@ -12,7 +12,9 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
         console.log('[offscreen] navigator.clipboard.writeText success');
         sendResponse?.({ success: true, method: 'clipboard' });
       } catch (e) {
-        console.warn('[offscreen] clipboard API failed, falling back to execCommand', e);
+        // navigator.clipboard often requires a user activation which offscreen docs don't have.
+        // Demote to debug to avoid alarming logs; we'll fall back to execCommand below.
+        console.debug('[offscreen] clipboard API not available; using execCommand fallback');
         const textArea = document.createElement('textarea');
         textArea.value = content;
         textArea.style.position = 'fixed';
