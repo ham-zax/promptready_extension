@@ -12,10 +12,9 @@ export default defineConfig({
       "activeTab",
       "storage", 
       "scripting",
-      "downloads"
-    ],
-    optional_permissions: [
-      "clipboardWrite"
+      "downloads",
+      "clipboardWrite",
+      "offscreen"
     ],
     commands: {
       "capture-selection": {

@@ -6,13 +6,16 @@ export default defineBackground(() => {
   
   // Handle keyboard shortcut
   browser.commands?.onCommand.addListener(async (command) => {
+    console.log('Keyboard command received:', command);
     if (command === 'capture-selection') {
       await processor.handleCaptureCommand();
     }
   });
   
-  // Handle messages from content script and popup
+  // Handle messages from content script and popup  
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log('Background script received message:', message);
+    console.log('Message sender:', sender);
     return processor.handleMessage(message, sender, sendResponse);
   });
   
@@ -29,8 +32,7 @@ export default defineBackground(() => {
 import { browser } from 'wxt/browser';
 
 // Import processing modules
-import { ContentCleaner } from '../core/cleaner.js';
-import { ContentStructurer } from '../core/structurer.js';
+// Dynamic imports for DOM-dependent modules to avoid build-time issues
 import { Storage } from '../lib/storage.js';
 import { fileNaming } from '../lib/fileNaming.js';
 import type { 
@@ -38,6 +40,7 @@ import type {
   Message, 
   CaptureCompleteMessage, 
   ExportRequestMessage,
+  ExportCompleteMessage,
   ProcessingCompleteMessage,
   ErrorMessage,
   Settings,
@@ -50,6 +53,8 @@ import type {
  * Runs in service worker context
  */
 class ContentProcessor {
+  private offscreenUrl = browser.runtime.getURL('/offscreen.html');
+
   private currentExportData: {
     markdown: string;
     json: PromptReadyExport;
@@ -96,18 +101,56 @@ class ContentProcessor {
    */
   async handleMessage(
     message: Message<MessageType>, 
-    sender: chrome.runtime.MessageSender, 
+    sender: any, 
     sendResponse: (response?: any) => void
   ): Promise<boolean> {
+    console.log('Background received message:', message.type);
+    console.log('Message payload:', message.payload);
+    
     try {
       switch (message.type) {
         case 'CAPTURE_COMPLETE':
+          console.log('Handling CAPTURE_COMPLETE');
           await this.handleCaptureComplete(message as CaptureCompleteMessage);
           break;
           
         case 'EXPORT_REQUEST':
+          console.log('Handling EXPORT_REQUEST');
           await this.handleExportRequest(message as ExportRequestMessage);
           break;
+        case 'OFFSCREEN_READY':
+          console.log('Offscreen document reported ready');
+          break;
+        case 'OFFSCREEN_PROCESSED': {
+          const payload = (message as any).payload;
+          console.log('Received OFFSCREEN_PROCESSED');
+          this.currentExportData = {
+            markdown: payload.exportMd,
+            json: payload.exportJson,
+            metadata: payload.metadata,
+          };
+          const response: ProcessingCompleteMessage = {
+            type: 'PROCESSING_COMPLETE',
+            payload: {
+              exportMd: payload.exportMd,
+              exportJson: payload.exportJson,
+            },
+          };
+          await this.broadcastToPopup(response);
+
+          // Auto-copy Markdown immediately after processing completes
+          try {
+            await this.handleCopy('md');
+            const completeMessage: ExportCompleteMessage = {
+              type: 'EXPORT_COMPLETE',
+              payload: { format: 'md', action: 'copy' },
+            };
+            await this.broadcastToPopup(completeMessage);
+          } catch (copyError) {
+            console.warn('Auto-copy after processing failed:', copyError);
+          }
+          break;
+        }
           
         default:
           console.warn('Unknown message type:', message.type);
@@ -117,7 +160,8 @@ class ContentProcessor {
       
     } catch (error) {
       console.error('Message handling failed:', error);
-      this.broadcastError(`Processing failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.broadcastError(`Processing failed: ${errorMessage}`);
       return false;
     }
   }
@@ -142,6 +186,18 @@ class ContentProcessor {
         removeHiddenElements: true,
       };
       
+      // If DOMParser isn't available in SW, delegate to offscreen document for processing
+      if (typeof DOMParser === 'undefined') {
+        console.warn('DOMParser not available in Service Worker. Delegating to offscreen for processing.');
+        await this.ensureOffscreenDocument();
+        await browser.runtime.sendMessage({
+          type: 'OFFSCREEN_PROCESS',
+          payload: { html, url, title, selectionHash, mode: settings.mode },
+        });
+        return;
+      }
+      
+      const { ContentCleaner } = await import('../core/cleaner.js');
       const cleanResult = await ContentCleaner.clean(html, url, cleanerOptions);
       
       // Step 2: Structure the content
@@ -159,13 +215,14 @@ class ContentProcessor {
         includeTableHeaders: true,
       };
       
+      const { ContentStructurer } = await import('../core/structurer.js');
       const exportData = await ContentStructurer.structure(
         cleanResult.cleanedHtml,
         metadata,
         structurerOptions
       );
       
-      // Step 3: Generate Markdown
+      // Step 3: Generate Markdown (reuse the imported ContentStructurer)
       const exportMd = ContentStructurer.blocksToMarkdown(exportData.blocks);
       const citationFooter = ContentStructurer.generateCitationFooter(metadata);
       const fullMarkdown = `${exportMd}\n\n${citationFooter}`;
@@ -176,6 +233,9 @@ class ContentProcessor {
         json: exportData,
         metadata,
       };
+      
+      console.log('Export data stored. Markdown length:', fullMarkdown.length);
+      console.log('Markdown content preview (first 200 chars):', fullMarkdown.substring(0, 200));
 
       const response: ProcessingCompleteMessage = {
         type: 'PROCESSING_COMPLETE',
@@ -199,7 +259,8 @@ class ContentProcessor {
       
     } catch (error) {
       console.error('Content processing failed:', error);
-      this.broadcastError(`Failed to process content: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.broadcastError(`Failed to process content: ${errorMessage}`);
     }
   }
   
@@ -224,6 +285,13 @@ class ContentProcessor {
         await this.handleCopy(format);
       }
       
+      // Send completion message to popup
+      const completeMessage: ExportCompleteMessage = {
+        type: 'EXPORT_COMPLETE',
+        payload: { format, action },
+      };
+      await this.broadcastToPopup(completeMessage);
+      
       // Record telemetry
       await Storage.recordTelemetry({
         event: 'export',
@@ -236,7 +304,8 @@ class ContentProcessor {
       
     } catch (error) {
       console.error('Export failed:', error);
-      this.broadcastError(`Export failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.broadcastError(`Export failed: ${errorMessage}`);
     }
   }
   
@@ -273,6 +342,8 @@ class ContentProcessor {
    * Handle clipboard copy
    */
   async handleCopy(format: 'md' | 'json'): Promise<void> {
+    console.log('handleCopy called with format:', format);
+    
     if (!this.currentExportData) {
       throw new Error('No content to copy');
     }
@@ -281,23 +352,37 @@ class ContentProcessor {
       ? this.currentExportData.markdown 
       : JSON.stringify(this.currentExportData.json, null, 2);
     
-    // Copy to clipboard using the Chrome extension API
-    // Note: This requires the clipboardWrite permission
-    try {
-      await navigator.clipboard.writeText(content);
-    } catch (error) {
-      // Fallback method for older browsers or missing permissions
-      console.warn('Clipboard API failed, using fallback method:', error);
-      
-      // Send message to content script to handle clipboard
-      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-      if (tab.id) {
-        await browser.tabs.sendMessage(tab.id, {
-          type: 'COPY_TO_CLIPBOARD',
-          payload: { content },
-        });
-      }
+    console.log('Content to copy (first 100 chars):', content.substring(0, 100));
+    console.log('Full content length:', content.length);
+    
+    // Ensure offscreen document exists
+    await this.ensureOffscreenDocument();
+
+    // Send clipboard request to offscreen document
+    console.log('Sending OFFSCREEN_COPY message...');
+    await browser.runtime.sendMessage({ type: 'OFFSCREEN_COPY', payload: { content } });
+    console.log('OFFSCREEN_COPY sent');
+  }
+
+  private async ensureOffscreenDocument(): Promise<void> {
+    // @ts-expect-error MV3 API
+    const contexts = await browser.runtime.getContexts?.({
+      // @ts-expect-error MV3 API
+      contextTypes: [browser.runtime.ContextType?.OFFSCREEN_DOCUMENT ?? 'OFFSCREEN_DOCUMENT'],
+      documentUrls: [this.offscreenUrl],
+    });
+
+    if (Array.isArray(contexts) && contexts.length > 0) {
+      return;
     }
+
+    // @ts-expect-error MV3 API
+    await browser.offscreen.createDocument({
+      url: this.offscreenUrl,
+      // @ts-expect-error MV3 API
+      reasons: [browser.offscreen.Reason?.CLIPBOARD ?? 'CLIPBOARD'],
+      justification: 'Clipboard write operations',
+    });
   }
   
   /**
@@ -339,5 +424,73 @@ class ContentProcessor {
     };
     
     await this.broadcastToPopup(message);
+  }
+
+  /**
+   * Fallback processing when DOMParser is not available
+   */
+  async processFallbackContent(
+    cleanResult: any,
+    title: string,
+    url: string,
+    selectionHash: string,
+    settings: any
+  ): Promise<void> {
+    try {
+      // Create basic metadata
+      const metadata: ExportMetadata = {
+        title,
+        url,
+        capturedAt: new Date().toISOString(),
+        selectionHash,
+      };
+
+      // Create basic export structure without DOM processing
+      const exportData: PromptReadyExport = {
+        version: '1.0',
+        metadata,
+        blocks: [
+          {
+            type: 'paragraph',
+            text: 'Content processing unavailable. Raw HTML content preserved.',
+          },
+        ],
+      };
+
+      // Generate basic markdown
+      const exportMd = `# ${title}\n\nContent processing unavailable. Please refresh the page and try again.\n\n---\n\n**Source:** ${url}\n**Captured:** ${new Date().toLocaleDateString()}\n**Selection Hash:** ${selectionHash}`;
+
+      // Store export data
+      this.currentExportData = {
+        markdown: exportMd,
+        json: exportData,
+        metadata,
+      };
+
+      const response: ProcessingCompleteMessage = {
+        type: 'PROCESSING_COMPLETE',
+        payload: {
+          exportMd,
+          exportJson: exportData,
+        },
+      };
+
+      await this.broadcastToPopup(response);
+
+      // Record telemetry
+      await Storage.recordTelemetry({
+        event: 'clean',
+        data: {
+          mode: settings.mode,
+          durationMs: 100, // Fallback processing is quick
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+    } catch (error) {
+      console.error('Fallback processing failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.broadcastError(`Fallback processing failed: ${errorMessage}`);
+    }
   }
 }

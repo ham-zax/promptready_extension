@@ -60,7 +60,7 @@ export default function PopupApp() {
   useEffect(() => {
     const handleMessage = (message: any) => {
       switch (message.type) {
-        case 'PROCESSING_COMPLETE':
+        case 'PROCESSING_COMPLETE': {
           setState(prev => ({
             ...prev,
             processing: { status: 'complete' },
@@ -70,7 +70,19 @@ export default function PopupApp() {
             },
           }));
           showToast('Content processed successfully!', 'success');
+          // Auto-copy Markdown after processing completes
+          (async () => {
+            try {
+              await browser.runtime.sendMessage({
+                type: 'EXPORT_REQUEST',
+                payload: { format: 'md', action: 'copy' },
+              });
+            } catch (e) {
+              console.warn('Auto-copy request failed:', e);
+            }
+          })();
           break;
+        }
 
         case 'ERROR':
           setState(prev => ({
@@ -78,6 +90,12 @@ export default function PopupApp() {
             processing: { status: 'error', message: message.payload.message },
           }));
           showToast(message.payload.message, 'error');
+          break;
+
+        case 'EXPORT_COMPLETE':
+          // Show success message when export actually completes
+          const { format, action } = message.payload;
+          showToast(`${action === 'copy' ? 'Copied' : 'Downloaded'} ${format.toUpperCase()}`, 'success');
           break;
 
         default:
@@ -148,18 +166,14 @@ export default function PopupApp() {
 
   const handleExport = async (format: 'md' | 'json', action: 'copy' | 'download') => {
     try {
-      if (!state.exportData) {
-        throw new Error('No content to export');
-      }
+      console.log(`handleExport called with format: ${format}, action: ${action}`);
+      if (!state.exportData) throw new Error('No content to export');
 
-      // Send export request to background script
-      await browser.runtime.sendMessage({
-        type: 'EXPORT_REQUEST',
-        payload: { format, action },
-      });
-
-      showToast(`${action === 'copy' ? 'Copied' : 'Downloaded'} ${format.toUpperCase()}`, 'success');
-
+      // Always delegate copy/download to background so it can use Offscreen
+      console.log('Sending export request to background:', { format, action });
+      await browser.runtime.sendMessage({ type: 'EXPORT_REQUEST', payload: { format, action } });
+      console.log('Export request sent successfully to background');
+      // Success toast will be shown on EXPORT_COMPLETE from background
     } catch (error) {
       console.error('Export failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Export failed';
@@ -177,7 +191,7 @@ export default function PopupApp() {
   };
 
   return (
-    <div className="w-96 min-h-96 bg-white flex flex-col">
+    <div className="w-96 min-h-96 bg-white text-gray-900 flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200">
         <div className="flex items-center space-x-2">

@@ -21,6 +21,11 @@ export class ContentStructurer {
     options: StructurerOptions
   ): Promise<PromptReadyExport> {
     try {
+      // DOMParser is available in both browser and Service Worker contexts in Chrome MV3
+      if (typeof DOMParser === 'undefined') {
+        throw new Error('DOMParser not available - please ensure Chrome MV3 environment');
+      }
+      
       const parser = new DOMParser();
       const doc = parser.parseFromString(cleanedHtml, 'text/html');
       

@@ -32,6 +32,11 @@ export class ContentCleaner {
       const startTime = performance.now();
       const originalLength = html.length;
       
+      // DOMParser is available in both browser and Service Worker contexts in Chrome MV3
+      if (typeof DOMParser === 'undefined') {
+        throw new Error('DOMParser not available - please ensure Chrome MV3 environment');
+      }
+      
       // Parse HTML into DOM
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');

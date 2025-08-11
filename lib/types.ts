@@ -90,6 +90,11 @@ export type MessageType =
   | 'CAPTURE_COMPLETE'     // Content Script → Service Worker
   | 'PROCESSING_COMPLETE'  // Service Worker → UI
   | 'EXPORT_REQUEST'       // UI → Service Worker
+  | 'EXPORT_COMPLETE'      // Service Worker → UI
+  | 'OFFSCREEN_READY'      // Offscreen → Service Worker
+  | 'OFFSCREEN_COPY'       // Background → Offscreen Document
+  | 'OFFSCREEN_PROCESS'    // Background → Offscreen Document
+  | 'OFFSCREEN_PROCESSED'  // Offscreen → Background
   | 'BYOK_REQUEST'         // UI → Service Worker
   | 'ERROR';               // Any → UI
 
@@ -123,9 +128,32 @@ export type ByokRequestMessage = Message<'BYOK_REQUEST', {
   model: string;
 }>;
 
+export type ExportCompleteMessage = Message<'EXPORT_COMPLETE', {
+  format: 'md' | 'json';
+  action: 'copy' | 'download';
+}>;
+
 export type ErrorMessage = Message<'ERROR', {
   message: string;
   code?: string;
+}>;
+
+export type OffscreenCopyMessage = Message<'OFFSCREEN_COPY', {
+  content: string;
+}>;
+
+export type OffscreenProcessMessage = Message<'OFFSCREEN_PROCESS', {
+  html: string;
+  url: string;
+  title: string;
+  selectionHash: string;
+  mode: 'general' | 'code_docs' | string;
+}>;
+
+export type OffscreenProcessedMessage = Message<'OFFSCREEN_PROCESSED', {
+  exportMd: string;
+  exportJson: PromptReadyExport;
+  metadata: ExportMetadata;
 }>;
 
 // =============================================================================

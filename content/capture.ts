@@ -159,9 +159,11 @@ export class ContentCapture {
    */
   static async captureFullPage(): Promise<CaptureResult> {
     try {
+      console.log('captureFullPage: Starting full page capture...');
       // Get the main content area
       const article = document.querySelector('article, main, [role="main"]');
       const content = article || document.body;
+      console.log('captureFullPage: Content element found:', !!content, 'Type:', content?.tagName);
       
       if (!content) {
         throw new Error('No content found on the page.');
@@ -174,14 +176,23 @@ export class ContentCapture {
       this.fixRelativeUrls(clonedContent, window.location.href);
       
       const html = clonedContent.innerHTML;
+      console.log('captureFullPage: HTML content length:', html.length);
+      console.log('captureFullPage: Generating selection hash...');
       const selectionHash = await FileNamingService.generateSelectionHash(html);
+      console.log('captureFullPage: Selection hash generated:', selectionHash.substring(0, 16) + '...');
       
-      return {
+      const result = {
         html,
         url: window.location.href,
         title: this.extractPageTitle(),
         selectionHash,
       };
+      
+      console.log('captureFullPage: Capture completed successfully');
+      console.log('captureFullPage: Title:', result.title);
+      console.log('captureFullPage: URL:', result.url);
+      
+      return result;
       
     } catch (error) {
       console.error('Full page capture failed:', error);
