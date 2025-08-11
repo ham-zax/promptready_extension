@@ -153,3 +153,45 @@ export type ProcessingComplete = Message<'PROCESSING_COMPLETE', { exportMd: stri
 ---
 
 This final architecture document is now the single source of truth for the project. It is robust, secure, and performant. Development can now begin by scaffolding the project with `wxt` and building out the modules as defined.
+
+
+
+---
+
+### **NEW SECTION: Development Workflow & Setup**
+
+This section provides the necessary commands and configuration for a developer to set up and run the project locally.
+
+#### **Prerequisites**
+-   Node.js (LTS version, e.g., 20.x)
+-   npm (comes with Node.js)
+-   A Chromium-based browser (e.g., Google Chrome, Brave)
+
+#### **Local Setup Commands**
+```bash
+# 1. Clone the repository
+git clone <your-repository-url>
+cd prompt-ready-extension
+
+# 2. Install all dependencies
+npm install
+
+# 3. Start the development server
+# This will launch a new browser instance with the extension loaded.
+# It supports hot-reloading for rapid development.
+npm run dev
+```
+
+#### **Environment Configuration**
+-   Create a `.env` file in the root of the project for any sensitive keys or environment-specific variables. For the MVP, this file will primarily be used for the OpenRouter API key during testing.
+
+```
+# .env
+
+# Optional: For testing Pro features locally
+OPENROUTER_API_KEY="your_key_here"
+```
+
+---
+
+This addition resolves the final blocker identified during the PO's validation. The architecture document is now complete and ready for the development team.
