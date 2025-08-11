@@ -19,8 +19,8 @@ export default defineConfig({
     commands: {
       "capture-selection": {
         suggested_key: {
-          default: "Ctrl+Shift+P",
-          mac: "Command+Shift+P"
+          default: "Ctrl+Shift+L",
+          mac: "Command+Shift+L"
         },
         description: "Clean and structure selected content"
       }

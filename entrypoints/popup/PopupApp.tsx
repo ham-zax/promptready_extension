@@ -145,8 +145,9 @@ export default function PopupApp() {
   const handleRendererChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     try {
       const renderer = e.target.value as 'turndown' | 'structurer';
-      await Storage.updateSettings({ renderer });
-      setState(prev => ({ ...prev, settings: { ...prev.settings, renderer } }));
+      const useReadability = renderer === 'structurer' ? false : (state.settings.useReadability !== false);
+      await Storage.updateSettings({ renderer, useReadability });
+      setState(prev => ({ ...prev, settings: { ...prev.settings, renderer, useReadability } }));
     } catch (e) {
       console.error('Failed to change renderer:', e);
       showToast('Failed to update setting', 'error');
