@@ -14,7 +14,7 @@ export default defineContentScript({
         try {
           console.log('Content script received message:', message.type);
           
-          if (message.type === 'CAPTURE_SELECTION') {
+          if (message.type === 'CAPTURE_SELECTION' || message.type === 'CAPTURE_SELECTION_ONLY') {
             console.log('Starting content capture...');
             const result = await ContentCapture.captureSelection();
             console.log('Capture completed, sending CAPTURE_COMPLETE message');

@@ -76,6 +76,10 @@ export class ContentStructurer {
         const block = this.processElement(elementNode, options);
         if (block) {
           blocks.push(block);
+        } else {
+          // Flatten container children
+          const nested = this.extractBlocks(elementNode, options);
+          if (nested.length > 0) blocks.push(...nested);
         }
       } else if (node.nodeType === Node.TEXT_NODE) {
         const textContent = node.textContent?.trim();
@@ -132,10 +136,8 @@ export class ContentStructurer {
       case 'div':
       case 'section':
       case 'article':
-        // For container elements, process their children
-        const childBlocks = this.extractBlocks(element, options);
-        // Flatten the blocks (don't create nested structure)
-        return null; // Will be handled by recursive extraction
+        // Container: let caller extract children
+        return null;
         
       default:
         // For other elements, treat as paragraph if they have meaningful text
@@ -284,7 +286,7 @@ export class ContentStructurer {
     return {
       type: 'table',
       table: {
-        headers: headers.length > 0 ? headers : undefined,
+        headers,
         rows,
       },
     };

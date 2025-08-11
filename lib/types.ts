@@ -91,6 +91,7 @@ export interface FilterRule {
 
 export type MessageType =
   | 'CAPTURE_SELECTION'    // UI → Content Script
+  | 'CAPTURE_SELECTION_ONLY' // UI → Content Script (no fallback)
   | 'CAPTURE_COMPLETE'     // Content Script → Service Worker
   | 'PROCESSING_COMPLETE'  // Service Worker → UI
   | 'EXPORT_REQUEST'       // UI → Service Worker

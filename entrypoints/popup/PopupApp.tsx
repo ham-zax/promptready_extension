@@ -190,6 +190,19 @@ export default function PopupApp() {
     }
   };
 
+  const handleSelectionOnly = async () => {
+    try {
+      setState(prev => ({ ...prev, processing: { status: 'capturing', message: 'Capturing selection...' }, exportData: null }));
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) throw new Error('No active tab found');
+      await browser.tabs.sendMessage(tab.id, { type: 'CAPTURE_SELECTION_ONLY' });
+    } catch (e) {
+      console.error('Selection capture failed:', e);
+      showToast('Selection capture failed', 'error');
+      setState(prev => ({ ...prev, processing: { status: 'error', message: 'Selection capture failed' } }));
+    }
+  };
+
   const handleExport = async (format: 'md' | 'json', action: 'copy' | 'download') => {
     try {
       console.log(`handleExport called with format: ${format}, action: ${action}`);
@@ -254,6 +267,16 @@ export default function PopupApp() {
         >
           Clean & Export
         </PrimaryButton>
+
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-gray-700">Selection only</span>
+          <button
+            onClick={handleSelectionOnly}
+            className="px-2 py-1 text-sm rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+          >
+            Capture Selection
+          </button>
+        </div>
 
         {/* Settings toggles */}
         <div className="flex items-center justify-between text-sm text-gray-700">
