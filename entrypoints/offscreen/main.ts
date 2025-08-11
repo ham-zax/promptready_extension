@@ -1,12 +1,16 @@
 console.log('Offscreen document loaded');
 
-browser.runtime.onMessage.addListener(async (message) => {
+browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => {
   try {
     if (message?.type === 'OFFSCREEN_COPY') {
+      console.log('[offscreen] Received OFFSCREEN_COPY');
       const content: string = message?.payload?.content ?? '';
       try {
         await navigator.clipboard.writeText(content);
+        console.log('[offscreen] navigator.clipboard.writeText success');
+        sendResponse?.({ success: true, method: 'clipboard' });
       } catch (e) {
+        console.warn('[offscreen] clipboard API failed, falling back to execCommand', e);
         const textArea = document.createElement('textarea');
         textArea.value = content;
         textArea.style.position = 'fixed';
@@ -15,10 +19,12 @@ browser.runtime.onMessage.addListener(async (message) => {
         document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
-        document.execCommand('copy');
+        const success = document.execCommand('copy');
         document.body.removeChild(textArea);
+        console.log('[offscreen] execCommand result:', success);
+        sendResponse?.({ success, method: 'execCommand' });
       }
-      return true;
+      return true; // keep channel open for async response
     }
 
     if (message?.type === 'OFFSCREEN_PROCESS') {

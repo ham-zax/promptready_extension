@@ -122,8 +122,23 @@ export const BOILERPLATE_FILTER_RULES: FilterRule[] = [
   },
   {
     description: 'Remove GitHub specific UI elements',
-    selector: '.gh-header, .js-navigation-container, .repository-lang-stats',
+    selector: '.gh-header, .js-navigation-container, .repository-lang-stats, .Header, .pagehead, .UnderlineNav, .flash, .file-navigation, .Box-header, .js-sticky, .Layout-sidebar, .hx_pagehead, .application-main aside, .gisthead, .BorderGrid, .header-search, .footer, .height-full [data-testid="stale-indicator"], .js-pinned-items-reorder-container',
     action: FilterAction.REMOVE,
+  },
+  {
+    description: 'Promote GitHub README content',
+    selector: '#readme .markdown-body',
+    action: FilterAction.UNWRAP,
+  },
+  {
+    description: 'Remove Reddit UI, sidebars, promotions, and comments',
+    selector: 'shreddit-comments-page > aside, shreddit-ad, [data-testid="post-sidebar"], faceplate-tracker, [slot="sidebar"], faceplate-iframe, shreddit-comment-tree, shreddit-comment, [data-adclicklocation], [promoted], [data-testid="content-gate"], [data-testid="left-sidebar"]',
+    action: FilterAction.REMOVE,
+  },
+  {
+    description: 'Keep only Reddit main post content wrapper by unwrapping inner content',
+    selector: '[data-test-id="post-content"], shreddit-post, [data-testid="post-container"]',
+    action: FilterAction.UNWRAP,
   },
   {
     description: 'Remove Wikipedia navigation and info boxes',

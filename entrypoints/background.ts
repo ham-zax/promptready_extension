@@ -53,7 +53,7 @@ import type {
  * Runs in service worker context
  */
 class ContentProcessor {
-  private offscreenPath = '/offscreen.html';
+  private readonly offscreenPath: '/offscreen.html' = '/offscreen.html';
 
   private currentExportData: {
     markdown: string;
@@ -139,7 +139,7 @@ class ContentProcessor {
           await this.broadcastToPopup(response);
 
           // Auto-copy Markdown immediately after processing completes
-          try {
+          /* try {
             await this.handleCopy('md');
             const completeMessage: ExportCompleteMessage = {
               type: 'EXPORT_COMPLETE',
@@ -148,7 +148,7 @@ class ContentProcessor {
             await this.broadcastToPopup(completeMessage);
           } catch (copyError) {
             console.warn('Auto-copy after processing failed:', copyError);
-          }
+          }` */
           break;
         }
           
@@ -360,7 +360,12 @@ class ContentProcessor {
 
     // Send clipboard request to offscreen document
     console.log('Sending OFFSCREEN_COPY message...');
-    await browser.runtime.sendMessage({ type: 'OFFSCREEN_COPY', payload: { content } });
+    try {
+      const result = await browser.runtime.sendMessage({ type: 'OFFSCREEN_COPY', payload: { content } });
+      console.log('OFFSCREEN_COPY response:', result);
+    } catch (e) {
+      console.warn('OFFSCREEN_COPY sendMessage returned error:', e);
+    }
     console.log('OFFSCREEN_COPY sent');
   }
 
