@@ -50,6 +50,11 @@ import type {
  * Runs in service worker context
  */
 class ContentProcessor {
+  private currentExportData: {
+    markdown: string;
+    json: PromptReadyExport;
+    metadata: ExportMetadata;
+  } | null = null;
   
   /**
    * Handle keyboard shortcut activation
@@ -63,11 +68,26 @@ class ContentProcessor {
       }
       
       // Send capture message to content script (it should already be injected)
-      await browser.tabs.sendMessage(tab.id, { type: 'CAPTURE_SELECTION' });
+      try {
+        await browser.tabs.sendMessage(tab.id, { type: 'CAPTURE_SELECTION' });
+      } catch (contentError) {
+        console.warn('Content script not ready, trying to inject...');
+        // Content script might not be injected yet, try to inject it
+        await browser.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content-scripts/content.js']
+        });
+        
+        // Wait a bit for the script to load
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Try again
+        await browser.tabs.sendMessage(tab.id, { type: 'CAPTURE_SELECTION' });
+      }
       
     } catch (error) {
       console.error('Failed to handle capture command:', error);
-      this.broadcastError('Failed to capture content. Please try again.');
+      this.broadcastError('Failed to capture content. Please select some text and try again.');
     }
   }
   
@@ -150,7 +170,13 @@ class ContentProcessor {
       const citationFooter = ContentStructurer.generateCitationFooter(metadata);
       const fullMarkdown = `${exportMd}\n\n${citationFooter}`;
       
-      // Step 4: Broadcast results to popup
+      // Step 4: Store export data and broadcast results to popup
+      this.currentExportData = {
+        markdown: fullMarkdown,
+        json: exportData,
+        metadata,
+      };
+
       const response: ProcessingCompleteMessage = {
         type: 'PROCESSING_COMPLETE',
         payload: {
@@ -177,7 +203,7 @@ class ContentProcessor {
     }
   }
   
-  /**
+    /**
    * Handle export requests (copy/download)
    */
   async handleExportRequest(message: ExportRequestMessage): Promise<void> {
@@ -185,12 +211,12 @@ class ContentProcessor {
       if (!message.payload) {
         throw new Error('No export data provided');
       }
-      
+
+      if (!this.currentExportData) {
+        throw new Error('No content available to export');
+      }
+
       const { format, action } = message.payload;
-      
-      // Get the current processed data (would be stored in service worker state)
-      // For now, we'll need to get this from the popup or re-process
-      // This is a simplified implementation
       
       if (action === 'download') {
         await this.handleDownload(format);
@@ -203,7 +229,7 @@ class ContentProcessor {
         event: 'export',
         data: {
           type: format,
-          action,
+          fileName: action === 'download' ? this.generateFileName(format) : undefined,
         },
         timestamp: new Date().toISOString(),
       });
@@ -218,18 +244,75 @@ class ContentProcessor {
    * Handle file downloads
    */
   async handleDownload(format: 'md' | 'json'): Promise<void> {
-    // This would need access to the current export data
-    // Implementation will be completed when we have the popup state management
-    console.log(`Download ${format} requested`);
+    if (!this.currentExportData) {
+      throw new Error('No content to download');
+    }
+
+    const content = format === 'md' 
+      ? this.currentExportData.markdown 
+      : JSON.stringify(this.currentExportData.json, null, 2);
+    
+    const filename = this.generateFileName(format);
+    const mimeType = format === 'md' ? 'text/markdown' : 'application/json';
+    
+    // Create blob and download
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    
+    await browser.downloads.download({
+      url,
+      filename,
+      saveAs: false, // Auto-save to downloads folder
+    });
+    
+    // Clean up the blob URL
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   
   /**
    * Handle clipboard copy
    */
   async handleCopy(format: 'md' | 'json'): Promise<void> {
-    // This would need access to the current export data  
-    // Implementation will be completed when we have the popup state management
-    console.log(`Copy ${format} requested`);
+    if (!this.currentExportData) {
+      throw new Error('No content to copy');
+    }
+
+    const content = format === 'md' 
+      ? this.currentExportData.markdown 
+      : JSON.stringify(this.currentExportData.json, null, 2);
+    
+    // Copy to clipboard using the Chrome extension API
+    // Note: This requires the clipboardWrite permission
+    try {
+      await navigator.clipboard.writeText(content);
+    } catch (error) {
+      // Fallback method for older browsers or missing permissions
+      console.warn('Clipboard API failed, using fallback method:', error);
+      
+      // Send message to content script to handle clipboard
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      if (tab.id) {
+        await browser.tabs.sendMessage(tab.id, {
+          type: 'COPY_TO_CLIPBOARD',
+          payload: { content },
+        });
+      }
+    }
+  }
+  
+  /**
+   * Generate filename for downloads
+   */
+  private generateFileName(format: 'md' | 'json'): string {
+    if (!this.currentExportData) {
+      return `promptready-export.${format}`;
+    }
+
+    return fileNaming.generateFileName(
+      this.currentExportData.metadata.title,
+      format,
+      this.currentExportData.metadata.selectionHash
+    );
   }
   
   /**

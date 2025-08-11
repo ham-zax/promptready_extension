@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PromptReady Settings</title>
+  <meta name="manifest.open_in_tab" content="true" />
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+      margin: 0;
+      padding: 24px;
+      background-color: #f9fafb;
+      color: #374151;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      padding: 32px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    .header {
+      margin-bottom: 32px;
+    }
+    .title {
+      font-size: 28px;
+      font-weight: bold;
+      color: #111827;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: #6b7280;
+    }
+    .section {
+      margin-bottom: 32px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 24px;
+    }
+    .section-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 16px;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 8px;
+    }
+    .input, .select {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .help-text {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+    }
+    .checkbox {
+      margin-right: 8px;
+    }
+    .button {
+      background-color: #2563eb;
+      color: white;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .button:hover {
+      background-color: #1d4ed8;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      background-color: #f3f4f6;
+      color: #6b7280;
+      font-size: 12px;
+      border-radius: 12px;
+    }
+    .keyboard-shortcut {
+      background-color: #f9fafb;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-family: monospace;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 class="title">PromptReady Settings</h1>
+      <p class="subtitle">Configure your extension preferences and Pro features.</p>
+    </div>
+
+    <div class="section">
+      <h2 class="section-title">General Settings</h2>
+      
+      <div class="form-group">
+        <label class="label">Default Mode</label>
+        <select class="select" id="defaultMode">
+          <option value="general">General</option>
+          <option value="code_docs">Code & Docs</option>
+        </select>
+        <p class="help-text">Choose the default cleaning mode for content processing.</p>
+      </div>
+
+      <div class="form-group">
+        <label class="label">Keyboard Shortcut</label>
+        <div class="keyboard-shortcut">
+          <code>Ctrl+Shift+P</code> (Windows/Linux) or <code>Cmd+Shift+P</code> (Mac)
+        </div>
+        <p class="help-text">Use this shortcut to quickly capture and clean content from any webpage.</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+        <h2 class="section-title" style="margin-bottom: 0;">Pro Features</h2>
+        <span class="badge">Coming Soon</span>
+      </div>
+      <p>Advanced features like Prompt-Ready Bundles and BYOK validation will be available soon.</p>
+    </div>
+
+    <div class="section">
+      <h2 class="section-title">Privacy & Telemetry</h2>
+      
+      <div class="form-group">
+        <div class="checkbox-group">
+          <input type="checkbox" class="checkbox" id="telemetry">
+          <label for="telemetry" class="label" style="margin-bottom: 0;">Enable Usage Analytics</label>
+        </div>
+        <p class="help-text">Help improve PromptReady by sharing anonymous usage statistics. No content or URLs are collected.</p>
+      </div>
+    </div>
+
+    <div style="text-align: right;">
+      <button class="button" onclick="saveSettings()">Save Settings</button>
+    </div>
+  </div>
+
+  <script>
+    // Simple settings management
+    function saveSettings() {
+      const defaultMode = document.getElementById('defaultMode').value;
+      const telemetry = document.getElementById('telemetry').checked;
+      
+      // Store settings (simplified for now)
+      chrome.storage.local.set({
+        promptready_settings: {
+          mode: defaultMode,
+          privacy: { telemetryEnabled: telemetry }
+        }
+      });
+      
+      // Show feedback
+      const button = document.querySelector('.button');
+      const originalText = button.textContent;
+      button.textContent = '✅ Saved!';
+      button.style.backgroundColor = '#059669';
+      
+      setTimeout(() => {
+        button.textContent = originalText;
+        button.style.backgroundColor = '#2563eb';
+      }, 2000);
+    }
+
+    // Load settings on page load
+    document.addEventListener('DOMContentLoaded', () => {
+      chrome.storage.local.get(['promptready_settings']).then((result) => {
+        const settings = result.promptready_settings;
+        if (settings) {
+          document.getElementById('defaultMode').value = settings.mode || 'general';
+          document.getElementById('telemetry').checked = settings.privacy?.telemetryEnabled || false;
+        }
+      });
+    });
+  </script>
+</body>
+</html>

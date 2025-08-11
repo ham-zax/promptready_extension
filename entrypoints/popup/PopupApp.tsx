@@ -1,0 +1,260 @@
+import React, { useState, useEffect } from 'react';
+import { browser } from 'wxt/browser';
+import { Settings, ProcessingState, PromptReadyExport } from '@/lib/types';
+import { Storage } from '@/lib/storage';
+import { ModeToggle } from './components/ModeToggle.js';
+import { PrimaryButton } from './components/PrimaryButton.js';
+import { ExportActions } from './components/ExportActions.js';
+import { StatusStrip } from './components/StatusStrip.js';
+import { ProBadge } from './components/ProBadge.js';
+import { Toast } from './components/Toast.js';
+
+interface PopupState {
+  settings: Settings;
+  processing: ProcessingState;
+  exportData: {
+    markdown: string;
+    json: PromptReadyExport;
+  } | null;
+  toast: {
+    message: string;
+    type: 'success' | 'error' | 'info';
+  } | null;
+}
+
+export default function PopupApp() {
+  const [state, setState] = useState<PopupState>({
+    settings: {
+      mode: 'general',
+      templates: { bundles: [] },
+      byok: {
+        provider: 'openrouter',
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: '',
+        model: '',
+      },
+      privacy: { telemetryEnabled: false },
+      isPro: false,
+    },
+    processing: { status: 'idle' },
+    exportData: null,
+    toast: null,
+  });
+
+  // Load settings on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const settings = await Storage.getSettings();
+        setState(prev => ({ ...prev, settings }));
+      } catch (error) {
+        console.error('Failed to load settings:', error);
+        showToast('Failed to load settings', 'error');
+      }
+    };
+
+    loadSettings();
+  }, []);
+
+  // Listen for messages from background script
+  useEffect(() => {
+    const handleMessage = (message: any) => {
+      switch (message.type) {
+        case 'PROCESSING_COMPLETE':
+          setState(prev => ({
+            ...prev,
+            processing: { status: 'complete' },
+            exportData: {
+              markdown: message.payload.exportMd,
+              json: message.payload.exportJson,
+            },
+          }));
+          showToast('Content processed successfully!', 'success');
+          break;
+
+        case 'ERROR':
+          setState(prev => ({
+            ...prev,
+            processing: { status: 'error', message: message.payload.message },
+          }));
+          showToast(message.payload.message, 'error');
+          break;
+
+        default:
+          break;
+      }
+    };
+
+    browser.runtime.onMessage.addListener(handleMessage);
+    return () => browser.runtime.onMessage.removeListener(handleMessage);
+  }, []);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info') => {
+    setState(prev => ({ ...prev, toast: { message, type } }));
+    setTimeout(() => {
+      setState(prev => ({ ...prev, toast: null }));
+    }, 5000);
+  };
+
+  const handleModeChange = async (mode: 'general' | 'code_docs') => {
+    try {
+      await Storage.updateSettings({ mode });
+      setState(prev => ({
+        ...prev,
+        settings: { ...prev.settings, mode },
+      }));
+    } catch (error) {
+      console.error('Failed to update mode:', error);
+      showToast('Failed to update mode', 'error');
+    }
+  };
+
+  const handleCleanAndExport = async () => {
+    try {
+      setState(prev => ({
+        ...prev,
+        processing: { status: 'capturing', message: 'Capturing content...' },
+        exportData: null,
+      }));
+
+      // Get active tab and send capture message to content script via background
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      if (!tab.id) {
+        throw new Error('No active tab found');
+      }
+
+      // Send capture message to content script
+      try {
+        await browser.tabs.sendMessage(tab.id, { type: 'CAPTURE_SELECTION' });
+      } catch (error) {
+        console.error('Failed to send message to content script:', error);
+        setState(prev => ({
+          ...prev,
+          processing: { status: 'error', message: 'Please refresh the page and try again' },
+        }));
+        showToast('Content script not ready. Please refresh the page and try again.', 'error');
+      }
+
+    } catch (error) {
+      console.error('Capture failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to capture content';
+      setState(prev => ({
+        ...prev,
+        processing: { status: 'error', message: errorMessage },
+      }));
+      showToast(errorMessage, 'error');
+    }
+  };
+
+  const handleExport = async (format: 'md' | 'json', action: 'copy' | 'download') => {
+    try {
+      if (!state.exportData) {
+        throw new Error('No content to export');
+      }
+
+      // Send export request to background script
+      await browser.runtime.sendMessage({
+        type: 'EXPORT_REQUEST',
+        payload: { format, action },
+      });
+
+      showToast(`${action === 'copy' ? 'Copied' : 'Downloaded'} ${format.toUpperCase()}`, 'success');
+
+    } catch (error) {
+      console.error('Export failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Export failed';
+      showToast(errorMessage, 'error');
+    }
+  };
+
+  const openSettings = () => {
+    browser.runtime.openOptionsPage();
+  };
+
+  const openProBundles = () => {
+    // TODO: Implement Pro bundles interface
+    showToast('Pro bundles coming soon!', 'info');
+  };
+
+  return (
+    <div className="w-96 min-h-96 bg-white flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+        <div className="flex items-center space-x-2">
+          <div className="w-6 h-6 bg-blue-600 rounded-md flex items-center justify-center">
+            <span className="text-white text-xs font-bold">P</span>
+          </div>
+          <h1 className="text-lg font-semibold text-gray-900">
+            PromptReady
+          </h1>
+        </div>
+        
+        <ModeToggle
+          mode={state.settings.mode}
+          onChange={handleModeChange}
+        />
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 p-4 space-y-4">
+        {/* Description */}
+        <p className="text-sm text-gray-600">
+          {state.settings.mode === 'code_docs' 
+            ? 'Clean code documentation, API references, and technical content'
+            : 'Clean articles, blog posts, and general web content'
+          }
+        </p>
+
+        {/* Primary Action */}
+        <PrimaryButton
+          onClick={handleCleanAndExport}
+          disabled={state.processing.status !== 'idle' && state.processing.status !== 'complete' && state.processing.status !== 'error'}
+          loading={state.processing.status !== 'idle' && state.processing.status !== 'complete' && state.processing.status !== 'error'}
+          loadingText={state.processing.message}
+        >
+          Clean & Export
+        </PrimaryButton>
+
+        {/* Export Actions */}
+        {state.exportData && (
+          <ExportActions
+            onExport={handleExport}
+            disabled={!state.exportData}
+          />
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="p-4 border-t border-gray-200">
+        <div className="flex items-center justify-between">
+          <StatusStrip
+            processing={state.processing}
+            lastAction={state.exportData ? 'Content ready' : undefined}
+          />
+          
+          <div className="flex items-center space-x-2">
+            {state.settings.isPro && (
+              <ProBadge onClick={openProBundles} />
+            )}
+            
+            <button
+              onClick={openSettings}
+              className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100"
+            >
+              Settings
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Toast */}
+      {state.toast && (
+        <Toast
+          message={state.toast.message}
+          type={state.toast.type}
+          onClose={() => setState(prev => ({ ...prev, toast: null }))}
+        />
+      )}
+    </div>
+  );
+}

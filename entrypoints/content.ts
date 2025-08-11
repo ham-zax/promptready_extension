@@ -21,15 +21,26 @@ export default defineContentScript({
             });
             
             return true;
+          } else if (message.type === 'COPY_TO_CLIPBOARD') {
+            // Fallback clipboard copy for when navigator.clipboard fails
+            const textArea = document.createElement('textarea');
+            textArea.value = message.payload.content;
+            textArea.style.position = 'fixed';
+            textArea.style.opacity = '0';
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            return true;
           }
         } catch (error) {
-          console.error('Content script capture failed:', error);
+          console.error('Content script operation failed:', error);
           
           // Send error to background
           await browser.runtime.sendMessage({
             type: 'ERROR',
             payload: {
-              message: error.message || 'Content capture failed',
+              message: error.message || 'Content script operation failed',
             },
           });
         }

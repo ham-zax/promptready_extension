@@ -21,11 +21,19 @@ export class ContentCapture {
       const selection = window.getSelection();
       
       if (!selection || selection.rangeCount === 0) {
-        throw new Error('No content selected. Please select text on the page and try again.');
+        // If no selection, try to capture the main content area
+        console.log('No selection found, attempting to capture main content...');
+        return await this.captureFullPage();
       }
       
       // Get the selected range
       const range = selection.getRangeAt(0);
+      
+      // Check if the selection is collapsed (just a cursor, no actual selection)
+      if (range.collapsed) {
+        console.log('Selection is collapsed, attempting to capture main content...');
+        return await this.captureFullPage();
+      }
       
       // Create a document fragment with the selection
       const fragment = range.cloneContents();
@@ -38,7 +46,8 @@ export class ContentCapture {
       const html = tempDiv.innerHTML;
       
       if (!html.trim()) {
-        throw new Error('Selected content appears to be empty. Please select text and try again.');
+        console.log('Selected content is empty, attempting to capture main content...');
+        return await this.captureFullPage();
       }
       
       // Fix relative URLs to absolute URLs before sending to service worker
