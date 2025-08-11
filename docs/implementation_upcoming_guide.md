@@ -1,5 +1,7 @@
 ### Goal
-- Add Readability-first extraction in the offscreen doc for general mode; keep our structurer and current conservative pipeline for code_docs. Reduce clutter (Reddit/GitHub) and keep copy robust via offscreen.
+- Deliver robust capture → clean → structure → copy for MV3 using an offscreen document.
+- Use Readability-first extraction in general mode; keep conservative rules for code_docs.
+- Reduce site UI noise (Reddit/GitHub) and keep copy reliable via offscreen clipboard.
 
 ### High-level approach
 - Always run DOM work in the offscreen document (we already do for SW-limited contexts).
@@ -7,39 +9,43 @@
 - For code_docs mode: current rules-based cleaner → structurer.
 - Keep clipboard writes in offscreen; no auto-copy.
 
-### Changes by file
-- package.json
-  - Add dependency: @mozilla/readability.
-- entrypoints/offscreen/main.ts
-  - Preprocess HTML: ensure base URL; absolutize links/images.
-  - If mode === 'general': use Readability on a cloned Document; fallback to current cleaner if Readability returns null.
-  - If mode === 'code_docs': use current `ContentCleaner` as-is.
-  - Return `OFFSCREEN_PROCESSED` with `exportMd`, `exportJson`, `metadata`.
-  - For `OFFSCREEN_COPY`: log and respond `{ success, method }`.
-- entrypoints/background.ts
-  - Ensure offscreen doc reasons: ['CLIPBOARD','DOM_PARSER'] (done).
-  - Delegate processing with `OFFSCREEN_PROCESS` (already doing when DOMParser is undefined; optional: always delegate to standardize).
-  - Keep copy path: on EXPORT_REQUEST with action=copy, send `OFFSCREEN_COPY`.
-  - Remove auto-copy after processing (done).
-- core/filters/boilerplate-filters.ts
-  - Keep added Reddit/GitHub selectors; refine iteratively from field feedback.
-- lib/types.ts
-  - Already includes `OFFSCREEN_PROCESS`, `OFFSCREEN_PROCESSED`, `OFFSCREEN_COPY`.
+### Done
+- package.json: Added `@mozilla/readability`.
+- entrypoints/offscreen/main.ts:
+  - Added URL normalization (base tag + absolutized links/images).
+  - General mode: Readability on cloned Document; fallback to our cleaner.
+  - Code_docs mode: current `ContentCleaner` retained.
+  - Sends `OFFSCREEN_PROCESSED` with Markdown + JSON + metadata.
+  - Clipboard handler `OFFSCREEN_COPY` returns `{ success, method }` and logs.
+- entrypoints/background.ts:
+  - Ensures offscreen lifecycle with reasons `['CLIPBOARD','DOM_PARSER']`.
+  - Delegates processing when SW lacks `DOMParser`.
+  - Handles `EXPORT_REQUEST` and sends `OFFSCREEN_COPY`.
+  - Auto-copy removed to avoid double copy.
+  - Fixed literal path typing for `/offscreen.html`.
+- content/capture.ts:
+  - Added DOM prep (ensure base/title, MathJax→LaTeX hints, mark hidden nodes).
+  - Improved selection capture (multi-range) and URL fixing.
+- core/filters/boilerplate-filters.ts:
+  - Added Reddit/GitHub-specific cleanup; unwrap GitHub README, remove Reddit sidebars/ads/comments.
+- lib/types.ts:
+  - Added `OFFSCREEN_PROCESS`, `OFFSCREEN_PROCESSED`, `OFFSCREEN_COPY` contracts.
 
-### Implementation steps
-1) Add @mozilla/readability.
-2) Offscreen preprocessing helpers:
-   - addBaseTagIfMissing(document, url)
-   - absolutizeLinksAndImages(root, baseUrl)
-3) Offscreen processing:
-   - Parse HTML → clone → Readability.parse() → content || fallback to current cleaner.
-   - Run our sanitize/structurer to get Markdown + blocks + footer.
-4) Clipboard:
-   - Keep `OFFSCREEN_COPY` handler with clipboard API first, `execCommand` fallback, sendResponse with result.
-5) Background:
-   - Keep ensureOffscreenDocument; send export requests as today.
-6) Popup:
-   - Keep delegating copy/download to background; no direct copy attempts.
+### Next up
+1) Readability everywhere (optional): Always delegate processing to offscreen (even when SW `DOMParser` exists) for consistency.
+2) Turndown output (optional feature flag):
+   - Add Turndown + GFM with your `customTurndown` rules as an alternate renderer.
+   - Allow choosing between Structurer Markdown vs Turndown in settings.
+3) Metadata enrichment:
+   - Port key fields from MarkDownload `metadata.js` (canonical URL, keywords, meta tags, math map).
+   - Use in citation footer and filename generation.
+4) Filters hardening:
+   - Iterate Reddit/GitHub selectors with more samples; add site packs (Medium, Dev.to, MDN, Wikipedia, news).
+5) UX polish:
+   - Only show toast on `EXPORT_COMPLETE`; add inline copy status in popup.
+6) QA matrix:
+   - Test: MDN, Wikipedia, Medium, Dev.to, GitHub README, Reddit, news.
+   - Verify copy success and cleanliness; ensure code_docs preserves code/tables.
 
 ### Edge cases
 - CSP-heavy pages: content script capture already works; offscreen operates on provided HTML, so fine.
@@ -62,4 +68,4 @@
 - No duplicate copy actions; `EXPORT_COMPLETE` toast shown only after successful copy.
 
 Notes
-- We’re following MV3 Offscreen and WXT guidance for offscreen lifecycle and messaging [[memory:5880181]].
+- We’re following MV3 Offscreen + WXT guidance for offscreen lifecycle and messaging [[memory:5880181]].

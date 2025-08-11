@@ -18,6 +18,12 @@ export class ContentCapture {
    */
   static async captureSelection(): Promise<CaptureResult> {
     try {
+      // Prepare DOM (improves base URL resolution, math capture, and hidden-node handling)
+      this.ensureBase();
+      this.ensureTitle();
+      this.addLatexToMathJax3();
+      this.markHiddenNodes(document.documentElement);
+
       const selection = window.getSelection();
       
       if (!selection || selection.rangeCount === 0) {
@@ -26,21 +32,16 @@ export class ContentCapture {
         return await this.captureFullPage();
       }
       
-      // Get the selected range
-      const range = selection.getRangeAt(0);
-      
-      // Check if the selection is collapsed (just a cursor, no actual selection)
-      if (range.collapsed) {
-        console.log('Selection is collapsed, attempting to capture main content...');
-        return await this.captureFullPage();
-      }
-      
-      // Create a document fragment with the selection
-      const fragment = range.cloneContents();
-      
-      // Create a temporary container to get the HTML
+      // Build combined HTML of all ranges
       const tempDiv = document.createElement('div');
-      tempDiv.appendChild(fragment);
+      for (let i = 0; i < selection.rangeCount; i++) {
+        const r = selection.getRangeAt(i);
+        if (r.collapsed) continue;
+        const frag = r.cloneContents();
+        const wrapper = document.createElement('div');
+        wrapper.appendChild(frag);
+        tempDiv.appendChild(wrapper);
+      }
       
       // Get the HTML content
       const html = tempDiv.innerHTML;
@@ -160,6 +161,11 @@ export class ContentCapture {
   static async captureFullPage(): Promise<CaptureResult> {
     try {
       console.log('captureFullPage: Starting full page capture...');
+      // Prepare DOM before capture
+      this.ensureBase();
+      this.ensureTitle();
+      this.addLatexToMathJax3();
+      this.markHiddenNodes(document.documentElement);
       // Get the main content area
       const article = document.querySelector('article, main, [role="main"]');
       const content = article || document.body;
@@ -198,5 +204,63 @@ export class ContentCapture {
       console.error('Full page capture failed:', error);
       throw error;
     }
+  }
+}
+
+// ===================== DOM Prep Helpers (adapted from MarkDownload) =====================
+export namespace ContentCapture {
+  export function ensureBase(): void {
+    try {
+      const head = document.head || document.getElementsByTagName('head')[0];
+      if (!head) return;
+      const existing = head.querySelector('base');
+      const baseEl = existing ?? head.appendChild(document.createElement('base'));
+      const href = baseEl.getAttribute('href');
+      if (!href || !href.startsWith(window.location.origin)) {
+        baseEl.setAttribute('href', window.location.href);
+      }
+    } catch {}
+  }
+
+  export function ensureTitle(): void {
+    try {
+      const head = document.head || document.getElementsByTagName('head')[0];
+      if (!head) return;
+      if (head.getElementsByTagName('title').length === 0) {
+        const titleEl = document.createElement('title');
+        titleEl.innerText = document.title || window.location.hostname;
+        head.append(titleEl);
+      }
+    } catch {}
+  }
+
+  export function addLatexToMathJax3(): void {
+    try {
+      // @ts-ignore Optional global
+      if (!globalThis.MathJax?.startup?.document?.math) return;
+      // @ts-ignore
+      for (const math of globalThis.MathJax.startup.document.math) {
+        math.typesetRoot?.setAttribute?.('markdownload-latex', math.math);
+      }
+    } catch {}
+  }
+
+  export function markHiddenNodes(root: Element): void {
+    try {
+      const iter = document.createNodeIterator(root, NodeFilter.SHOW_ELEMENT, (node: Element) => {
+        const nodeName = node.nodeName.toLowerCase();
+        if (nodeName === 'math') return NodeFilter.FILTER_REJECT;
+        // @ts-ignore offsetParent may be undefined in some cases
+        if ((node as any).offsetParent === void 0) return NodeFilter.FILTER_ACCEPT;
+        const cs = window.getComputedStyle(node);
+        if (cs.visibility === 'hidden' || cs.display === 'none') return NodeFilter.FILTER_ACCEPT;
+        return NodeFilter.FILTER_SKIP;
+      });
+      let current: Element | null;
+      // @ts-ignore
+      while ((current = iter.nextNode() as Element | null)) {
+        current.setAttribute('markdownload-hidden', 'true');
+      }
+    } catch {}
   }
 }

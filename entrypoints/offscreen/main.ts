@@ -1,3 +1,5 @@
+import { Readability } from '@mozilla/readability';
+
 console.log('Offscreen document loaded');
 
 browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => {
@@ -31,16 +33,66 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
       const { html, url, title, selectionHash, mode } = message.payload ?? {};
       if (!html || !url || !title || !selectionHash) return true;
 
-      // Dynamic import of processing modules inside offscreen context
-      const { ContentCleaner } = await import('../../core/cleaner.js');
-      const { ContentStructurer } = await import('../../core/structurer.js');
+      // Helpers
+      const absolutizeUrls = (root: HTMLElement, baseUrl: string) => {
+        // Links
+        root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((a) => {
+          const href = a.getAttribute('href');
+          if (!href) return;
+          try { a.href = new URL(href, baseUrl).href; } catch {}
+        });
+        // Images
+        root.querySelectorAll<HTMLImageElement>('img[src]').forEach((img) => {
+          const src = img.getAttribute('src');
+          if (!src) return;
+          try { img.src = new URL(src, baseUrl).href; } catch {}
+        });
+      };
+      const ensureBase = (doc: Document, baseUrl: string) => {
+        if (!doc.querySelector('base')) {
+          const base = doc.createElement('base');
+          base.href = baseUrl;
+          doc.head?.prepend(base);
+        }
+      };
 
-      const cleanResult = await ContentCleaner.clean(html, url, {
-        mode,
-        preserveCodeBlocks: true,
-        preserveTables: true,
-        removeHiddenElements: true,
-      });
+      // Parse once
+      const parsed = new DOMParser().parseFromString(html, 'text/html');
+      ensureBase(parsed, url);
+      absolutizeUrls(parsed.body as HTMLElement, url);
+
+      // Decide processing pipeline
+      let cleanedHtml: string;
+      if (mode === 'general') {
+        // Readability-first for general content
+        try {
+          const reader = new Readability(parsed.cloneNode(true) as Document);
+          const article = reader.parse();
+          cleanedHtml = article?.content || (parsed.body?.innerHTML || html);
+        } catch {
+          // Fallback to our cleaner if Readability throws
+          const { ContentCleaner } = await import('../../core/cleaner.js');
+          const cr = await ContentCleaner.clean(html, url, {
+            mode,
+            preserveCodeBlocks: true,
+            preserveTables: true,
+            removeHiddenElements: true,
+          });
+          cleanedHtml = cr.cleanedHtml;
+        }
+      } else {
+        // code_docs: use our conservative cleaner
+        const { ContentCleaner } = await import('../../core/cleaner.js');
+        const cr = await ContentCleaner.clean(html, url, {
+          mode,
+          preserveCodeBlocks: true,
+          preserveTables: true,
+          removeHiddenElements: true,
+        });
+        cleanedHtml = cr.cleanedHtml;
+      }
+
+      const { ContentStructurer } = await import('../../core/structurer.js');
 
       const metadata = {
         title,
@@ -49,7 +101,7 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
         selectionHash,
       };
 
-      const exportData = await ContentStructurer.structure(cleanResult.cleanedHtml, metadata, {
+      const exportData = await ContentStructurer.structure(cleanedHtml, metadata, {
         mode,
         preserveCodeLanguages: mode === 'code_docs',
         maxHeadingLevel: 3,
