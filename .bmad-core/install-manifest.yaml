@@ -1,12 +1,10 @@
 version: 4.36.2
-installed_at: '2025-08-10T16:58:30.633Z'
+installed_at: '2025-08-11T15:44:30.917Z'
 install_type: full
 agent: null
 ides_setup:
   - cursor
-  - windsurf
   - trae
-  - gemini
 expansion_packs: []
 files:
   - path: .bmad-core\working-in-the-brownfield.md
@@ -165,18 +163,6 @@ files:
   - path: .bmad-core\bmad-core\user-guide.md
     hash: e3b0c44298fc1c14
     modified: false
-  - path: .bmad-core\agent-teams\team-no-ui.yaml
-    hash: 56e7e3a9e1a243f6
-    modified: false
-  - path: .bmad-core\agent-teams\team-ide-minimal.yaml
-    hash: 600b6795116fd74e
-    modified: false
-  - path: .bmad-core\agent-teams\team-fullstack.yaml
-    hash: 8a6b8f248bd5b9fc
-    modified: false
-  - path: .bmad-core\agent-teams\team-all.yaml
-    hash: abbb0c0eaf28b894
-    modified: false
   - path: .bmad-core\agents\ux-expert.md
     hash: dc538703809ff200
     modified: false
@@ -206,4 +192,16 @@ files:
     modified: false
   - path: .bmad-core\agents\analyst.md
     hash: e8d7488ff12e44f1
+    modified: false
+  - path: .bmad-core\agent-teams\team-no-ui.yaml
+    hash: 56e7e3a9e1a243f6
+    modified: false
+  - path: .bmad-core\agent-teams\team-ide-minimal.yaml
+    hash: 600b6795116fd74e
+    modified: false
+  - path: .bmad-core\agent-teams\team-fullstack.yaml
+    hash: 8a6b8f248bd5b9fc
+    modified: false
+  - path: .bmad-core\agent-teams\team-all.yaml
+    hash: abbb0c0eaf28b894
     modified: false
