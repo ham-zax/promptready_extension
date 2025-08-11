@@ -53,7 +53,7 @@ import type {
  * Runs in service worker context
  */
 class ContentProcessor {
-  private offscreenUrl = browser.runtime.getURL('/offscreen.html');
+  private offscreenPath = '/offscreen.html';
 
   private currentExportData: {
     markdown: string;
@@ -365,11 +365,12 @@ class ContentProcessor {
   }
 
   private async ensureOffscreenDocument(): Promise<void> {
+    const offscreenUrl = browser.runtime.getURL(this.offscreenPath);
     // @ts-expect-error MV3 API
     const contexts = await browser.runtime.getContexts?.({
       // @ts-expect-error MV3 API
       contextTypes: [browser.runtime.ContextType?.OFFSCREEN_DOCUMENT ?? 'OFFSCREEN_DOCUMENT'],
-      documentUrls: [this.offscreenUrl],
+      documentUrls: [offscreenUrl],
     });
 
     if (Array.isArray(contexts) && contexts.length > 0) {
@@ -378,10 +379,13 @@ class ContentProcessor {
 
     // @ts-expect-error MV3 API
     await browser.offscreen.createDocument({
-      url: this.offscreenUrl,
+      url: this.offscreenPath,
       // @ts-expect-error MV3 API
-      reasons: [browser.offscreen.Reason?.CLIPBOARD ?? 'CLIPBOARD'],
-      justification: 'Clipboard write operations',
+      reasons: [
+        browser.offscreen.Reason?.CLIPBOARD ?? 'CLIPBOARD',
+        browser.offscreen.Reason?.DOM_PARSER ?? 'DOM_PARSER',
+      ],
+      justification: 'Clipboard writes and DOM parsing of captured HTML',
     });
   }
   
