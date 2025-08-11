@@ -21,6 +21,7 @@
 *   Content deduplication (#13)
 *   Entity extraction (#14)
 *   Hosted AI inference or background scraping.
+*   Any server-side storage or cloud synchronization of user data (cloud sync, remote databases, background sync). All data remains local-only in MVP.
 *   Internationalization (i18n) — deferred post‑MVP (revisit ~2 weeks after launch).
 
 ## 3. Personas

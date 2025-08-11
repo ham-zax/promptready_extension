@@ -12,6 +12,7 @@ PromptReady is a Chrome MV3 extension that cleans, structures, and exports selec
 - Builder: WXT (MV3) with TypeScript
 - Styling: TailwindCSS with `@tailwind base; @tailwind components; @tailwind utilities;`
 - MV3 constraints: no inline scripts/styles; use HTML entrypoints and bundled JS/CSS
+- MVP scope: No server-side storage or cloud synchronization; all data is processed locally and stored in `chrome.storage.local` (with optional AES-GCM passphrase as per Architecture).
 - WXT entrypoints (expected):
   - `entrypoints/popup.html` + `entrypoints/popup.tsx`
   - `entrypoints/options.html` + `entrypoints/options.tsx`

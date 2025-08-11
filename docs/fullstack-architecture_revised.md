@@ -110,6 +110,7 @@ export type ProcessingComplete = Message<'PROCESSING_COMPLETE', { exportMd: stri
 - **API Key Storage:** The API key will be stored in `chrome.storage.local` **only after** being encrypted with AES-GCM using a user-provided passphrase. The passphrase will be held in `chrome.storage.session` and must be re-entered each session to decrypt the key for use. This provides strong security at rest.
 - **Consent:** Explicit consent modal shown before any BYOK network call.
 - **Permissions:** Minimal permissions will be requested as defined in the PRD.
+ - **MVP Scope:** No server-side storage or cloud synchronization. All user data remains on-device for MVP.
 
 ## 9. Performance
 - **[NOTE]** By moving processing to the Service Worker, the main page's performance is protected. The background processing will still adhere to the `<1.5s` target for long documents.
