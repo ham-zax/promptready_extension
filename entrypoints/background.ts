@@ -114,11 +114,16 @@ class ContentProcessor {
     
     try {
       switch (message.type) {
+        case 'TRIGGER_CAPTURE':
+          console.log('Handling TRIGGER_CAPTURE from popup');
+          await this.handleCaptureCommand();
+          break;
+
         case 'CAPTURE_COMPLETE':
           console.log('Handling CAPTURE_COMPLETE');
           await this.handleCaptureComplete(message as CaptureCompleteMessage);
           break;
-          
+
         case 'EXPORT_REQUEST':
           console.log('Handling EXPORT_REQUEST');
           await this.handleExportRequest(message as ExportRequestMessage);
