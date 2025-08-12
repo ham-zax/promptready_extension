@@ -45,8 +45,8 @@ export default function PopupApp() {
     toast: null,
   });
   const [view, setView] = useState<View>('home');
-  const [byokPassphrase, setByokPassphrase] = useState('');
   const [byokApiKeyInput, setByokApiKeyInput] = useState('');
+  const [hasByokKey, setHasByokKey] = useState(false);
 
   // Load settings on mount
   useEffect(() => {
@@ -68,6 +68,12 @@ export default function PopupApp() {
           const handle = () => apply('system');
           m.addEventListener?.('change', handle);
         }
+
+        // Check if a BYOK API key exists (presence only)
+        try {
+          const key = await Storage.getApiKey();
+          setHasByokKey(Boolean(key));
+        } catch {}
       } catch (error) {
         console.error('Failed to load settings:', error);
         showToast('Failed to load settings', 'error');
@@ -107,15 +113,33 @@ export default function PopupApp() {
 
         case 'BYOK_RESULT': {
           const content = message.payload?.content || '';
+          // Populate exportData so the Export buttons work after BYOK validation
+          const byokExport: PromptReadyExport = {
+            version: '1.0',
+            metadata: {
+              title: 'BYOK Result',
+              url: '',
+              capturedAt: new Date().toISOString(),
+              selectionHash: 'byok',
+            },
+            blocks: [{ type: 'paragraph', text: content }],
+          };
+          setState(prev => ({
+            ...prev,
+            processing: { status: 'complete' },
+            exportData: { markdown: content, json: byokExport },
+          }));
           showToast('BYOK validation complete', 'success');
-          // Optionally, copy result to clipboard automatically
+          // Optionally, copy result to clipboard automatically via background
           (async () => {
             try {
               await browser.runtime.sendMessage({
                 type: 'EXPORT_REQUEST',
                 payload: { format: 'md', action: 'copy' },
               });
-            } catch {}
+            } catch (e) {
+              console.warn('BYOK auto-copy failed:', e);
+            }
           })();
           break;
         }
@@ -192,28 +216,30 @@ export default function PopupApp() {
 
   const saveEncryptedByokKey = async () => {
     try {
-      if (!byokApiKeyInput || !byokPassphrase) {
-        showToast('Enter API key and passphrase', 'error');
+      if (!byokApiKeyInput) {
+        showToast('Enter API key', 'error');
         return;
       }
-      await Storage.setEncryptedApiKey(byokApiKeyInput, byokPassphrase);
-      // Do not store plaintext key in settings; clear local inputs
+      // Store API key directly (no passphrase)
+      await Storage.setApiKey(byokApiKeyInput);
+      // Clear local input for security
       setByokApiKeyInput('');
-      setByokPassphrase('');
-      showToast('API key saved securely', 'success');
+      setHasByokKey(true);
+      showToast('API key saved', 'success');
     } catch (e) {
-      console.error('Failed to save encrypted key:', e);
-      showToast('Failed to save key', 'error');
+      console.error('Failed to save API key:', e);
+      showToast('Failed to save API key', 'error');
     }
   };
 
   const clearEncryptedByokKey = async () => {
     try {
-      await Storage.clearEncryptedApiKey();
+      await Storage.clearApiKey();
       showToast('API key cleared', 'success');
+      setHasByokKey(false);
     } catch (e) {
-      console.error('Failed to clear encrypted key:', e);
-      showToast('Failed to clear key', 'error');
+      console.error('Failed to clear API key:', e);
+      showToast('Failed to clear API key', 'error');
     }
   };
 
@@ -297,12 +323,20 @@ export default function PopupApp() {
 
   const testByokValidate = async () => {
     try {
-      const bundle = {
-        system: 'You are a formatter that ensures JSON validity and preserves code fences.',
-        task: 'Validate and pretty-format the following content as Markdown if needed.',
-        content: state.exportData?.markdown || 'Sample content',
-      };
-      const bundleContent = `${bundle.system}\n\n${bundle.task}\n\n${bundle.content}`;
+      // If user has pasted a key but not saved, save it now for convenience
+      if (byokApiKeyInput) {
+        await Storage.setApiKey(byokApiKeyInput);
+        setByokApiKeyInput('');
+        setHasByokKey(true);
+      }
+
+      const currentKey = await Storage.getApiKey();
+      if (!currentKey) {
+        showToast('No API key saved. Paste your key and Save, or try again.', 'error');
+        return;
+      }
+
+      const bundleContent = 'Respond with only the word `OK` if you are functioning correctly.';
       const model = state.settings.byok.model || 'openrouter/auto';
       await browser.runtime.sendMessage({
         type: 'BYOK_REQUEST',
@@ -521,7 +555,7 @@ export default function PopupApp() {
                   value={state.settings.byok.apiBase || ''}
                   onChange={async (e) => {
                     const apiBase = e.target.value;
-                    await Storage.updateSettings({ byok: { ...state.settings.byok, apiBase } as any });
+                    await Storage.updateSettings({ byok: { apiBase } as any });
                     setState(prev => ({ ...prev, settings: { ...prev.settings, byok: { ...prev.settings.byok, apiBase } } }));
                   }}
                   className="border rounded px-2 py-1 bg-background text-foreground border-input w-64"
@@ -535,41 +569,34 @@ export default function PopupApp() {
                     value={state.settings.byok.model || ''}
                     apiBase={state.settings.byok.apiBase || 'https://openrouter.ai/api/v1'}
                     onChange={async (model) => {
-                      await Storage.updateSettings({ byok: { ...state.settings.byok, model } as any });
+                      await Storage.updateSettings({ byok: { model } as any });
                       setState(prev => ({ ...prev, settings: { ...prev.settings, byok: { ...prev.settings.byok, model } } }));
                     }}
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="flex flex-col space-y-2">
-                  <label htmlFor="passphrase" className="text-sm text-foreground">Passphrase (not stored persistently)</label>
-                  <input
-                    id="passphrase"
-                    type="password"
-                    value={byokPassphrase}
-                    onChange={(e) => setByokPassphrase(e.target.value)}
-                    className="border rounded px-2 py-1 bg-background text-foreground border-input"
-                  />
-                </div>
-                <div className="flex flex-col space-y-2">
-                  <label htmlFor="apiKey" className="text-sm text-foreground">API Key (stored encrypted)</label>
-                  <input
-                    id="apiKey"
-                    type="password"
-                    value={byokApiKeyInput}
-                    onChange={(e) => setByokApiKeyInput(e.target.value)}
-                    className="border rounded px-2 py-1 bg-background text-foreground border-input"
-                  />
-                </div>
+              <div className="flex flex-col space-y-2">
+                <label htmlFor="apiKey" className="text-sm text-foreground">API Key</label>
+                <input
+                  id="apiKey"
+                  type="password"
+                  value={byokApiKeyInput}
+                  onChange={(e) => setByokApiKeyInput(e.target.value)}
+                  placeholder="Paste your OpenRouter key"
+                  className="border rounded px-2 py-1 bg-background text-foreground border-input w-full"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {hasByokKey ? 'Key status: Saved' : 'Key status: Not saved'}
+                </span>
               </div>
               <div className="flex items-center space-x-2">
                 <button
                   onClick={saveEncryptedByokKey}
                   className="px-3 py-2 text-xs rounded border bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground"
+                  title="Saves your key to local extension storage"
                 >
-                  Save Key Securely
+                  Save API Key
                 </button>
                 <button
                   onClick={clearEncryptedByokKey}
@@ -579,9 +606,11 @@ export default function PopupApp() {
                 </button>
                 <button
                   onClick={testByokValidate}
-                  className="px-3 py-2 text-xs rounded border bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground"
+                  disabled={!hasByokKey && !byokApiKeyInput}
+                  className={`px-3 py-2 text-xs rounded border border-input ${!hasByokKey && !byokApiKeyInput ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-background text-foreground hover:bg-accent hover:text-accent-foreground'}`}
+                  title={!hasByokKey && !byokApiKeyInput ? 'Paste your key first' : 'Saves pasted key (if any) and validates'}
                 >
-                  Test Validate
+                  Validate Now
                 </button>
               </div>
             </div>

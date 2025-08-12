@@ -155,9 +155,15 @@ class ContentProcessor {
           }` */
           break;
         }
-        case 'BYOK_REQUEST':
-          await this.handleByokRequest(message as ByokRequestMessage);
+        case 'BYOK_REQUEST': {
+          const m = message as ByokRequestMessage;
+          console.log('[BYOK] Handling BYOK_REQUEST from', sender?.id || 'popup', {
+            hasBundle: Boolean(m.payload?.bundleContent),
+            model: m.payload?.model,
+          });
+          await this.handleByokRequest(m);
           break;
+        }
         case 'FETCH_MODELS':
           await this.handleFetchModels(message as FetchModelsMessage);
           break;
@@ -256,18 +262,20 @@ class ContentProcessor {
       this.broadcastError(`Export failed: ${errorMessage}`);
     }
   }
-
   /**
    * Handle BYOK validation/formatting request
    */
   private async handleByokRequest(message: ByokRequestMessage): Promise<void> {
     try {
+      console.log('[BYOK] handleByokRequest start');
       const settings = await Storage.getSettings();
       const apiKey = await Storage.getDecryptedApiKey();
+      console.log('[BYOK] apiKey present?', Boolean(apiKey), 'len=', apiKey?.length || 0);
       if (!apiKey) throw new Error('No API key available. Save key in Settings > BYOK.');
 
-      const apiBase = settings.byok.apiBase || 'https://openrouter.ai/api/v1';
+      const apiBase = (settings.byok.apiBase || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
       const model = message.payload?.model || settings.byok.model || 'openrouter/auto';
+      console.log('[BYOK] Using', { apiBase, model });
 
       const body = {
         model,
@@ -278,27 +286,61 @@ class ContentProcessor {
         temperature: 0,
       };
 
-      const resp = await fetch(`${apiBase.replace(/\/$/, '')}/chat/completions`, {
+      console.log('[BYOK] Sending request to', `${apiBase}/chat/completions`);
+      const resp = await fetch(`${apiBase}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`,
+          'X-Title': 'PromptReady Extension',
         },
         body: JSON.stringify(body),
       });
 
+      console.log('[BYOK] Response status:', resp.status);
       if (!resp.ok) {
         const text = await resp.text();
+        console.error('[BYOK] Non-OK response:', resp.status, text.slice(0, 300));
         throw new Error(`BYOK request failed: ${resp.status} ${text}`);
       }
 
-      const data = await resp.json();
+      const text = await resp.text();
+      console.log('[BYOK] Raw response (first 300):', text.slice(0, 300));
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error('[BYOK] Failed to parse JSON:', e);
+        throw new Error(`Invalid JSON response: ${text.slice(0, 300)}`);
+      }
       const content: string = data?.choices?.[0]?.message?.content ?? '';
+      console.log('[BYOK] Parsed content length:', content.length);
+      // Prepare export data so popup can trigger copy/download of BYOK result
+      const byokMetadata: ExportMetadata = {
+        title: 'BYOK Result',
+        url: '',
+        capturedAt: new Date().toISOString(),
+        selectionHash: 'byok',
+      };
+      const byokExportJson: PromptReadyExport = {
+        version: '1.0',
+        metadata: byokMetadata,
+        blocks: [
+          { type: 'paragraph', text: content },
+        ],
+      };
+      this.currentExportData = {
+        markdown: content,
+        json: byokExportJson,
+        metadata: byokMetadata,
+      };
+      console.log('[BYOK] currentExportData updated for export/copy. mdLength=', content.length);
 
       const result: ByokResultMessage = {
         type: 'BYOK_RESULT',
         payload: { content },
       };
+      console.log('[BYOK] Broadcasting BYOK_RESULT to popup');
       await this.broadcastToPopup(result);
 
       await Storage.recordTelemetry({
@@ -309,6 +351,7 @@ class ContentProcessor {
     } catch (error) {
       console.error('BYOK handling failed:', error);
       const msg = error instanceof Error ? error.message : 'BYOK request failed';
+      console.log('[BYOK] Broadcasting ERROR to popup:', msg);
       this.broadcastError(msg);
     }
   }

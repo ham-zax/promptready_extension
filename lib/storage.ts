@@ -61,7 +61,24 @@ export class Storage {
   static async updateSettings(updates: Partial<Settings>): Promise<void> {
     try {
       const currentSettings = await this.getSettings();
-      const newSettings = { ...currentSettings, ...updates };
+      // Deep-merge for nested objects we manage (byok, privacy, templates)
+      const { byok, privacy, templates, ...rest } = (updates || {}) as any;
+      const newSettings: Settings = {
+        ...currentSettings,
+        ...rest,
+        byok: {
+          ...currentSettings.byok,
+          ...(byok || {}),
+        },
+        privacy: {
+          ...currentSettings.privacy,
+          ...(privacy || {}),
+        },
+        templates: {
+          ...currentSettings.templates,
+          ...(templates || {}),
+        },
+      } as Settings;
       await browser.storage.local.set({
         [STORAGE_KEYS.SETTINGS]: newSettings,
       });
@@ -72,143 +89,73 @@ export class Storage {
   }
   
   // ---------------------------------------------------------------------------
-  // Encrypted API Key Management (AES-GCM)
+  // API Key Management (plain storage)
   // ---------------------------------------------------------------------------
-  
-  static async setEncryptedApiKey(apiKey: string, passphrase: string): Promise<void> {
+
+  static async setApiKey(apiKey: string): Promise<void> {
     try {
-      if (!apiKey || !passphrase) {
-        throw new Error('API key and passphrase are required');
-      }
-      
-      // Generate salt for PBKDF2
-      const salt = crypto.getRandomValues(new Uint8Array(16));
-      
-      // Derive key from passphrase using PBKDF2
-      const keyMaterial = await crypto.subtle.importKey(
-        'raw',
-        new TextEncoder().encode(passphrase),
-        'PBKDF2',
-        false,
-        ['deriveKey']
-      );
-      
-      const derivedKey = await crypto.subtle.deriveKey(
-        {
-          name: 'PBKDF2',
-          salt: salt,
-          iterations: 100000,
-          hash: 'SHA-256',
-        },
-        keyMaterial,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['encrypt']
-      );
-      
-      // Generate IV for AES-GCM
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      
-      // Encrypt the API key
-      const encryptedData = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv: iv },
-        derivedKey,
-        new TextEncoder().encode(apiKey)
-      );
-      
-      // Store encrypted data with salt and IV
+      const current = await this.getSettings();
+      const byok = { ...current.byok, apiKey: apiKey || '' } as Settings['byok'];
       await browser.storage.local.set({
-        [STORAGE_KEYS.ENCRYPTED_KEYS]: {
-          encryptedApiKey: Array.from(new Uint8Array(encryptedData)),
-          salt: Array.from(salt),
-          iv: Array.from(iv),
-        },
+        [STORAGE_KEYS.SETTINGS]: { ...current, byok },
       });
-      
-      // Store passphrase in session storage (ephemeral)
-      await browser.storage.session.set({ passphrase });
-      
+      // Cleanup any legacy encrypted key artifacts
+      await browser.storage.local.remove([STORAGE_KEYS.ENCRYPTED_KEYS]);
+      await browser.storage.session.remove(['passphrase']);
     } catch (error) {
-      console.error('Failed to encrypt API key:', error);
+      console.error('Failed to save API key:', error);
       throw error;
     }
   }
 
-  // Set or update the passphrase in session storage without changing the encrypted key
-  static async setSessionPassphrase(passphrase: string): Promise<void> {
+  static async getApiKey(): Promise<string | null> {
     try {
-      if (!passphrase) throw new Error('Passphrase is required');
-      await browser.storage.session.set({ passphrase });
+      const settings = await this.getSettings();
+      const key = settings.byok.apiKey || '';
+      return key ? key : null;
     } catch (error) {
-      console.error('Failed to set session passphrase:', error);
-      throw error;
-    }
-  }
-  
-  static async getDecryptedApiKey(): Promise<string | null> {
-    try {
-      const [encryptedResult, sessionResult] = await Promise.all([
-        browser.storage.local.get([STORAGE_KEYS.ENCRYPTED_KEYS]),
-        browser.storage.session.get(['passphrase']),
-      ]);
-      
-      const encryptedData = encryptedResult[STORAGE_KEYS.ENCRYPTED_KEYS];
-      const passphrase = sessionResult.passphrase;
-      
-      if (!encryptedData || !passphrase) {
-        return null;
-      }
-      
-      // Recreate the derived key
-      const keyMaterial = await crypto.subtle.importKey(
-        'raw',
-        new TextEncoder().encode(passphrase),
-        'PBKDF2',
-        false,
-        ['deriveKey']
-      );
-      
-      const derivedKey = await crypto.subtle.deriveKey(
-        {
-          name: 'PBKDF2',
-          salt: new Uint8Array(encryptedData.salt),
-          iterations: 100000,
-          hash: 'SHA-256',
-        },
-        keyMaterial,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['decrypt']
-      );
-      
-      // Decrypt the API key
-      const decryptedData = await crypto.subtle.decrypt(
-        {
-          name: 'AES-GCM',
-          iv: new Uint8Array(encryptedData.iv),
-        },
-        derivedKey,
-        new Uint8Array(encryptedData.encryptedApiKey)
-      );
-      
-      return new TextDecoder().decode(decryptedData);
-      
-    } catch (error) {
-      console.error('Failed to decrypt API key:', error);
+      console.error('Failed to read API key:', error);
       return null;
     }
   }
-  
-  static async clearEncryptedApiKey(): Promise<void> {
+
+  static async clearApiKey(): Promise<void> {
     try {
-      await Promise.all([
-        browser.storage.local.remove([STORAGE_KEYS.ENCRYPTED_KEYS]),
-        browser.storage.session.remove(['passphrase']),
-      ]);
+      const current = await this.getSettings();
+      const byok = { ...current.byok, apiKey: '' } as Settings['byok'];
+      await browser.storage.local.set({
+        [STORAGE_KEYS.SETTINGS]: { ...current, byok },
+      });
+      // Also remove any legacy encrypted state
+      await browser.storage.local.remove([STORAGE_KEYS.ENCRYPTED_KEYS]);
+      await browser.storage.session.remove(['passphrase']);
     } catch (error) {
-      console.error('Failed to clear encrypted API key:', error);
+      console.error('Failed to clear API key:', error);
       throw error;
     }
+  }
+
+  // Backwards-compat wrappers (no-op encryption)
+  static async setEncryptedApiKey(apiKey: string, _passphrase: string): Promise<void> {
+    return this.setApiKey(apiKey);
+  }
+
+  // No longer used; ensure no session passphrase remains
+  static async setSessionPassphrase(_passphrase: string): Promise<void> {
+    try {
+      await browser.storage.session.remove(['passphrase']);
+    } catch (error) {
+      console.error('Failed to clear session passphrase:', error);
+      throw error;
+    }
+  }
+
+  static async getDecryptedApiKey(): Promise<string | null> {
+    return this.getApiKey();
+  }
+
+  static async clearEncryptedApiKey(): Promise<void> {
+    return this.clearApiKey();
   }
   
   // ---------------------------------------------------------------------------
