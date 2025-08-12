@@ -7,12 +7,12 @@ interface ModeToggleProps {
 
 export function ModeToggle({ mode, onChange }: ModeToggleProps) {
   return (
-    <div className="flex bg-gray-100 rounded-lg p-1">
+    <div className="flex bg-muted rounded-lg p-1 border border-border">
       <button
         className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
           mode === 'general'
-            ? 'bg-white text-gray-900 shadow-sm'
-            : 'text-gray-600 hover:text-gray-900'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
         }`}
         onClick={() => onChange('general')}
       >
@@ -21,8 +21,8 @@ export function ModeToggle({ mode, onChange }: ModeToggleProps) {
       <button
         className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
           mode === 'code_docs'
-            ? 'bg-white text-gray-900 shadow-sm'
-            : 'text-gray-600 hover:text-gray-900'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
         }`}
         onClick={() => onChange('code_docs')}
       >

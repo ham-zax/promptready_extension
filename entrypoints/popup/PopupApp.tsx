@@ -51,6 +51,20 @@ export default function PopupApp() {
       try {
         const settings = await Storage.getSettings();
         setState(prev => ({ ...prev, settings }));
+        // Apply theme on load
+        const theme = settings.theme || 'system';
+        const root = document.documentElement;
+        const apply = (t: 'system' | 'light' | 'dark') => {
+          if (t === 'dark') root.classList.add('dark');
+          else if (t === 'light') root.classList.remove('dark');
+          else root.classList.toggle('dark', window.matchMedia('(prefers-color-scheme: dark)').matches);
+        };
+        apply(theme);
+        if (theme === 'system') {
+          const m = window.matchMedia('(prefers-color-scheme: dark)');
+          const handle = () => apply('system');
+          m.addEventListener?.('change', handle);
+        }
       } catch (error) {
         console.error('Failed to load settings:', error);
         showToast('Failed to load settings', 'error');
@@ -237,14 +251,14 @@ export default function PopupApp() {
   };
 
   return (
-    <div className="w-96 min-h-96 bg-white text-gray-900 flex flex-col">
+    <div className="w-96 min-h-96 bg-background text-foreground flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+      <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center space-x-2">
           <div className="w-6 h-6 bg-blue-600 rounded-md flex items-center justify-center">
             <span className="text-white text-xs font-bold">P</span>
           </div>
-          <h1 className="text-lg font-semibold text-gray-900">
+          <h1 className="text-lg font-semibold text-foreground">
             {view === 'home' ? 'PromptReady' : 'Settings'}
           </h1>
         </div>
@@ -256,7 +270,7 @@ export default function PopupApp() {
         ) : (
           <button
             onClick={backToHome}
-            className="px-2 py-1 text-xs rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+            className="px-2 py-1 text-xs rounded border bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground"
           >
             Back
           </button>
@@ -267,7 +281,7 @@ export default function PopupApp() {
       {view === 'home' ? (
         <div className="flex-1 p-4 space-y-4">
           {/* Description */}
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-muted-foreground">
             {state.settings.mode === 'code_docs' 
               ? 'Clean code documentation, API references, and technical content'
               : 'Clean articles, blog posts, and general web content'
@@ -285,17 +299,17 @@ export default function PopupApp() {
           </PrimaryButton>
 
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-700">Selection only</span>
+            <span className="text-sm text-foreground">Selection only</span>
             <button
               onClick={handleSelectionOnly}
-              className="px-2 py-1 text-sm rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+              className="px-2 py-1 text-sm rounded border bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground"
             >
               Capture Selection
             </button>
           </div>
 
-          {/* Settings toggles quick access */}
-          <div className="flex items-center justify-between text-sm text-gray-700">
+          {/* Quick controls on home */}
+          <div className="flex items-center justify-between text-sm text-foreground">
             <span>Use Readability (articles)</span>
             <label className="inline-flex items-center cursor-pointer select-none">
               <input
@@ -310,12 +324,12 @@ export default function PopupApp() {
             </label>
           </div>
 
-          <div className="flex items-center justify-between text-sm text-gray-700">
+          <div className="flex items-center justify-between text-sm text-foreground">
             <span>Renderer</span>
             <select
               value={state.settings.renderer || 'turndown'}
               onChange={handleRendererChange}
-              className="border rounded px-2 py-1 bg-white text-gray-900"
+              className="border rounded px-2 py-1 bg-background text-foreground border-input"
             >
               <option value="turndown">Turndown (GFM)</option>
               <option value="structurer">Structurer</option>
@@ -332,27 +346,43 @@ export default function PopupApp() {
         </div>
       ) : (
         <div className="flex-1 p-4 space-y-3">
+          <Disclosure title="Appearance" description="Theme and color scheme" defaultOpen>
+            <div className="flex items-center justify-between text-sm text-foreground">
+              <span>Theme</span>
+              <select
+                value={state.settings.theme || 'system'}
+                onChange={async (e) => {
+                  const nextTheme = e.target.value as 'system' | 'light' | 'dark';
+                  await Storage.updateSettings({ theme: nextTheme });
+                  setState((prev) => ({ ...prev, settings: { ...prev.settings, theme: nextTheme } }));
+                  const root = document.documentElement;
+                  if (nextTheme === 'dark') root.classList.add('dark');
+                  else if (nextTheme === 'light') root.classList.remove('dark');
+                  else root.classList.toggle('dark', window.matchMedia('(prefers-color-scheme: dark)').matches);
+                }}
+                className="border rounded px-2 py-1 bg-background text-foreground border-input"
+              >
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </div>
+          </Disclosure>
           <Disclosure title="General" description="Capture behavior and rendering" defaultOpen>
             <div className="space-y-3">
-              <div className="flex items-center justify-between text-sm text-gray-700">
+              <div className="flex items-center justify-between text-sm text-foreground">
                 <span>Mode</span>
-                <div>
-                  <button
-                    onClick={() => handleModeChange('general')}
-                    className={`px-2 py-1 text-xs rounded border mr-2 ${state.settings.mode === 'general' ? 'bg-blue-600 text-white border-transparent' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                  >
-                    General
-                  </button>
-                  <button
-                    onClick={() => handleModeChange('code_docs')}
-                    className={`px-2 py-1 text-xs rounded border ${state.settings.mode === 'code_docs' ? 'bg-blue-600 text-white border-transparent' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                  >
-                    Code & Docs
-                  </button>
-                </div>
+                <select
+                  value={state.settings.mode}
+                  onChange={(e) => handleModeChange(e.target.value as 'general' | 'code_docs')}
+                  className="border rounded px-2 py-1 bg-background text-foreground border-input"
+                >
+                  <option value="general">General</option>
+                  <option value="code_docs">Code & Docs</option>
+                </select>
               </div>
 
-              <div className="flex items-center justify-between text-sm text-gray-700">
+              <div className="flex items-center justify-between text-sm text-foreground">
                 <span>Use Readability (articles)</span>
                 <label className="inline-flex items-center cursor-pointer select-none">
                   <input
@@ -367,12 +397,12 @@ export default function PopupApp() {
                 </label>
               </div>
 
-              <div className="flex items-center justify-between text-sm text-gray-700">
+              <div className="flex items-center justify-between text-sm text-foreground">
                 <span>Renderer</span>
                 <select
                   value={state.settings.renderer || 'turndown'}
                   onChange={handleRendererChange}
-                  className="border rounded px-2 py-1 bg-white text-gray-900"
+                  className="border rounded px-2 py-1 bg-background text-foreground border-input"
                 >
                   <option value="turndown">Turndown (GFM)</option>
                   <option value="structurer">Structurer</option>
@@ -382,7 +412,7 @@ export default function PopupApp() {
           </Disclosure>
 
           <Disclosure title="Privacy" description="Telemetry preferences">
-            <div className="flex items-center justify-between text-sm text-gray-700">
+            <div className="flex items-center justify-between text-sm text-foreground">
               <span>Enable Usage Analytics</span>
               <label className="inline-flex items-center cursor-pointer select-none">
                 <input
@@ -403,7 +433,7 @@ export default function PopupApp() {
           </Disclosure>
 
           <Disclosure title="Pro" description="Manage Pro features (coming soon)">
-            <div className="flex items-center justify-between text-sm text-gray-700">
+            <div className="flex items-center justify-between text-sm text-foreground">
               <span>Pro status</span>
               <span className={`px-2 py-0.5 text-xs rounded-full ${state.settings.isPro ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                 {state.settings.isPro ? 'Active' : 'Free'}
@@ -414,7 +444,7 @@ export default function PopupApp() {
       )}
 
       {/* Footer */}
-      <div className="p-4 border-t border-gray-200">
+      <div className="p-4 border-t border-border">
         <div className="flex items-center justify-between">
           {view === 'home' ? (
             <>
@@ -428,7 +458,7 @@ export default function PopupApp() {
                 )}
                 <button
                   onClick={openSettings}
-                  className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100"
+                  className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-accent"
                 >
                   Settings
                 </button>
@@ -438,7 +468,7 @@ export default function PopupApp() {
             <div className="w-full flex justify-end">
               <button
                 onClick={backToHome}
-                className="px-3 py-2 text-xs rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                className="px-3 py-2 text-xs rounded border bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground"
               >
                 Done
               </button>

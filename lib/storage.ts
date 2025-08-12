@@ -20,6 +20,7 @@ const STORAGE_KEYS = {
 
 const DEFAULT_SETTINGS: Settings = {
   mode: 'general',
+  theme: 'system',
   templates: {
     bundles: [],
   },

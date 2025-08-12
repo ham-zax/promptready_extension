@@ -7,6 +7,7 @@
 
 export interface Settings {
   mode: 'general' | 'code_docs';
+  theme?: 'system' | 'light' | 'dark';
   templates: {
     bundles: PromptBundle[];
   };
