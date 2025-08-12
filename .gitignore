@@ -11,6 +11,7 @@ node_modules
 .output
 .bmad-core
 .cursor
+.gemini
 .trae
 .windsurf
 stats.html

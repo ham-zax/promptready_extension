@@ -35,6 +35,7 @@ import { browser } from 'wxt/browser';
 // Dynamic imports for DOM-dependent modules to avoid build-time issues
 import { Storage } from '../lib/storage.js';
 import { fileNaming } from '../lib/fileNaming.js';
+import { BYOKClient } from '../pro/byok-client.js';
 import type { 
   MessageType, 
   Message, 
@@ -269,7 +270,7 @@ class ContentProcessor {
     try {
       console.log('[BYOK] handleByokRequest start');
       const settings = await Storage.getSettings();
-      const apiKey = await Storage.getDecryptedApiKey();
+      const apiKey = await Storage.getApiKey();
       console.log('[BYOK] apiKey present?', Boolean(apiKey), 'len=', apiKey?.length || 0);
       if (!apiKey) throw new Error('No API key available. Save key in Settings > BYOK.');
 
@@ -277,44 +278,15 @@ class ContentProcessor {
       const model = message.payload?.model || settings.byok.model || 'openrouter/auto';
       console.log('[BYOK] Using', { apiBase, model });
 
-      const body = {
-        model,
-        messages: [
-          { role: 'system', content: 'You are a formatter that ensures JSON validity and preserves code fences.' },
-          { role: 'user', content: message.payload?.bundleContent || '' },
-        ],
-        temperature: 0,
-      };
+      const response = await BYOKClient.makeRequest(
+        { prompt: message.payload?.bundleContent || '', temperature: 0 },
+        { apiBase, apiKey, model },
+        { showModal: true, requireExplicitConsent: true }
+      );
 
-      console.log('[BYOK] Sending request to', `${apiBase}/chat/completions`);
-      const resp = await fetch(`${apiBase}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          'X-Title': 'PromptReady Extension',
-        },
-        body: JSON.stringify(body),
-      });
+      const content: string = response.content || '';
+      console.log('[BYOK] Response content length:', content.length);
 
-      console.log('[BYOK] Response status:', resp.status);
-      if (!resp.ok) {
-        const text = await resp.text();
-        console.error('[BYOK] Non-OK response:', resp.status, text.slice(0, 300));
-        throw new Error(`BYOK request failed: ${resp.status} ${text}`);
-      }
-
-      const text = await resp.text();
-      console.log('[BYOK] Raw response (first 300):', text.slice(0, 300));
-      let data: any = null;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        console.error('[BYOK] Failed to parse JSON:', e);
-        throw new Error(`Invalid JSON response: ${text.slice(0, 300)}`);
-      }
-      const content: string = data?.choices?.[0]?.message?.content ?? '';
-      console.log('[BYOK] Parsed content length:', content.length);
       // Prepare export data so popup can trigger copy/download of BYOK result
       const byokMetadata: ExportMetadata = {
         title: 'BYOK Result',
@@ -362,7 +334,7 @@ class ContentProcessor {
   private async handleFetchModels(message: FetchModelsMessage): Promise<void> {
     try {
       const settings = await Storage.getSettings();
-      const apiKey = await Storage.getDecryptedApiKey();
+      const apiKey = await Storage.getApiKey();
       const apiBase = (message.payload?.apiBase || settings.byok.apiBase || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
 
       console.log('[BYOK] Fetching models from', `${apiBase}/models`, 'apiKey?', Boolean(apiKey));
