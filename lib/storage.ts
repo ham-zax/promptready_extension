@@ -133,6 +133,17 @@ export class Storage {
       throw error;
     }
   }
+
+  // Set or update the passphrase in session storage without changing the encrypted key
+  static async setSessionPassphrase(passphrase: string): Promise<void> {
+    try {
+      if (!passphrase) throw new Error('Passphrase is required');
+      await browser.storage.session.set({ passphrase });
+    } catch (error) {
+      console.error('Failed to set session passphrase:', error);
+      throw error;
+    }
+  }
   
   static async getDecryptedApiKey(): Promise<string | null> {
     try {

@@ -45,7 +45,11 @@ import type {
   ErrorMessage,
   Settings,
   ExportMetadata,
-  PromptReadyExport
+  PromptReadyExport,
+  ByokRequestMessage,
+  ByokResultMessage,
+  FetchModelsMessage,
+  ModelsResultMessage
 } from '../lib/types.js';
 
 /**
@@ -151,6 +155,12 @@ class ContentProcessor {
           }` */
           break;
         }
+        case 'BYOK_REQUEST':
+          await this.handleByokRequest(message as ByokRequestMessage);
+          break;
+        case 'FETCH_MODELS':
+          await this.handleFetchModels(message as FetchModelsMessage);
+          break;
           
         default:
           console.warn('Unknown message type:', message.type);
@@ -244,6 +254,117 @@ class ContentProcessor {
       console.error('Export failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.broadcastError(`Export failed: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Handle BYOK validation/formatting request
+   */
+  private async handleByokRequest(message: ByokRequestMessage): Promise<void> {
+    try {
+      const settings = await Storage.getSettings();
+      const apiKey = await Storage.getDecryptedApiKey();
+      if (!apiKey) throw new Error('No API key available. Save key in Settings > BYOK.');
+
+      const apiBase = settings.byok.apiBase || 'https://openrouter.ai/api/v1';
+      const model = message.payload?.model || settings.byok.model || 'openrouter/auto';
+
+      const body = {
+        model,
+        messages: [
+          { role: 'system', content: 'You are a formatter that ensures JSON validity and preserves code fences.' },
+          { role: 'user', content: message.payload?.bundleContent || '' },
+        ],
+        temperature: 0,
+      };
+
+      const resp = await fetch(`${apiBase.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`BYOK request failed: ${resp.status} ${text}`);
+      }
+
+      const data = await resp.json();
+      const content: string = data?.choices?.[0]?.message?.content ?? '';
+
+      const result: ByokResultMessage = {
+        type: 'BYOK_RESULT',
+        payload: { content },
+      };
+      await this.broadcastToPopup(result);
+
+      await Storage.recordTelemetry({
+        event: 'bundle_use',
+        data: { action: 'validate', model },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error('BYOK handling failed:', error);
+      const msg = error instanceof Error ? error.message : 'BYOK request failed';
+      this.broadcastError(msg);
+    }
+  }
+
+  /**
+   * Fetch model list from OpenRouter
+   */
+  private async handleFetchModels(message: FetchModelsMessage): Promise<void> {
+    try {
+      const settings = await Storage.getSettings();
+      const apiKey = await Storage.getDecryptedApiKey();
+      const apiBase = (message.payload?.apiBase || settings.byok.apiBase || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
+
+      console.log('[BYOK] Fetching models from', `${apiBase}/models`, 'apiKey?', Boolean(apiKey));
+      const resp = await fetch(`${apiBase}/models`, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          ...(!apiKey ? { 'X-Title': 'PromptReady Extension' } : {}),
+        },
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Fetch models failed: ${resp.status} ${text}`);
+      }
+      const text = await resp.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`Invalid JSON from models endpoint: ${text.slice(0, 200)}`);
+      }
+      let models: Array<{ id: string; name: string }> = [];
+      if (Array.isArray(data?.data)) {
+        models = data.data
+          .map((m: any) => ({ id: m?.id ?? m?.name ?? '', name: m?.name ?? m?.id ?? '' }))
+          .filter((m: any) => m.id);
+      } else if (data?.data && typeof data.data === 'object') {
+        const m = data.data;
+        models = [{ id: m?.id ?? m?.name ?? '', name: m?.name ?? m?.id ?? '' }].filter((x) => x.id);
+      }
+
+      const result: ModelsResultMessage = {
+        type: 'MODELS_RESULT',
+        payload: { models },
+      };
+      await this.broadcastToPopup(result);
+      try {
+        await browser.storage.session.set({ openrouter_models: models, openrouter_models_ts: Date.now() });
+      } catch {}
+      console.log('[BYOK] Models loaded:', models.length);
+    } catch (error) {
+      console.error('Fetch models failed:', error);
+      const msg = error instanceof Error ? error.message : 'Failed to fetch models';
+      this.broadcastError(msg);
     }
   }
   

@@ -9,6 +9,7 @@ import { StatusStrip } from './components/StatusStrip.js';
 import { ProBadge } from './components/ProBadge.js';
 import { Disclosure } from './components/Disclosure.js';
 import { Toast } from './components/Toast.js';
+import { ModelSelect } from './components/ModelSelect.js';
 
 interface PopupState {
   settings: Settings;
@@ -44,6 +45,8 @@ export default function PopupApp() {
     toast: null,
   });
   const [view, setView] = useState<View>('home');
+  const [byokPassphrase, setByokPassphrase] = useState('');
+  const [byokApiKeyInput, setByokApiKeyInput] = useState('');
 
   // Load settings on mount
   useEffect(() => {
@@ -98,6 +101,21 @@ export default function PopupApp() {
             } catch (e) {
               console.warn('Auto-copy request failed:', e);
             }
+          })();
+          break;
+        }
+
+        case 'BYOK_RESULT': {
+          const content = message.payload?.content || '';
+          showToast('BYOK validation complete', 'success');
+          // Optionally, copy result to clipboard automatically
+          (async () => {
+            try {
+              await browser.runtime.sendMessage({
+                type: 'EXPORT_REQUEST',
+                payload: { format: 'md', action: 'copy' },
+              });
+            } catch {}
           })();
           break;
         }
@@ -169,6 +187,33 @@ export default function PopupApp() {
     } catch (e) {
       console.error('Failed to change renderer:', e);
       showToast('Failed to update setting', 'error');
+    }
+  };
+
+  const saveEncryptedByokKey = async () => {
+    try {
+      if (!byokApiKeyInput || !byokPassphrase) {
+        showToast('Enter API key and passphrase', 'error');
+        return;
+      }
+      await Storage.setEncryptedApiKey(byokApiKeyInput, byokPassphrase);
+      // Do not store plaintext key in settings; clear local inputs
+      setByokApiKeyInput('');
+      setByokPassphrase('');
+      showToast('API key saved securely', 'success');
+    } catch (e) {
+      console.error('Failed to save encrypted key:', e);
+      showToast('Failed to save key', 'error');
+    }
+  };
+
+  const clearEncryptedByokKey = async () => {
+    try {
+      await Storage.clearEncryptedApiKey();
+      showToast('API key cleared', 'success');
+    } catch (e) {
+      console.error('Failed to clear encrypted key:', e);
+      showToast('Failed to clear key', 'error');
     }
   };
 
@@ -248,6 +293,26 @@ export default function PopupApp() {
   const openProBundles = () => {
     // TODO: Implement Pro bundles interface
     showToast('Pro bundles coming soon!', 'info');
+  };
+
+  const testByokValidate = async () => {
+    try {
+      const bundle = {
+        system: 'You are a formatter that ensures JSON validity and preserves code fences.',
+        task: 'Validate and pretty-format the following content as Markdown if needed.',
+        content: state.exportData?.markdown || 'Sample content',
+      };
+      const bundleContent = `${bundle.system}\n\n${bundle.task}\n\n${bundle.content}`;
+      const model = state.settings.byok.model || 'openrouter/auto';
+      await browser.runtime.sendMessage({
+        type: 'BYOK_REQUEST',
+        payload: { bundleContent, model },
+      });
+      showToast('BYOK request sent…', 'info');
+    } catch (e) {
+      console.error('BYOK request failed:', e);
+      showToast('Failed to start BYOK validation', 'error');
+    }
   };
 
   return (
@@ -438,6 +503,87 @@ export default function PopupApp() {
               <span className={`px-2 py-0.5 text-xs rounded-full ${state.settings.isPro ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                 {state.settings.isPro ? 'Active' : 'Free'}
               </span>
+            </div>
+          </Disclosure>
+
+          <Disclosure title="BYOK (Pro)" description="OpenAI-compatible settings and secure key storage" defaultOpen>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-sm text-foreground">
+                <span>Provider</span>
+                <span className="px-2 py-1 text-xs rounded bg-muted text-muted-foreground">{state.settings.byok.provider || 'openrouter'}</span>
+              </div>
+
+              <div className="flex items-center justify-between text-sm text-foreground">
+                <label htmlFor="apiBase" className="mr-2">API Base</label>
+                <input
+                  id="apiBase"
+                  type="text"
+                  value={state.settings.byok.apiBase || ''}
+                  onChange={async (e) => {
+                    const apiBase = e.target.value;
+                    await Storage.updateSettings({ byok: { ...state.settings.byok, apiBase } as any });
+                    setState(prev => ({ ...prev, settings: { ...prev.settings, byok: { ...prev.settings.byok, apiBase } } }));
+                  }}
+                  className="border rounded px-2 py-1 bg-background text-foreground border-input w-64"
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-sm text-foreground">
+                <div className="flex flex-col items-start w-full space-y-2">
+                  <label className="mr-2">Model (OpenRouter dropdown or Manual)</label>
+                  <ModelSelect
+                    value={state.settings.byok.model || ''}
+                    apiBase={state.settings.byok.apiBase || 'https://openrouter.ai/api/v1'}
+                    onChange={async (model) => {
+                      await Storage.updateSettings({ byok: { ...state.settings.byok, model } as any });
+                      setState(prev => ({ ...prev, settings: { ...prev.settings, byok: { ...prev.settings.byok, model } } }));
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="flex flex-col space-y-2">
+                  <label htmlFor="passphrase" className="text-sm text-foreground">Passphrase (not stored persistently)</label>
+                  <input
+                    id="passphrase"
+                    type="password"
+                    value={byokPassphrase}
+                    onChange={(e) => setByokPassphrase(e.target.value)}
+                    className="border rounded px-2 py-1 bg-background text-foreground border-input"
+                  />
+                </div>
+                <div className="flex flex-col space-y-2">
+                  <label htmlFor="apiKey" className="text-sm text-foreground">API Key (stored encrypted)</label>
+                  <input
+                    id="apiKey"
+                    type="password"
+                    value={byokApiKeyInput}
+                    onChange={(e) => setByokApiKeyInput(e.target.value)}
+                    className="border rounded px-2 py-1 bg-background text-foreground border-input"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={saveEncryptedByokKey}
+                  className="px-3 py-2 text-xs rounded border bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground"
+                >
+                  Save Key Securely
+                </button>
+                <button
+                  onClick={clearEncryptedByokKey}
+                  className="px-3 py-2 text-xs rounded border bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground"
+                >
+                  Clear Key
+                </button>
+                <button
+                  onClick={testByokValidate}
+                  className="px-3 py-2 text-xs rounded border bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground"
+                >
+                  Test Validate
+                </button>
+              </div>
             </div>
           </Disclosure>
         </div>

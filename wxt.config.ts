@@ -27,7 +27,10 @@ export default defineConfig({
     },
     action: {
       default_popup: "popup.html"
-    }
+    },
+    host_permissions: [
+      "https://openrouter.ai/*"
+    ]
   },
   vite: () => ({
     plugins: [tailwindcss()],

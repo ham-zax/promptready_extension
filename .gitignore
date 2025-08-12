@@ -9,6 +9,10 @@ lerna-debug.log*
 
 node_modules
 .output
+.bmad-core
+.cursor
+.trae
+.windsurf
 stats.html
 stats-*.json
 .wxt

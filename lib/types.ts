@@ -102,6 +102,9 @@ export type MessageType =
   | 'OFFSCREEN_PROCESS'    // Background → Offscreen Document
   | 'OFFSCREEN_PROCESSED'  // Offscreen → Background
   | 'BYOK_REQUEST'         // UI → Service Worker
+  | 'BYOK_RESULT'          // Service Worker → UI
+  | 'FETCH_MODELS'         // UI → Service Worker
+  | 'MODELS_RESULT'        // Service Worker → UI
   | 'ERROR';               // Any → UI
 
 export interface Message<T extends MessageType, P = unknown> {
@@ -133,6 +136,19 @@ export type ExportRequestMessage = Message<'EXPORT_REQUEST', {
 export type ByokRequestMessage = Message<'BYOK_REQUEST', {
   bundleContent: string;
   model: string;
+}>;
+
+export type ByokResultMessage = Message<'BYOK_RESULT', {
+  content: string;
+}>;
+
+export type FetchModelsMessage = Message<'FETCH_MODELS', {
+  provider?: 'openrouter';
+  apiBase?: string; // allow override
+}>;
+
+export type ModelsResultMessage = Message<'MODELS_RESULT', {
+  models: Array<{ id: string; name: string }>;
 }>;
 
 export type ExportCompleteMessage = Message<'EXPORT_COMPLETE', {
