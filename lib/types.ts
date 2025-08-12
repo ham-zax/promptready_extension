@@ -6,7 +6,7 @@
 // =============================================================================
 
 export interface Settings {
-  mode: 'general' | 'code_docs';
+  mode: 'offline' | 'ai';
   theme?: 'system' | 'light' | 'dark';
   templates: {
     bundles: PromptBundle[];

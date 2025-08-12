@@ -4,7 +4,7 @@
 import { BoilerplateFilter } from './filters/boilerplate-filters.js';
 
 export interface CleanerOptions {
-  mode: 'general' | 'code_docs';
+  mode: 'offline' | 'ai';
   preserveCodeBlocks: boolean;
   preserveTables: boolean;
   removeHiddenElements: boolean;
@@ -208,11 +208,9 @@ export class ContentCleaner {
       'code': ['class'], // Preserve class for language identification
     };
     
-    // For Code & Docs mode, preserve more attributes on code elements
-    if (options.mode === 'code_docs') {
-      allowedAttributes['pre'].push('data-language', 'data-filename');
-      allowedAttributes['code'].push('data-language');
-    }
+    // Always preserve code-related attributes for better processing
+    allowedAttributes['pre'].push('data-language', 'data-filename');
+    allowedAttributes['code'].push('data-language');
     
     const allElements = Array.from(element.querySelectorAll('*'));
     

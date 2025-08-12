@@ -5,7 +5,7 @@ SYSTEM
 You are a senior frontend engineer generating a Chrome MV3 extension UI with WXT + React 18+ (React 19 acceptable) + TailwindCSS. Implement the PromptReady MVP popup and settings UI precisely per spec. Produce production-quality, accessible, typed React code with clean composition and zero inline scripts (MV3-compliant). Optimize for keyboard-first UX, ARIA, and performance.
 
 CONTEXT
-Product: PromptReady — clean, structure, and export selected page content into Markdown/JSON with citations. Two modes: General and Code & Docs. Pro (BYOK) adds optional validation via OpenAI-compatible endpoints (default OpenRouter). Default hotkey: Ctrl/Cmd+Shift+P. File naming: <title>__YYYY-MM-DD__hhmm__hash.(md|json). Telemetry: opt-in, minimal events.
+Product: PromptReady — clean, structure, and export selected page content into Markdown/JSON with citations. Two modes: Offline (free) and AI Mode (Pro). Pro (BYOK) adds AI-enhanced processing via OpenAI-compatible endpoints (default OpenRouter). Default hotkey: Ctrl/Cmd+Shift+L. File naming: <title>__YYYY-MM-DD__hhmm__hash.(md|json). Telemetry: opt-in, minimal events.
 
 Tooling:
 - WXT (MV3) + React 18+ + TailwindCSS
@@ -86,7 +86,7 @@ FILES TO OUTPUT
 
 COMPONENT CONTRACTS (TypeScript signatures)
 - ModeToggle
-  props: { value: 'general' | 'code_docs'; onChange: (v) => void }
+  props: { value: 'offline' | 'ai'; onChange: (v) => void }
 - SplitButton
   props: {
     label: string; items: { key: string; label: string; onSelect: () => void }[];

@@ -4,7 +4,7 @@
 import { PromptReadyExport, ContentBlock, ExportMetadata } from '../lib/types.js';
 
 export interface StructurerOptions {
-  mode: 'general' | 'code_docs';
+  mode: 'offline' | 'ai';
   preserveCodeLanguages: boolean;
   maxHeadingLevel: number;
   includeTableHeaders: boolean;

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { browser } from 'wxt/browser';
 import { Settings, ProcessingState, PromptReadyExport } from '@/lib/types';
 import { Storage } from '@/lib/storage';
-import { ModeToggle } from './components/ModeToggle.js';
+
 import { PrimaryButton } from './components/PrimaryButton.js';
 import { ExportActions } from './components/ExportActions.js';
 import { StatusStrip } from './components/StatusStrip.js';
@@ -29,7 +29,7 @@ type View = 'home' | 'settings';
 export default function PopupApp() {
   const [state, setState] = useState<PopupState>({
     settings: {
-      mode: 'general',
+      mode: 'offline',
       templates: { bundles: [] },
       byok: {
         provider: 'openrouter',
@@ -174,18 +174,7 @@ export default function PopupApp() {
     }, 5000);
   };
 
-  const handleModeChange = async (mode: 'general' | 'code_docs') => {
-    try {
-      await Storage.updateSettings({ mode });
-      setState(prev => ({
-        ...prev,
-        settings: { ...prev.settings, mode },
-      }));
-    } catch (error) {
-      console.error('Failed to update mode:', error);
-      showToast('Failed to update mode', 'error');
-    }
-  };
+
 
   const toggleReadability = async () => {
     try {
@@ -361,12 +350,7 @@ export default function PopupApp() {
             {view === 'home' ? 'PromptReady' : 'Settings'}
           </h1>
         </div>
-        {view === 'home' ? (
-          <ModeToggle
-            mode={state.settings.mode}
-            onChange={handleModeChange}
-          />
-        ) : (
+        {view === 'settings' && (
           <button
             onClick={backToHome}
             className="px-2 py-1 text-xs rounded border bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground"
@@ -381,10 +365,7 @@ export default function PopupApp() {
         <div className="flex-1 p-4 space-y-4">
           {/* Description */}
           <p className="text-sm text-muted-foreground">
-            {state.settings.mode === 'code_docs' 
-              ? 'Clean code documentation, API references, and technical content'
-              : 'Clean articles, blog posts, and general web content'
-            }
+            Clean and structure content from any webpage for AI-ready use
           </p>
 
           {/* Primary Action */}
@@ -469,17 +450,7 @@ export default function PopupApp() {
           </Disclosure>
           <Disclosure title="General" description="Capture behavior and rendering" defaultOpen>
             <div className="space-y-3">
-              <div className="flex items-center justify-between text-sm text-foreground">
-                <span>Mode</span>
-                <select
-                  value={state.settings.mode}
-                  onChange={(e) => handleModeChange(e.target.value as 'general' | 'code_docs')}
-                  className="border rounded px-2 py-1 bg-background text-foreground border-input"
-                >
-                  <option value="general">General</option>
-                  <option value="code_docs">Code & Docs</option>
-                </select>
-              </div>
+
 
               <div className="flex items-center justify-between text-sm text-foreground">
                 <span>Use Readability (articles)</span>

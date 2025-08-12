@@ -178,8 +178,9 @@ export const CODE_DOCS_FILTER_RULES: FilterRule[] = [
  */
 export class BoilerplateFilter {
   
-  static applyRules(element: HTMLElement, mode: 'general' | 'code_docs' = 'general'): void {
-    const rules = mode === 'code_docs' ? CODE_DOCS_FILTER_RULES : BOILERPLATE_FILTER_RULES;
+  static applyRules(element: HTMLElement, mode: 'offline' | 'ai' = 'offline'): void {
+    // Always use the same rules - no mode-specific filtering needed
+    const rules = BOILERPLATE_FILTER_RULES;
     
     for (const rule of rules) {
       try {

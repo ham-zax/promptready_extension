@@ -9,7 +9,7 @@ This document is the single source of truth for PromptReady’s offline‑first 
 
 In‑scope (MVP):
 - Clean, structure, and export selected page content to Markdown/JSON with citations
-- Popup UI with mode toggle (General | Code & Docs)
+- Popup UI with mode toggle (Offline | AI Mode)
 - Local storage of settings; no cloud backends
 - Pro gating via a local flag; BYOK adapter for OpenAI‑compatible endpoints (optional)
 
@@ -109,7 +109,7 @@ export type ProcessingComplete = Message<'PROCESSING_COMPLETE', {
 
 ```json
 {
-  "mode": "general" | "code_docs",
+  "mode": "offline" | "ai",
   "templates": { "bundles": [] },
   "byok": {
     "provider": "openrouter",

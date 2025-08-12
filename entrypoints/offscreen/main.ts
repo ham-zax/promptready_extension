@@ -66,8 +66,8 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
       // Decide processing pipeline
       let cleanedHtml: string;
       const readabilityEnabled = (renderer === 'turndown' || renderer === 'structurer') && (message.payload?.useReadability !== false);
-      if (mode === 'general' && readabilityEnabled) {
-        // Readability-first for general content
+      if (readabilityEnabled) {
+        // Readability-first for content
         try {
           const reader = new Readability(parsed.cloneNode(true) as Document);
           const article = reader.parse();
@@ -84,7 +84,7 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
           cleanedHtml = cr.cleanedHtml;
         }
       } else {
-        // code_docs: use our conservative cleaner
+        // Use our conservative cleaner
         const { ContentCleaner } = await import('../../core/cleaner.js');
         const cr = await ContentCleaner.clean(html, url, {
           mode,
@@ -95,7 +95,7 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
         cleanedHtml = cr.cleanedHtml;
       }
 
-      const useTurndown = renderer === 'turndown' && mode === 'general';
+      const useTurndown = renderer === 'turndown';
       const metadata = {
         title,
         url,
@@ -113,7 +113,7 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
           const { ContentStructurer } = await import('../../core/structurer.js');
           exportData = await ContentStructurer.structure(cleanedHtml, metadata, {
             mode,
-            preserveCodeLanguages: mode === 'code_docs',
+            preserveCodeLanguages: true,
             maxHeadingLevel: 3,
             includeTableHeaders: true,
           });
@@ -126,7 +126,7 @@ browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => 
         const { ContentStructurer } = await import('../../core/structurer.js');
         exportData = await ContentStructurer.structure(cleanedHtml, metadata, {
           mode,
-          preserveCodeLanguages: mode === 'code_docs',
+          preserveCodeLanguages: true,
           maxHeadingLevel: 3,
           includeTableHeaders: true,
         });

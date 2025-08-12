@@ -19,7 +19,7 @@ const STORAGE_KEYS = {
 // =============================================================================
 
 const DEFAULT_SETTINGS: Settings = {
-  mode: 'general',
+  mode: 'offline',
   theme: 'system',
   templates: {
     bundles: [],
@@ -35,7 +35,7 @@ const DEFAULT_SETTINGS: Settings = {
   },
   isPro: false,
   renderer: 'turndown',
-  useReadability: false,
+  useReadability: true,
 };
 
 // =============================================================================
@@ -51,7 +51,28 @@ export class Storage {
   static async getSettings(): Promise<Settings> {
     try {
       const result = await browser.storage.local.get([STORAGE_KEYS.SETTINGS]);
-      return { ...DEFAULT_SETTINGS, ...result[STORAGE_KEYS.SETTINGS] };
+      const stored = result[STORAGE_KEYS.SETTINGS];
+
+      if (!stored) {
+        return DEFAULT_SETTINGS;
+      }
+
+      // Migrate legacy mode values
+      let migratedMode = stored.mode;
+      if (stored.mode === 'general' || stored.mode === 'code_docs') {
+        migratedMode = 'offline'; // Both legacy modes become offline mode
+      }
+
+      const settings = { ...DEFAULT_SETTINGS, ...stored, mode: migratedMode };
+
+      // Save migrated settings if mode was changed
+      if (stored.mode !== migratedMode) {
+        await browser.storage.local.set({
+          [STORAGE_KEYS.SETTINGS]: settings,
+        });
+      }
+
+      return settings;
     } catch (error) {
       console.error('Failed to load settings:', error);
       return DEFAULT_SETTINGS;
