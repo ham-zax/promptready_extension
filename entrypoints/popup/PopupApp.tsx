@@ -7,6 +7,7 @@ import { PrimaryButton } from './components/PrimaryButton.js';
 import { ExportActions } from './components/ExportActions.js';
 import { StatusStrip } from './components/StatusStrip.js';
 import { ProBadge } from './components/ProBadge.js';
+import { Disclosure } from './components/Disclosure.js';
 import { Toast } from './components/Toast.js';
 
 interface PopupState {
@@ -21,6 +22,8 @@ interface PopupState {
     type: 'success' | 'error' | 'info';
   } | null;
 }
+
+type View = 'home' | 'settings';
 
 export default function PopupApp() {
   const [state, setState] = useState<PopupState>({
@@ -40,6 +43,7 @@ export default function PopupApp() {
     exportData: null,
     toast: null,
   });
+  const [view, setView] = useState<View>('home');
 
   // Load settings on mount
   useEffect(() => {
@@ -222,8 +226,10 @@ export default function PopupApp() {
   };
 
   const openSettings = () => {
-    browser.runtime.openOptionsPage();
+    setView('settings');
   };
+
+  const backToHome = () => setView('home');
 
   const openProBundles = () => {
     // TODO: Implement Pro bundles interface
@@ -239,103 +245,205 @@ export default function PopupApp() {
             <span className="text-white text-xs font-bold">P</span>
           </div>
           <h1 className="text-lg font-semibold text-gray-900">
-            PromptReady
+            {view === 'home' ? 'PromptReady' : 'Settings'}
           </h1>
         </div>
-        
-        <ModeToggle
-          mode={state.settings.mode}
-          onChange={handleModeChange}
-        />
+        {view === 'home' ? (
+          <ModeToggle
+            mode={state.settings.mode}
+            onChange={handleModeChange}
+          />
+        ) : (
+          <button
+            onClick={backToHome}
+            className="px-2 py-1 text-xs rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+          >
+            Back
+          </button>
+        )}
       </div>
 
       {/* Body */}
-      <div className="flex-1 p-4 space-y-4">
-        {/* Description */}
-        <p className="text-sm text-gray-600">
-          {state.settings.mode === 'code_docs' 
-            ? 'Clean code documentation, API references, and technical content'
-            : 'Clean articles, blog posts, and general web content'
-          }
-        </p>
+      {view === 'home' ? (
+        <div className="flex-1 p-4 space-y-4">
+          {/* Description */}
+          <p className="text-sm text-gray-600">
+            {state.settings.mode === 'code_docs' 
+              ? 'Clean code documentation, API references, and technical content'
+              : 'Clean articles, blog posts, and general web content'
+            }
+          </p>
 
-        {/* Primary Action */}
-        <PrimaryButton
-          onClick={handleCleanAndExport}
-          disabled={state.processing.status !== 'idle' && state.processing.status !== 'complete' && state.processing.status !== 'error'}
-          loading={state.processing.status !== 'idle' && state.processing.status !== 'complete' && state.processing.status !== 'error'}
-          loadingText={state.processing.message}
-        >
-          Clean & Export
-        </PrimaryButton>
-
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-700">Selection only</span>
-          <button
-            onClick={handleSelectionOnly}
-            className="px-2 py-1 text-sm rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+          {/* Primary Action */}
+          <PrimaryButton
+            onClick={handleCleanAndExport}
+            disabled={state.processing.status !== 'idle' && state.processing.status !== 'complete' && state.processing.status !== 'error'}
+            loading={state.processing.status !== 'idle' && state.processing.status !== 'complete' && state.processing.status !== 'error'}
+            loadingText={state.processing.message}
           >
-            Capture Selection
-          </button>
-        </div>
+            Clean & Export
+          </PrimaryButton>
 
-        {/* Settings toggles */}
-        <div className="flex items-center justify-between text-sm text-gray-700">
-          <span>Use Readability (articles)</span>
-          <label className="inline-flex items-center cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={state.settings.useReadability !== false}
-              onChange={toggleReadability}
-              className="sr-only"
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-gray-700">Selection only</span>
+            <button
+              onClick={handleSelectionOnly}
+              className="px-2 py-1 text-sm rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+            >
+              Capture Selection
+            </button>
+          </div>
+
+          {/* Settings toggles quick access */}
+          <div className="flex items-center justify-between text-sm text-gray-700">
+            <span>Use Readability (articles)</span>
+            <label className="inline-flex items-center cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={state.settings.useReadability !== false}
+                onChange={toggleReadability}
+                className="sr-only"
+              />
+              <span className={`w-10 h-6 inline-flex items-center rounded-full transition-colors ${state.settings.useReadability !== false ? 'bg-green-500' : 'bg-gray-300'}`}>
+                <span className={`w-4 h-4 bg-white rounded-full transform transition-transform ${state.settings.useReadability !== false ? 'translate-x-5' : 'translate-x-1'}`}></span>
+              </span>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between text-sm text-gray-700">
+            <span>Renderer</span>
+            <select
+              value={state.settings.renderer || 'turndown'}
+              onChange={handleRendererChange}
+              className="border rounded px-2 py-1 bg-white text-gray-900"
+            >
+              <option value="turndown">Turndown (GFM)</option>
+              <option value="structurer">Structurer</option>
+            </select>
+          </div>
+
+          {/* Export Actions */}
+          {state.exportData && (
+            <ExportActions
+              onExport={handleExport}
+              disabled={!state.exportData}
             />
-            <span className={`w-10 h-6 inline-flex items-center rounded-full transition-colors ${state.settings.useReadability !== false ? 'bg-green-500' : 'bg-gray-300'}`}>
-              <span className={`w-4 h-4 bg-white rounded-full transform transition-transform ${state.settings.useReadability !== false ? 'translate-x-5' : 'translate-x-1'}`}></span>
-            </span>
-          </label>
+          )}
         </div>
+      ) : (
+        <div className="flex-1 p-4 space-y-3">
+          <Disclosure title="General" description="Capture behavior and rendering" defaultOpen>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-sm text-gray-700">
+                <span>Mode</span>
+                <div>
+                  <button
+                    onClick={() => handleModeChange('general')}
+                    className={`px-2 py-1 text-xs rounded border mr-2 ${state.settings.mode === 'general' ? 'bg-blue-600 text-white border-transparent' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                  >
+                    General
+                  </button>
+                  <button
+                    onClick={() => handleModeChange('code_docs')}
+                    className={`px-2 py-1 text-xs rounded border ${state.settings.mode === 'code_docs' ? 'bg-blue-600 text-white border-transparent' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                  >
+                    Code & Docs
+                  </button>
+                </div>
+              </div>
 
-        <div className="flex items-center justify-between text-sm text-gray-700">
-          <span>Renderer</span>
-          <select
-            value={state.settings.renderer || 'turndown'}
-            onChange={handleRendererChange}
-            className="border rounded px-2 py-1 bg-white text-gray-900"
-          >
-            <option value="turndown">Turndown (GFM)</option>
-            <option value="structurer">Structurer</option>
-          </select>
+              <div className="flex items-center justify-between text-sm text-gray-700">
+                <span>Use Readability (articles)</span>
+                <label className="inline-flex items-center cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={state.settings.useReadability !== false}
+                    onChange={toggleReadability}
+                    className="sr-only"
+                  />
+                  <span className={`w-10 h-6 inline-flex items-center rounded-full transition-colors ${state.settings.useReadability !== false ? 'bg-green-500' : 'bg-gray-300'}`}>
+                    <span className={`w-4 h-4 bg-white rounded-full transform transition-transform ${state.settings.useReadability !== false ? 'translate-x-5' : 'translate-x-1'}`}></span>
+                  </span>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between text-sm text-gray-700">
+                <span>Renderer</span>
+                <select
+                  value={state.settings.renderer || 'turndown'}
+                  onChange={handleRendererChange}
+                  className="border rounded px-2 py-1 bg-white text-gray-900"
+                >
+                  <option value="turndown">Turndown (GFM)</option>
+                  <option value="structurer">Structurer</option>
+                </select>
+              </div>
+            </div>
+          </Disclosure>
+
+          <Disclosure title="Privacy" description="Telemetry preferences">
+            <div className="flex items-center justify-between text-sm text-gray-700">
+              <span>Enable Usage Analytics</span>
+              <label className="inline-flex items-center cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={state.settings.privacy.telemetryEnabled}
+                  onChange={async () => {
+                    const next = !state.settings.privacy.telemetryEnabled;
+                    await Storage.updateSettings({ privacy: { telemetryEnabled: next } as any });
+                    setState((prev) => ({ ...prev, settings: { ...prev.settings, privacy: { telemetryEnabled: next } } }));
+                  }}
+                  className="sr-only"
+                />
+                <span className={`w-10 h-6 inline-flex items-center rounded-full transition-colors ${state.settings.privacy.telemetryEnabled ? 'bg-green-500' : 'bg-gray-300'}`}>
+                  <span className={`w-4 h-4 bg-white rounded-full transform transition-transform ${state.settings.privacy.telemetryEnabled ? 'translate-x-5' : 'translate-x-1'}`}></span>
+                </span>
+              </label>
+            </div>
+          </Disclosure>
+
+          <Disclosure title="Pro" description="Manage Pro features (coming soon)">
+            <div className="flex items-center justify-between text-sm text-gray-700">
+              <span>Pro status</span>
+              <span className={`px-2 py-0.5 text-xs rounded-full ${state.settings.isPro ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                {state.settings.isPro ? 'Active' : 'Free'}
+              </span>
+            </div>
+          </Disclosure>
         </div>
-
-        {/* Export Actions */}
-        {state.exportData && (
-          <ExportActions
-            onExport={handleExport}
-            disabled={!state.exportData}
-          />
-        )}
-      </div>
+      )}
 
       {/* Footer */}
       <div className="p-4 border-t border-gray-200">
         <div className="flex items-center justify-between">
-          <StatusStrip
-            processing={state.processing}
-            lastAction={state.exportData ? 'Content ready' : undefined}
-          />
-          
-          <div className="flex items-center space-x-2">
-            {state.settings.isPro && (
-              <ProBadge onClick={openProBundles} />
-            )}
-            
-            <button
-              onClick={openSettings}
-              className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100"
-            >
-              Settings
-            </button>
-          </div>
+          {view === 'home' ? (
+            <>
+              <StatusStrip
+                processing={state.processing}
+                lastAction={state.exportData ? 'Content ready' : undefined}
+              />
+              <div className="flex items-center space-x-2">
+                {state.settings.isPro && (
+                  <ProBadge onClick={openProBundles} />
+                )}
+                <button
+                  onClick={openSettings}
+                  className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100"
+                >
+                  Settings
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="w-full flex justify-end">
+              <button
+                onClick={backToHome}
+                className="px-3 py-2 text-xs rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+              >
+                Done
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
