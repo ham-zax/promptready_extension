@@ -256,22 +256,21 @@ export function usePopupController() {
 
   const handleCopy = useCallback(async (content: string) => {
     try {
-      await navigator.clipboard.writeText(content);
-      showToast('Copied to clipboard!', 'success');
+      console.log('handleCopy called, delegating to background script...');
+
+      // Always delegate to background script (like the working version)
+      await browser.runtime.sendMessage({
+        type: 'EXPORT_REQUEST',
+        payload: { format: 'md', action: 'copy', content },
+      });
+
+      console.log('Copy request sent to background successfully');
+      // Success toast will be shown via EXPORT_COMPLETE message
+
     } catch (error) {
-      console.error('Copy failed:', error);
-      
-      // Fallback: send to background script for clipboard access
-      try {
-        await browser.runtime.sendMessage({
-          type: 'COPY_TO_CLIPBOARD',
-          payload: { content },
-        });
-        // Don't show success toast here - wait for COPY_COMPLETE message
-      } catch (fallbackError) {
-        console.error('Fallback copy failed:', fallbackError);
-        showToast('Failed to copy to clipboard', 'error');
-      }
+      console.error('Copy request failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Copy failed';
+      showToast(`Copy failed: ${errorMessage}`, 'error');
     }
   }, [showToast]);
 

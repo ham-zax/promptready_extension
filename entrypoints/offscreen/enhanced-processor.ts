@@ -303,40 +303,73 @@ export class EnhancedOffscreenProcessor {
   private async handleCopyRequest(content: string): Promise<void> {
     console.log('[EnhancedOffscreenProcessor] Handling copy request, content length:', content.length);
 
+    // Check clipboard permission first
+    try {
+      const permission = await navigator.permissions.query({
+        name: 'clipboard-write' as PermissionName
+      });
+      console.log('[EnhancedOffscreenProcessor] Clipboard permission state:', permission.state);
+
+      if (permission.state === 'denied') {
+        throw new Error('Clipboard permission denied');
+      }
+    } catch (permError) {
+      console.warn('[EnhancedOffscreenProcessor] Permission check failed:', permError);
+      // Continue anyway - some browsers don't support permission query
+    }
+
+    // Method 1: Try navigator.clipboard
     try {
       if (!navigator.clipboard) {
         throw new Error('Clipboard API not available');
       }
 
+      console.log('[EnhancedOffscreenProcessor] Attempting navigator.clipboard.writeText...');
       await navigator.clipboard.writeText(content);
-      console.log('[EnhancedOffscreenProcessor] Content copied to clipboard via navigator.clipboard');
+      console.log('[EnhancedOffscreenProcessor] ✅ Content copied via navigator.clipboard');
+      return;
     } catch (error) {
-      console.error('[EnhancedOffscreenProcessor] navigator.clipboard failed:', error);
-      // Fallback: try using the legacy method
+      console.error('[EnhancedOffscreenProcessor] ❌ navigator.clipboard failed:', error);
+    }
+
+    // Method 2: Try execCommand fallback
+    try {
+      console.log('[EnhancedOffscreenProcessor] Attempting execCommand fallback...');
+
+      const textArea = document.createElement('textarea');
+      textArea.value = content;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      textArea.style.top = '-9999px';
+      textArea.style.opacity = '0';
+      textArea.style.pointerEvents = 'none';
+
+      document.body.appendChild(textArea);
+
+      // Focus and select with error handling
       try {
-        console.log('[EnhancedOffscreenProcessor] Trying execCommand fallback...');
-        const textArea = document.createElement('textarea');
-        textArea.value = content;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-9999px';
-        textArea.style.top = '-9999px';
-        document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
-
-        const success = document.execCommand('copy');
-        document.body.removeChild(textArea);
-
-        if (!success) {
-          throw new Error('execCommand returned false');
-        }
-
-        console.log('[EnhancedOffscreenProcessor] Content copied using execCommand fallback');
-      } catch (fallbackError) {
-        console.error('[EnhancedOffscreenProcessor] Fallback copy also failed:', fallbackError);
-        throw new Error(`Both clipboard methods failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        textArea.setSelectionRange(0, content.length);
+      } catch (selectError) {
+        console.warn('[EnhancedOffscreenProcessor] Selection failed:', selectError);
       }
+
+      const success = document.execCommand('copy');
+      document.body.removeChild(textArea);
+
+      if (!success) {
+        throw new Error('execCommand returned false');
+      }
+
+      console.log('[EnhancedOffscreenProcessor] ✅ Content copied via execCommand');
+      return;
+    } catch (fallbackError) {
+      console.error('[EnhancedOffscreenProcessor] ❌ execCommand fallback failed:', fallbackError);
     }
+
+    // If we get here, both methods failed
+    throw new Error('All clipboard methods failed in offscreen document');
   }
 
   private lastProgressTime = 0;

@@ -340,23 +340,31 @@ class EnhancedContentProcessor {
    */
   async handleExportRequest(message: any): Promise<void> {
     try {
-      const { format, action } = message.payload;
-
-      const currentExportData = await this.getCurrentExportData();
-      if (!currentExportData) {
-        throw new Error('No content available for export');
-      }
+      const { format, action, content: directContent } = message.payload;
 
       let content: string;
-      switch (format) {
-        case 'md':
-          content = currentExportData.markdown;
-          break;
-        case 'json':
-          content = JSON.stringify(currentExportData.json, null, 2);
-          break;
-        default:
-          throw new Error(`Unsupported export format: ${format}`);
+
+      // If content is provided directly (for direct copy), use it
+      if (directContent) {
+        content = directContent;
+        console.log('[Background] Using direct content for export, length:', content.length);
+      } else {
+        // Otherwise, get content from stored export data
+        const currentExportData = await this.getCurrentExportData();
+        if (!currentExportData) {
+          throw new Error('No content available for export');
+        }
+
+        switch (format) {
+          case 'md':
+            content = currentExportData.markdown;
+            break;
+          case 'json':
+            content = JSON.stringify(currentExportData.json, null, 2);
+            break;
+          default:
+            throw new Error(`Unsupported export format: ${format}`);
+        }
       }
 
       if (action === 'copy') {
@@ -389,20 +397,26 @@ class EnhancedContentProcessor {
         throw new Error('No content provided for clipboard copy');
       }
 
-      console.log('Handling clipboard copy request, content length:', content.length);
-      await this.copyToClipboard(content);
+      console.log('[Background] Handling clipboard copy request, content length:', content.length);
+
+      // Enhanced clipboard copy with better error handling
+      await this.copyToClipboardEnhanced(content);
 
       // Send success response back to popup
       await this.broadcastMessage({
         type: 'COPY_COMPLETE',
-        payload: { success: true },
+        payload: { success: true, method: 'background' },
       });
 
     } catch (error) {
-      console.error('Clipboard copy failed:', error);
+      console.error('[Background] Clipboard copy failed:', error);
       await this.broadcastMessage({
         type: 'COPY_COMPLETE',
-        payload: { success: false, error: error instanceof Error ? error.message : 'Copy failed' },
+        payload: {
+          success: false,
+          error: error instanceof Error ? error.message : 'Copy failed',
+          method: 'background'
+        },
       });
     }
   }
@@ -452,27 +466,37 @@ class EnhancedContentProcessor {
   }
 
   /**
-   * Copy content to clipboard via offscreen document
+   * Enhanced copy content to clipboard via offscreen document
    */
-  async copyToClipboard(content: string): Promise<void> {
+  async copyToClipboardEnhanced(content: string): Promise<void> {
     try {
+      console.log('[Background] Starting enhanced clipboard copy...');
       await this.ensureOffscreenDocument();
 
-      console.log('Sending OFFSCREEN_COPY message to offscreen document...');
+      console.log('[Background] Sending OFFSCREEN_COPY message to offscreen document...');
       const response = await browser.runtime.sendMessage({
         type: 'OFFSCREEN_COPY',
         payload: { content },
       });
 
       if (!response || !response.success) {
-        throw new Error(response?.error || 'Offscreen copy failed');
+        const errorMsg = response?.error || 'Offscreen copy failed';
+        console.error('[Background] Offscreen copy failed:', errorMsg);
+        throw new Error(errorMsg);
       }
 
-      console.log('Content copied to clipboard successfully');
+      console.log('[Background] ✅ Content copied to clipboard successfully via offscreen');
     } catch (error) {
-      console.error('Clipboard copy failed:', error);
+      console.error('[Background] ❌ Enhanced clipboard copy failed:', error);
       throw error;
     }
+  }
+
+  /**
+   * Legacy copy content to clipboard via offscreen document
+   */
+  async copyToClipboard(content: string): Promise<void> {
+    return this.copyToClipboardEnhanced(content);
   }
 
   /**
