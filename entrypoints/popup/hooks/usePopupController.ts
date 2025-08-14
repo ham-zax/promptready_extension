@@ -178,6 +178,18 @@ export function usePopupController() {
             payload: message.payload,
           });
           showToast('Content processed successfully!', 'success');
+
+          // Auto-copy Markdown after processing completes (like working version)
+          (async () => {
+            try {
+              await browser.runtime.sendMessage({
+                type: 'EXPORT_REQUEST',
+                payload: { format: 'md', action: 'copy' },
+              });
+            } catch (e) {
+              console.warn('Auto-copy request failed:', e);
+            }
+          })();
           break;
 
         case 'PROCESSING_ERROR':
@@ -274,7 +286,7 @@ export function usePopupController() {
     }
   }, [showToast]);
 
-  const handleExport = useCallback(async (format: 'md' | 'json') => {
+  const handleExport = useCallback(async (format: 'md' | 'json', action: 'copy' | 'download' = 'download') => {
     if (!state.exportData) {
       showToast('No content to export', 'error');
       return;
@@ -284,10 +296,14 @@ export function usePopupController() {
       const content = format === 'md' ? state.exportData.markdown : JSON.stringify(state.exportData.json, null, 2);
       const filename = `promptready-export.${format}`;
 
+      console.log(`handleExport called with format: ${format}, action: ${action}`);
+
       await browser.runtime.sendMessage({
         type: 'EXPORT_REQUEST',
-        payload: { content, filename, format },
+        payload: { content, filename, format, action },
       });
+
+      console.log('Export request sent successfully to background');
 
     } catch (error) {
       console.error('Export failed:', error);
