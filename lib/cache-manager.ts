@@ -22,16 +22,25 @@ export class CacheManager {
   private static readonly DB_VERSION = 1;
   private static readonly STORE_NAME = 'processingResults';
   private static readonly MAX_ENTRIES = 100; // Prevent unlimited growth
-  
+
   private static db: IDBDatabase | null = null;
   private static initPromise: Promise<void> | null = null;
+
+  // In-memory fallback for non-browser environments (tests, Node)
+  private static readonly hasIndexedDB: boolean = typeof indexedDB !== 'undefined';
+  private static memoryStore: Map<string, CacheEntry> = new Map();
 
   /**
    * Initialize IndexedDB connection
    */
   private static async init(): Promise<void> {
+    if (!this.hasIndexedDB) {
+      // No-op init for memory store
+      return;
+    }
+
     if (this.db) return;
-    
+
     if (this.initPromise) {
       await this.initPromise;
       return;
@@ -53,15 +62,15 @@ export class CacheManager {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
-        
+
         // Create object store with key path
         if (!db.objectStoreNames.contains(this.STORE_NAME)) {
           const store = db.createObjectStore(this.STORE_NAME, { keyPath: 'key' });
-          
+
           // Create indexes for efficient querying
           store.createIndex('timestamp', 'timestamp', { unique: false });
           store.createIndex('ttl', ['timestamp', 'ttlHours'], { unique: false });
-          
+
           console.log('[CacheManager] Object store created with indexes');
         }
       };
@@ -76,7 +85,19 @@ export class CacheManager {
   static async get(key: string): Promise<OfflineProcessingResult | null> {
     try {
       await this.init();
-      
+
+      if (!this.hasIndexedDB) {
+        const entry = this.memoryStore.get(key);
+        if (!entry) return null;
+        const now = Date.now();
+        const expiryTime = entry.timestamp + (entry.ttlHours * 60 * 60 * 1000);
+        if (now > expiryTime) {
+          this.memoryStore.delete(key);
+          return null;
+        }
+        return entry.value;
+      }
+
       if (!this.db) {
         throw new Error('Database not initialized');
       }
@@ -93,7 +114,7 @@ export class CacheManager {
 
         request.onsuccess = () => {
           const entry: CacheEntry | undefined = request.result;
-          
+
           if (!entry) {
             resolve(null);
             return;
@@ -102,7 +123,7 @@ export class CacheManager {
           // Check if entry has expired
           const now = Date.now();
           const expiryTime = entry.timestamp + (entry.ttlHours * 60 * 60 * 1000);
-          
+
           if (now > expiryTime) {
             console.log('[CacheManager] Cache entry expired, removing:', key);
             // Asynchronously remove expired entry
@@ -127,7 +148,15 @@ export class CacheManager {
   static async set(key: string, value: OfflineProcessingResult, ttlHours: number = 24): Promise<void> {
     try {
       await this.init();
-      
+
+      if (!this.hasIndexedDB) {
+        const entry: CacheEntry = { key, value, timestamp: Date.now(), ttlHours };
+        this.memoryStore.set(key, entry);
+        // Enforce size
+        await this.enforceMaxEntries();
+        return;
+      }
+
       if (!this.db) {
         throw new Error('Database not initialized');
       }
@@ -171,7 +200,12 @@ export class CacheManager {
   static async delete(key: string): Promise<void> {
     try {
       await this.init();
-      
+
+      if (!this.hasIndexedDB) {
+        this.memoryStore.delete(key);
+        return;
+      }
+
       if (!this.db) {
         throw new Error('Database not initialized');
       }
@@ -203,7 +237,12 @@ export class CacheManager {
   static async clear(): Promise<void> {
     try {
       await this.init();
-      
+
+      if (!this.hasIndexedDB) {
+        this.memoryStore.clear();
+        return;
+      }
+
       if (!this.db) {
         throw new Error('Database not initialized');
       }
@@ -235,7 +274,28 @@ export class CacheManager {
   static async getStats(): Promise<CacheStats> {
     try {
       await this.init();
-      
+
+      if (!this.hasIndexedDB) {
+        const entries = Array.from(this.memoryStore.values());
+        if (entries.length === 0) {
+          return { totalEntries: 0, totalSize: 0, oldestEntry: 0, newestEntry: 0 };
+        }
+        let totalSize = 0;
+        let oldestEntry = entries[0].timestamp;
+        let newestEntry = entries[0].timestamp;
+        for (const entry of entries) {
+          totalSize += JSON.stringify(entry.value).length;
+          oldestEntry = Math.min(oldestEntry, entry.timestamp);
+          newestEntry = Math.max(newestEntry, entry.timestamp);
+        }
+        return {
+          totalEntries: entries.length,
+          totalSize,
+          oldestEntry,
+          newestEntry,
+        };
+      }
+
       if (!this.db) {
         throw new Error('Database not initialized');
       }
@@ -252,7 +312,7 @@ export class CacheManager {
 
         request.onsuccess = () => {
           const entries: CacheEntry[] = request.result;
-          
+
           if (entries.length === 0) {
             resolve({
               totalEntries: 0,
@@ -300,7 +360,20 @@ export class CacheManager {
   static async cleanupExpired(): Promise<number> {
     try {
       await this.init();
-      
+
+      if (!this.hasIndexedDB) {
+        const now = Date.now();
+        let deleted = 0;
+        for (const [key, entry] of this.memoryStore.entries()) {
+          const expiryTime = entry.timestamp + (entry.ttlHours * 60 * 60 * 1000);
+          if (now > expiryTime) {
+            this.memoryStore.delete(key);
+            deleted++;
+          }
+        }
+        return deleted;
+      }
+
       if (!this.db) {
         throw new Error('Database not initialized');
       }
@@ -358,13 +431,21 @@ export class CacheManager {
   private static async enforceMaxEntries(): Promise<void> {
     try {
       const stats = await this.getStats();
-      
+
       if (stats.totalEntries <= this.MAX_ENTRIES) {
         return;
       }
 
       const entriesToRemove = stats.totalEntries - this.MAX_ENTRIES;
-      
+
+      if (!this.hasIndexedDB) {
+        // Remove oldest from memory store
+        const sorted = Array.from(this.memoryStore.values()).sort((a, b) => a.timestamp - b.timestamp);
+        const toDelete = sorted.slice(0, entriesToRemove);
+        toDelete.forEach(entry => this.memoryStore.delete(entry.key));
+        return;
+      }
+
       if (!this.db) {
         throw new Error('Database not initialized');
       }
@@ -384,7 +465,7 @@ export class CacheManager {
 
         request.onsuccess = (event) => {
           const cursor = (event.target as IDBRequest).result;
-          
+
           if (cursor && deletedCount < entriesToRemove) {
             store.delete(cursor.primaryKey);
             deletedCount++;

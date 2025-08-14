@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { usePopupController } from '../hooks/usePopupController';
 import { SettingsPanel } from './SettingsPanel';
 import { Toast } from './Toast';
+import type { Settings } from '@/lib/types';
 
 // Simple upgrade modal component (inline for now)
 function UpgradeModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
@@ -68,6 +69,12 @@ export default function SimplifiedPopup() {
     handleCopy,
     handleExport,
     handleUpgradeClose,
+    // Newly exposed handlers
+    showToast,
+    onSettingsChange,
+    onApiKeyChange,
+    onApiKeySave,
+    onApiKeyTest,
   } = usePopupController();
 
   const [showSettings, setShowSettings] = useState(false);
@@ -117,27 +124,13 @@ export default function SimplifiedPopup() {
       {/* Settings Panel */}
       <SettingsPanel
         isExpanded={showSettings}
-        settings={{
-          mode: state.mode,
-          isPro: state.isPro,
-          theme: 'system',
-          templates: { bundles: [] },
-          byok: {
-            provider: 'openrouter',
-            apiBase: 'https://openrouter.ai/api/v1',
-            apiKey: '',
-            model: '',
-          },
-          privacy: { telemetryEnabled: false },
-          renderer: 'turndown',
-          useReadability: true,
-        }}
-        onSettingsChange={() => {}}
-        onApiKeyChange={() => {}}
-        onApiKeySave={() => {}}
-        onApiKeyTest={() => {}}
-        hasApiKey={false}
-        apiKeyInput=""
+        settings={(state.settings || { mode: state.mode, isPro: state.isPro, theme: 'system', templates: { bundles: [] }, byok: { provider: 'openrouter', apiBase: 'https://openrouter.ai/api/v1', apiKey: '', model: '' }, privacy: { telemetryEnabled: false }, renderer: 'turndown', useReadability: true }) as Settings}
+        onSettingsChange={onSettingsChange}
+        onApiKeyChange={onApiKeyChange}
+        onApiKeySave={onApiKeySave}
+        onApiKeyTest={onApiKeyTest}
+        hasApiKey={Boolean(state.settings?.byok?.apiKey)}
+        apiKeyInput={state.apiKeyInput}
       />
 
       {/* Main Content */}

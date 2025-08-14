@@ -181,9 +181,10 @@ export class OfflineModeManager {
 
       const postProcessingTime = performance.now() - postProcessingStart;
 
-      // Step 4: Generate metadata
+      // Step 4: Generate metadata and insert cite-first block
       const selectionHash = await this.generateCacheKey(html, url, config);
       const metadata = this.generateMetadata(title, url, selectionHash);
+      processedMarkdown = this.insertCiteFirstBlock(processedMarkdown, metadata);
 
       // Step 5: Quality assessment
       const qualityScore = this.assessQuality(processedMarkdown, html, warnings, errors);
@@ -591,5 +592,43 @@ export class OfflineModeManager {
       console.error('[OfflineModeManager] Failed to cleanup expired cache:', error);
       return 0;
     }
+  }
+
+  /**
+   * Insert cite-first metadata block (and ensure H1 title) at the top of markdown
+   */
+  private static insertCiteFirstBlock(markdown: string, metadata: ExportMetadata): string {
+    let result = markdown || '';
+
+    const lines = result.split('\n');
+    // Find first non-empty line
+    const firstContentIndex = lines.findIndex(l => l.trim().length > 0);
+    const firstLine = firstContentIndex >= 0 ? lines[firstContentIndex] : '';
+
+    const hasTopH1 = /^#\s+/.test(firstLine);
+    const hasCiteBlock = /^>\s*Source:/m.test(result) && /^>\s*Captured:/m.test(result);
+
+    const h1Title = `# ${metadata.title || 'Untitled'}`;
+    const citeBlock = [
+      `> Source: ${metadata.url || ''}`,
+      `> Captured: ${metadata.capturedAt || ''}`,
+      `> Hash: ${metadata.selectionHash || ''}`,
+      ''
+    ].join('\n');
+
+    const parts: string[] = [];
+
+    if (!hasTopH1) {
+      parts.push(h1Title, '');
+    }
+    if (!hasCiteBlock) {
+      parts.push(citeBlock);
+    }
+
+    if (parts.length === 0) {
+      return result; // nothing to insert
+    }
+
+    return parts.join('\n') + result.replace(/^\n+/, '\n');
   }
 }

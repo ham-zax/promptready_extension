@@ -38,7 +38,7 @@ export function ByokSettings({
         )}
       </div>
 
-      {settings.isPro ? (
+      {(settings.isPro || settings.flags?.byokEnabled) ? (
         <div className="space-y-3 pl-6">
           {/* API Key Input */}
           <div className="space-y-2">
@@ -107,7 +107,7 @@ export function ByokSettings({
       ) : (
         <div className="pl-6 py-3 bg-purple-50 rounded-md border border-purple-200">
           <p className="text-sm text-purple-700 mb-2">
-            Upgrade to Pro to configure AI settings
+            BYOK is available but Pro features are locked. Enter your key to enable AI Mode.
           </p>
           <p className="text-xs text-purple-600">
             Use your own OpenAI or OpenRouter API key for enhanced processing

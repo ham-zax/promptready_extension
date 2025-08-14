@@ -4,11 +4,16 @@
 import { useReducer, useEffect, useCallback } from 'react';
 import { browser } from 'wxt/browser';
 import { Storage } from '@/lib/storage';
+import type { Settings } from '@/lib/types';
+import { BYOKClient } from '@/pro/byok-client';
 
 // State types
 interface PopupState {
   mode: 'offline' | 'ai';
   isPro: boolean;
+  settings?: Settings;
+  hasApiKey: boolean;
+  apiKeyInput: string;
   processing: {
     status: 'idle' | 'capturing' | 'cleaning' | 'structuring' | 'exporting' | 'complete' | 'error';
     message?: string;
@@ -29,7 +34,9 @@ interface PopupState {
 
 // Action types
 type PopupAction =
-  | { type: 'SETTINGS_LOADED'; payload: { mode: 'offline' | 'ai'; isPro: boolean } }
+  | { type: 'SETTINGS_LOADED'; payload: { mode: 'offline' | 'ai'; isPro: boolean; flags?: { aiModeEnabled: boolean; byokEnabled: boolean; trialEnabled: boolean }; settings: Settings } }
+  | { type: 'SETTINGS_UPDATED'; payload: { settings: Settings } }
+  | { type: 'SET_APIKEY_INPUT'; payload: { value: string } }
   | { type: 'MODE_CHANGED'; payload: { mode: 'offline' | 'ai' } }
   | { type: 'CAPTURE_START' }
   | { type: 'PROCESSING_PROGRESS'; payload: { status: string; message?: string; progress?: number } }
@@ -43,12 +50,31 @@ type PopupAction =
 // Reducer function
 function popupReducer(state: PopupState, action: PopupAction): PopupState {
   switch (action.type) {
-    case 'SETTINGS_LOADED':
+    case 'SETTINGS_LOADED': {
+      const flags = action.payload.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false };
+      const effectiveMode = flags.aiModeEnabled ? action.payload.mode : 'offline';
       return {
         ...state,
-        mode: action.payload.mode,
+        mode: effectiveMode,
         isPro: action.payload.isPro,
+        settings: action.payload.settings,
+        hasApiKey: Boolean(action.payload.settings?.byok?.apiKey),
+        apiKeyInput: '',
       };
+    }
+
+    case 'SETTINGS_UPDATED': {
+      return {
+        ...state,
+        settings: action.payload.settings,
+        isPro: action.payload.settings.isPro,
+        hasApiKey: Boolean(action.payload.settings?.byok?.apiKey),
+      };
+    }
+
+    case 'SET_APIKEY_INPUT': {
+      return { ...state, apiKeyInput: action.payload.value };
+    }
 
     case 'MODE_CHANGED':
       return {
@@ -119,6 +145,9 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
 const initialState: PopupState = {
   mode: 'offline',
   isPro: false,
+  settings: undefined,
+  hasApiKey: false,
+  apiKeyInput: '',
   processing: { status: 'idle' },
   exportData: null,
   toast: null,
@@ -144,7 +173,7 @@ export function usePopupController() {
         const settings = await Storage.getSettings();
         dispatch({
           type: 'SETTINGS_LOADED',
-          payload: { mode: settings.mode, isPro: settings.isPro },
+          payload: { mode: settings.mode, isPro: settings.isPro, flags: settings.flags, settings },
         });
       } catch (error) {
         console.error('Failed to load settings:', error);
@@ -224,13 +253,21 @@ export function usePopupController() {
 
   // Handler functions
   const handleModeToggle = useCallback(async () => {
+    const settings = await Storage.getSettings();
+    const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false };
+
+    if (!flags.aiModeEnabled) {
+      showToast('AI Mode is not available yet', 'info');
+      return;
+    }
+
     const newMode = state.mode === 'offline' ? 'ai' : 'offline';
 
-    // 🔓 AI mode unlocked for testing/development
-    // if (newMode === 'ai' && !state.isPro) {
-    //   dispatch({ type: 'SHOW_UPGRADE' });
-    //   return;
-    // }
+    // Gate AI mode behind Pro/BYOK for Phase 1
+    if (newMode === 'ai' && !state.isPro) {
+      dispatch({ type: 'SHOW_UPGRADE' });
+      return;
+    }
 
     try {
       await Storage.updateSettings({ mode: newMode });
@@ -241,6 +278,70 @@ export function usePopupController() {
       showToast('Failed to update mode', 'error');
     }
   }, [state.mode, state.isPro, showToast]);
+
+  const onSettingsChange = useCallback(async (partial: Partial<Settings>) => {
+    try {
+      await Storage.updateSettings(partial);
+      const updated = await Storage.getSettings();
+      dispatch({ type: 'SETTINGS_UPDATED', payload: { settings: updated } });
+      showToast('Settings saved', 'success');
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+      showToast('Failed to save settings', 'error');
+    }
+  }, [showToast]);
+
+  const onApiKeyChange = useCallback((value: string) => {
+    dispatch({ type: 'SET_APIKEY_INPUT', payload: { value } });
+  }, []);
+
+  const onApiKeySave = useCallback(async () => {
+    try {
+      const key = state.apiKeyInput.trim();
+      await Storage.setApiKey(key);
+      // Mark as Pro when BYOK key is present
+      await Storage.updateSettings({ isPro: Boolean(key) });
+      const updated = await Storage.getSettings();
+      dispatch({ type: 'SETTINGS_UPDATED', payload: { settings: updated } });
+      showToast('API key saved', 'success');
+    } catch (error) {
+      console.error('Failed to save API key:', error);
+      showToast('Failed to save API key', 'error');
+    }
+  }, [state.apiKeyInput, showToast]);
+
+  const onApiKeyTest = useCallback(async () => {
+    try {
+      const settings = await Storage.getSettings();
+      const key = settings.byok.apiKey;
+      if (!key) {
+        showToast('Please enter and save an API key first', 'info');
+        return;
+      }
+      const result = await BYOKClient.makeRequest(
+        { prompt: 'ping', maxTokens: 4, temperature: 0 },
+        { apiBase: settings.byok.apiBase, apiKey: key, model: settings.byok.model },
+        { requireExplicitConsent: false }
+      );
+      if (result.content) {
+        showToast('BYOK connection OK', 'success');
+      } else {
+        showToast('BYOK test completed (no content)', 'info');
+      }
+    } catch (error) {
+      const msg = (error instanceof Error ? error.message : String(error));
+      console.error('BYOK test failed:', msg);
+      if (msg.includes('timed out')) {
+        showToast('BYOK test timed out. Check network or try again.', 'error');
+      } else if (msg.includes('401') || msg.toLowerCase().includes('unauthorized')) {
+        showToast('BYOK test failed: Unauthorized (check API key).', 'error');
+      } else if (msg.includes('429') || msg.toLowerCase().includes('rate')) {
+        showToast('BYOK test failed: Rate limited. Please wait and retry.', 'error');
+      } else {
+        showToast(`BYOK test failed: ${msg.slice(0, 120)}`, 'error');
+      }
+    }
+  }, [showToast]);
 
   const handleCapture = useCallback(async () => {
     try {
@@ -322,18 +423,24 @@ export function usePopupController() {
   return {
     // State
     state,
-    
+
     // Computed properties
     isProcessing,
     hasContent,
-    
+
     // Handlers
     handleModeToggle,
     handleCapture,
     handleCopy,
     handleExport,
     handleUpgradeClose,
-    
+
+    // Settings/BYOK handlers
+    onSettingsChange,
+    onApiKeyChange,
+    onApiKeySave,
+    onApiKeyTest,
+
     // Utilities
     showToast,
   };

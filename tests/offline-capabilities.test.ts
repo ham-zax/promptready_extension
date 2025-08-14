@@ -1,12 +1,13 @@
 // Comprehensive test suite for the offline capabilities system
 // Tests all components and integration scenarios
 
-import { OfflineModeManager } from '../core/offline-mode-manager.js';
-import { ReadabilityConfigManager } from '../core/readability-config.js';
-import { TurndownConfigManager } from '../core/turndown-config.js';
-import { MarkdownPostProcessor } from '../core/post-processor.js';
-import { ContentQualityValidator } from '../core/content-quality-validator.js';
-import { ErrorHandler } from '../core/error-handler.js';
+import { describe, test, expect } from 'vitest';
+import { OfflineModeManager } from '../core/offline-mode-manager';
+import { ReadabilityConfigManager } from '../core/readability-config';
+import { TurndownConfigManager } from '../core/turndown-config';
+import { MarkdownPostProcessor } from '../core/post-processor';
+import { ContentQualityValidator } from '../core/content-quality-validator';
+import { ErrorHandler } from '../core/error-handler';
 
 // Mock DOM environment for testing
 const mockDOMParser = {

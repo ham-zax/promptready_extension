@@ -27,13 +27,13 @@ const DEFAULT_SETTINGS: Settings = {
   byok: {
     provider: 'openrouter',
     apiBase: 'https://openrouter.ai/api/v1',
-    apiKey: 'test-api-key-for-development', // 🔓 Mock API key for testing
+    apiKey: '', // No default key in defaults
     model: 'anthropic/claude-3-sonnet',
   },
   privacy: {
     telemetryEnabled: false,
   },
-  isPro: true, // 🔓 UNLOCKED FOR TESTING/DEVELOPMENT
+  isPro: false, // Default to Free; Pro features gated via flags and BYOK
   renderer: 'turndown',
   useReadability: true,
   processing: {
@@ -46,6 +46,11 @@ const DEFAULT_SETTINGS: Settings = {
       preserveTables: true,
       preserveLinks: true,
     },
+  },
+  flags: {
+    aiModeEnabled: false,
+    byokEnabled: true,
+    trialEnabled: false,
   },
 };
 

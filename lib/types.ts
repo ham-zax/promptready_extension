@@ -39,6 +39,19 @@ export interface Settings {
   };
 }
 
+// Feature flags for phased rollout
+export interface FeatureFlags {
+  aiModeEnabled: boolean;   // Gate AI mode availability
+  byokEnabled: boolean;     // Gate BYOK settings usage
+  trialEnabled: boolean;    // Gate trial/credit experience
+}
+
+// Extend Settings with optional feature flags (interface merging)
+export interface Settings {
+  flags?: FeatureFlags;
+}
+
+
 // =============================================================================
 // Export Data Models (PRD Section 14.1)
 // =============================================================================
