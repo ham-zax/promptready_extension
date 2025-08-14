@@ -1,19 +1,31 @@
 import { browser } from 'wxt/browser';
+import { ContentCapture } from '../content/capture.js';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_idle',
   world: 'ISOLATED',
-  
+
   main(ctx) {
-    // Import capture module at runtime
-    import('../content/capture.js').then(({ ContentCapture }) => {
-      console.log('ContentCapture module loaded');
-      // Listen for capture requests from background or popup
-      browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+    console.log('PromptReady content script initializing...');
+    console.log('ContentCapture module loaded');
+
+    // Immediately send a ready signal to background
+    browser.runtime.sendMessage({ type: 'CONTENT_SCRIPT_READY' }).catch(err => {
+      console.log('Failed to send ready signal (background may not be ready yet):', err);
+    });
+
+    // Listen for capture requests from background or popup
+    browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         try {
           console.log('Content script received message:', message.type);
-          
+
+          // Health check ping
+          if (message.type === 'PING') {
+            sendResponse({ ok: true });
+            return true;
+          }
+
           if (message.type === 'CAPTURE_SELECTION' || message.type === 'CAPTURE_SELECTION_ONLY') {
             console.log('Starting content capture...');
             const result = await ContentCapture.captureSelection();
@@ -138,9 +150,6 @@ export default defineContentScript({
         }
       });
       
-      console.log('PromptReady content script loaded');
-    }).catch(error => {
-      console.error('Failed to load content capture module:', error);
-    });
+    console.log('PromptReady content script loaded');
   },
 });

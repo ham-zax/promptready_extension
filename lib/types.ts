@@ -25,6 +25,18 @@ export interface Settings {
   renderer?: 'structurer' | 'turndown';
   // Enable/disable Readability for general mode
   useReadability?: boolean;
+  // Processing profile configuration
+  processing?: {
+    profile: string; // Selected processing profile ID
+    readabilityPreset: string; // Readability extraction preset
+    turndownPreset: string; // Markdown conversion preset
+    customOptions: {
+      preserveCodeBlocks: boolean;
+      includeImages: boolean;
+      preserveTables: boolean;
+      preserveLinks: boolean;
+    };
+  };
 }
 
 // =============================================================================

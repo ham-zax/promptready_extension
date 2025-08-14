@@ -27,15 +27,26 @@ const DEFAULT_SETTINGS: Settings = {
   byok: {
     provider: 'openrouter',
     apiBase: 'https://openrouter.ai/api/v1',
-    apiKey: '',
-    model: '',
+    apiKey: 'test-api-key-for-development', // 🔓 Mock API key for testing
+    model: 'anthropic/claude-3-sonnet',
   },
   privacy: {
     telemetryEnabled: false,
   },
-  isPro: false,
+  isPro: true, // 🔓 UNLOCKED FOR TESTING/DEVELOPMENT
   renderer: 'turndown',
   useReadability: true,
+  processing: {
+    profile: 'standard',
+    readabilityPreset: 'standard',
+    turndownPreset: 'standard',
+    customOptions: {
+      preserveCodeBlocks: true,
+      includeImages: true,
+      preserveTables: true,
+      preserveLinks: true,
+    },
+  },
 };
 
 // =============================================================================

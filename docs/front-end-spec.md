@@ -1,134 +1,152 @@
-# Front-End UX Specification — PromptReady Extension (MVP)
+### **Document: `docs/front-end-spec.md` (Complete & Final)**
 
-Author: Sally (UX Expert)
-Inputs: `docs/vire-clean-structure-prd-backlog.md`
-Version: 0.1 (MVP)
+```markdown
+# PromptReady UI/UX Specification v1.1
 
-## 1. Product Context
-PromptReady is a Chrome MV3 extension that cleans, structures, and exports selected page content into Markdown/JSON with citations. It targets Developers and Researchers with a Pro tier offering Prompt-Ready Bundles and BYOK validation via OpenAI-compatible endpoints (default: OpenRouter).
+*   **Status:** FINAL - Approved for Development
+*   **Author:** Sally (UX)
 
-### 1.1 Tooling & Conventions (MVP)
-- Framework: React 18 (React 19 acceptable if supported by WXT)
-- Builder: WXT (MV3) with TypeScript
-- Styling: TailwindCSS with `@tailwind base; @tailwind components; @tailwind utilities;`
-- MV3 constraints: no inline scripts/styles; use HTML entrypoints and bundled JS/CSS
-- MVP scope: No server-side storage or cloud synchronization; all data is processed locally and stored in `chrome.storage.local` (with optional AES-GCM passphrase as per Architecture).
-- WXT entrypoints (expected):
-  - `entrypoints/popup.html` + `entrypoints/popup.tsx`
-  - `entrypoints/options.html` + `entrypoints/options.tsx`
-  - Background and content scripts live under `entrypoints/` (not part of this UX deliverable)
+## 1. Introduction
 
-## 2. Personas & Primary Jobs-To-Be-Done (JTBD)
-- Developer
-  - Turn API docs, issues/PRs, and blog posts into clean MD with preserved code blocks.
-  - Export JSON for downstream tooling/tests.
-  - Maintain citations for reproducibility.
-- Researcher/Student
-  - Extract article content into structured notes with headings and quotes.
-  - Keep canonical URL and timestamp for proper referencing.
+This document defines the user experience goals, information architecture, user flows, and visual design specifications for PromptReady's user interface. It serves as the foundation for visual design and frontend development, ensuring a cohesive and user-centered experience.
 
-## 3. Information Architecture (MVP)
-- Popup (primary quick actions)
-  - Mode toggle: General | Code & Docs
-  - Primary CTA: Clean & Export
-  - Secondary: Copy to Clipboard (MD/JSON), Download (MD/JSON)
-  - Status strip: last action, processing state, and errors
-  - Pro badge: indicates BYOK-enabled features; opens Bundles (Pro) when available
-- Settings (secondary, persistent)
-  - General: default mode, hotkey info, file naming convention
-  - Templates: list of bundles (MVP: placeholder list)
-  - BYOK: provider (OpenRouter), apiBase (editable), apiKey (masked), model dropdown or manual name
-  - Privacy: telemetry toggle (opt-in)
-- Pro Bundles Editor (MVP scope: basic view)
-  - System, Task, Content textareas
-  - Validate button (uses BYOK if enabled)
-  - Save/Export bundle
+### 1.1. Overall UX Goals & Principles
 
-## 4. Global Interaction Patterns
-- Default hotkey: Ctrl/Cmd+Shift+P (user-configurable post-MVP)
-- Keyboard-first: All controls tabbable; visible focus; ESC closes modals
-- Feedback: Non-blocking toasts for success/error; inline validation where applicable
-- File naming: `<title>__YYYY-MM-DD__hhmm__hash.(md|json)` with sanitization
+#### Target User Personas
+*   **The Developer:** Needs efficient, precise capture of code and technical documentation.
+*   **The Researcher / Student:** Needs clean text with reliable citations for academic work.
+*   **The Content Creator:** Needs a fast way to strip boilerplate for content repurposing.
 
-## 5. Primary Flows (Step-by-Step)
-### 5.1 Clean & Export (Popup)
-1) User presses Ctrl/Cmd+Shift+P or clicks extension icon to open popup
-2) Selects Mode (General | Code & Docs) if needed
-3) Clicks Clean & Export
-4) Content script captures selection, performs cleaning/structuring
-5) Popup renders result summary and provides two actions:
-   - Copy Markdown | Download Markdown
-   - Copy JSON | Download JSON
-6) Toast: “Export ready” + file name preview
+#### Usability Goals
+*   **Zero to Magic in 30 Seconds:** First-time users must get value within 30 seconds.
+*   **One-Click Workflow:** The core loop should feel like a single, instantaneous action.
+*   **Effortless Clarity:** Users must instantly understand the UI, credit system, and the flexible upgrade paths.
 
-Edge cases:
-- No selection detected → show inline hint: “Select content on the page, then try again.” with a Try Again button
-- Very large selection → show progress indicator with yielding; allow Cancel
+#### Design Principles
+1.  **Simplicity Above All:** If it adds complexity to the primary view, it will be removed or progressively disclosed.
+2.  **Instantaneous Feedback:** Every action must have an immediate visual response.
+3.  **Progressive Disclosure:** Show only what is needed, when it is needed. The powerful BYOK options are hidden until explicitly requested.
+4.  **Clarity & Transparency:** Be brutally honest about how the freemium model and BYOK security works.
 
-### 5.2 Pro: Validate/Format Bundle (MVP minimal)
-1) In Settings → BYOK, user enters apiKey, edits apiBase if needed (OpenRouter default)
-2) Model dropdown shows known models; user can type manual name
-3) In Bundles, user opens a bundle and clicks Validate
-4) Consent dialog: “Using your key to format/validate. Visible network indicator. Continue?”
-5) On success: show “Validated” badge; on failure: show error toast and fall back to local output
+### 1.2. Change Log
+| Date | Version | Description | Author |
+| :--- | :--- | :--- | :--- |
+| August 20, 2025 | 1.1 | Re-imagined BYOK flow to support multi-provider and direct setup. Added new components. | Sally (UX) |
+| August 20, 2025 | 1.0 | Initial draft of the UI/UX Specification. | Sally (UX) |
 
-### 5.3 Settings Update
-- Changes persist immediately to `chrome.storage.local`
-- Secret fields masked; reveal-on-press eye icon
-- Telemetry is off by default; opt-in CTA explains minimal event schema
+## 2. Information Architecture (IA)
 
-## 6. Wireframe Specs (Textual)
-### Popup Layout
-- Header: Logo + Mode Toggle segmented control
-- Body: Description line; large CTA “Clean & Export”
-- Actions: Two split buttons
-  - Copy (dropdown: Markdown, JSON)
-  - Download (dropdown: Markdown, JSON)
-- Footer: Status strip (icon + short text), Pro badge (click → Bundles)
-Notes: fixed width ~360–400px; keyboard-first focus order; high-contrast theme via Tailwind utilities
+#### Screen Inventory / State Map
+The entire user experience is contained within the main popup. Here is a map of its primary states, including the new BYOK configuration path.
 
-### Settings Layout
-- Tabs (left rail or top): General | Templates | BYOK | Privacy
-- General: Mode default selector; hotkey info (read-only for MVP)
-- Templates: Table of bundles (name, updatedAt) with View/Edit (MVP simple)
-- BYOK: Provider (OpenRouter), apiBase (text), apiKey (password), model (select + free text)
-- Privacy: Telemetry toggle with consent copy; link to privacy policy
+```mermaid
+graph TD
+    A[Main View] --> B{Has Credits?};
+    B -- Yes --> C[AI Mode Enabled];
+    B -- No --> D[Upgrade Prompt];
 
-## 7. Component Inventory (MVP)
-- ModeToggle (General | Code & Docs)
-- PrimaryButton (Clean & Export)
-- SplitButton (Copy/Download with menu)
-- Toast / InlineAlert (success, error, info)
-- TextInput (apiBase), SecretInput (apiKey), SelectWithFreeEntry (model)
-- Tabs, Table (templates), Badge (Pro), StatusStrip
-- ModalDialog (consent)
+    A --> E[Clicks Settings Icon ⚙️];
+    D --> F[Clicks 'Upgrade' Button];
+    E --> G[BYOK Choice View];
+    F --> G;
 
-## 8. States & Validation
-- Loading: spinner and descriptive verb (“Cleaning…”, “Structuring…”, “Exporting…”) with p95 under 1.5s
-- Errors: permission denied (clipboard/downloads), network error (BYOK), no selection, malformed content
-- Recovery: retry, fall back to local, instructions for permissions
+    subgraph BYOK Configuration
+        G --> H[Selects OpenRouter];
+        G --> I[Selects Manual];
+        H --> J[OpenRouter Config View];
+        I --> K[Manual Config View];
+        J --> L{Save & Test};
+        K --> L;
+    end
 
-## 9. Accessibility (MVP)
-- Tab order defined: Logo → ModeToggle → Clean & Export → Copy → Download → Footer links
-- Focus trap in popup; ESC closes dropdowns/modals
-- ARIA labels for buttons and inputs; live region for toasts
-- Contrast ≥ 4.5:1; visible focus ring
+    L -- Success --> M[Active 'Pro' View];
+    L -- Fail --> J;
+    M --> A;
+```
 
-## 10. Telemetry (opt-in)
-- Events (if enabled):
-  - clean: { mode, durationMs }
-  - export: { type: "md" | "json", fileName }
-  - bundle_use: { action: "validate" | "export", model }
+#### Navigation Structure
+*   **Primary:** "Offline / AI" toggle.
+*   **Secondary:** A subtle "Settings" (gear icon) provides a direct path to the BYOK configuration.
+*   **Tertiary:** Contextual prompts (e.g., "Upgrade with your API Key") provide an alternative path to the BYOK configuration.
 
-## 11. Acceptance Criteria (UX)
-- Popup usable entirely via keyboard; screen-reader announcements for state changes
-- Clean & Export produces usable output on 85% of pages in the matrix without manual edits
-- BYOK consent required before any network call; visible indicator during call
-- File names follow convention and are sanitized
+## 3. User Flows
 
-## 12. Out of Scope (MVP)
-- i18n; advanced templates; multi-page binder; OCR; pipelines
+#### Flow 1: First Use & Core Cleanup (Unchanged)
+*   **Goal:** Clean and copy web content for the first time.
+*   **Entry:** User clicks extension icon.
+*   **Success:** Clean Markdown on clipboard in <10 seconds.
+*   **Key Detail:** The popup closes automatically on success.
 
-## 13. Open Questions
-- Minimum Chromium version to pin at release (target ~12 months back)
-- Exact model list to seed for OpenRouter
+#### Flow 2: Proactive BYOK Setup (New)
+*   **Goal:** A power user wants to use their own key immediately, without waiting for the free trial to end.
+*   **Entry:** User, at any time, clicks the subtle "Settings" (gear icon) in the popup.
+*   **Flow:**
+    1.  The UI transitions to the **BYOK Choice View** ("Connect your AI Provider").
+    2.  The user selects either "OpenRouter" or "Manual".
+    3.  The UI updates to the corresponding **Configuration View**.
+    4.  The user enters their details and clicks "Save & Test".
+    5.  Upon successful validation, the UI transitions to the **Active 'Pro' View**.
+
+#### Flow 3: Upgrade to BYOK (Re-imagined)
+*   **Goal:** Restore AI Mode after credits are depleted, with maximum flexibility.
+*   **Entry:** User with 0 credits tries to use AI Mode.
+*   **Flow:**
+    1.  The UI shows the **Upgrade Prompt** ("You're out of credits.").
+    2.  User clicks the "Upgrade" button, which takes them to the **BYOK Choice View**.
+    3.  **Path A (OpenRouter):**
+        *   User selects "OpenRouter".
+        *   User pastes their key into the input. Clicks "Save & Test".
+        *   On success, a background API call fetches the models their key has access to.
+        *   The **searchable `Combobox` for "Model" is populated dynamically.**
+        *   The user selects a model and saves. The UI updates to the "Pro" state.
+    4.  **Path B (Manual):**
+        *   User selects "Manual".
+        *   User fills in the `API Base URL`, `API Key`, and `Model Name`.
+        *   User clicks "Save & Test".
+        *   On success, the UI updates to the "Pro" state.
+*   **Destructive Action:** If a user clicks the "Remove" button on a saved key, an `AlertDialog` appears to confirm the action, preventing accidental deletion.
+
+## 4. Wireframes & Mockups
+
+*   **Design Tool:** This document is the primary design spec.
+*   **Key Screen States:**
+    *   **Main View:** As previously defined (Toggle, Status, Button).
+    *   **BYOK Choice View:** A clean view with two large, clear buttons: "OpenRouter" and "Manual".
+    *   **BYOK Configuration View:** A settings-like view that dynamically shows the correct inputs based on the user's choice (OpenRouter vs. Manual).
+    *   **Active 'Pro' View:** The main view, but with the status text updated to "Using your API Key" and the saved configuration accessible via the gear icon.
+
+## 5. Component Library / Design System
+
+*   **Approach:** We will use our existing **Tailwind CSS** and **Shadcn/UI** installation.
+*   **Core Components:**
+    1.  **Mode Toggle:** `Toggle Group`
+    2.  **Primary Button:** `Button`
+    3.  **Status Notifier:** `Toast`
+    4.  **Input Field:** `Input` (with visibility toggle)
+    5.  **Model Selector (New):** `Combobox` (a searchable dropdown for OpenRouter models).
+    6.  **Confirmation Dialog (New):** `AlertDialog` (for confirming the "Remove Key" action).
+
+## 6. Branding & Style Guide
+
+*   **Visual Identity:** Clean, modern, efficient, and professional.
+*   **Color Palette:** A primary blue, destructive red, success green, and neutral `slate` grays.
+*   **Typography:** A modern, sans-serif system font stack (`font-sans`).
+*   **Iconography:** `lucide-react` library, used sparingly.
+
+## 7. Accessibility Requirements
+
+*   **Standard:** Target **WCAG 2.1 Level AA** compliance.
+*   **Key Requirements:** Ensure high color contrast, visible keyboard focus indicators, full keyboard navigability, and proper ARIA attributes.
+
+## 8. Responsiveness, Animation & Performance
+
+*   **Responsiveness:** Layout will be robust within the fixed-size popup container.
+*   **Animation:** All animations will be subtle, fast, and meaningful (e.g., slide-in toasts, scale-down on button press).
+*   **Performance:** Popup must load in **< 200ms** and all UI interactions must respond in **< 100ms**.
+
+## 9. Next Steps
+
+*   **Action:** Handoff this finalized specification to the development team.
+*   **Checklist:** All key flows, including the new advanced BYOK path, are documented and complete.
+
+```
