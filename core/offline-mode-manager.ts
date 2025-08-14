@@ -495,27 +495,43 @@ export class OfflineModeManager {
    */
   private static splitIntoChunks(html: string, chunkSize: number): string[] {
     const chunks: string[] = [];
-    let currentChunk = '';
-    
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    const elements = Array.from(doc.body.children);
-    
-    for (const element of elements) {
-      const elementHtml = element.outerHTML;
-      
-      if (currentChunk.length + elementHtml.length > chunkSize && currentChunk.length > 0) {
-        chunks.push(currentChunk);
-        currentChunk = elementHtml;
-      } else {
-        currentChunk += elementHtml;
+
+    // Fallback: if DOMParser isn't available (e.g., certain test environments), slice by length
+    if (typeof DOMParser === 'undefined') {
+      for (let i = 0; i < html.length; i += chunkSize) {
+        chunks.push(html.slice(i, i + chunkSize));
       }
+      return chunks;
     }
-    
-    if (currentChunk.length > 0) {
-      chunks.push(currentChunk);
+
+    let currentChunk = '';
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const elements = Array.from(doc.body.children);
+
+      for (const element of elements) {
+        const elementHtml = element.outerHTML;
+
+        if (currentChunk.length + elementHtml.length > chunkSize && currentChunk.length > 0) {
+          chunks.push(currentChunk);
+          currentChunk = elementHtml;
+        } else {
+          currentChunk += elementHtml;
+        }
+      }
+
+      if (currentChunk.length > 0) {
+        chunks.push(currentChunk);
+      }
+
+      return chunks;
+    } catch (e) {
+      // Last-resort fallback if parsing fails
+      for (let i = 0; i < html.length; i += chunkSize) {
+        chunks.push(html.slice(i, i + chunkSize));
+      }
+      return chunks;
     }
-    
-    return chunks;
   }
 
   /**

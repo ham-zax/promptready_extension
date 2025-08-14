@@ -16,6 +16,8 @@ describe('MarkdownPostProcessor', () => {
     const { markdown } = MarkdownPostProcessor.process(input, { addTableOfContents: true });
     expect(markdown).toContain('## Table of Contents');
     expect(markdown).toContain('- [A](#a)');
+    // Snapshot to detect structural regressions in TOC placement and links
+    expect(markdown).toMatchSnapshot();
   });
 });
 

@@ -1,0 +1,45 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Offline Capabilities System > Integration Tests > should process complete workflow without errors 1`] = `
+"# Test Article
+
+> Source: https://example.com/article
+> Captured: 2025-08-14T23:18:59.081Z
+> Hash: https://example.com/article-69f7fe5156a1069f-e4038a5289f1a9c2
+Test Article
+
+# Main Title
+
+## Table of Contents
+
+- [Main Title](#main-title)
+- [Section 1](#section-1)
+- [Section 2](#section-2)
+- [Conclusion](#conclusion)
+
+
+Introduction paragraph with some content.
+
+## Section 1
+
+Content for section 1 with **bold text**.
+
+- List item 1
+
+- List item 2
+
+## Section 2
+
+More content with [a link](https://example.com).
+
+\`\`\`javascript
+
+\`\`\`
+            console.log('Hello, world!');\`\`\`
+\`\`\`
+
+## Conclusion
+
+Final thoughts and summary.
+"
+`;

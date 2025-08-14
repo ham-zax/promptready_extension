@@ -50,6 +50,14 @@ globalThis.browser = {
   },
 };
 
+// Ensure DOMParser is available globally in tests using jsdom
+// Some environments expose it on window only
+// @ts-ignore
+if (typeof globalThis.DOMParser === 'undefined' && typeof window !== 'undefined' && (window as any).DOMParser) {
+  // @ts-ignore
+  globalThis.DOMParser = (window as any).DOMParser;
+}
+
 beforeAll(() => {
   // Nothing for now; placeholder for future setup
 });

@@ -9,28 +9,8 @@ import { MarkdownPostProcessor } from '../core/post-processor';
 import { ContentQualityValidator } from '../core/content-quality-validator';
 import { ErrorHandler } from '../core/error-handler';
 
-// Mock DOM environment for testing
-const mockDOMParser = {
-  parseFromString: (html: string, type: string) => {
-    // Simple mock implementation
-    return {
-      body: {
-        innerHTML: html,
-        textContent: html.replace(/<[^>]*>/g, ''),
-        children: [],
-        querySelectorAll: () => [],
-        querySelector: () => null,
-      },
-      title: 'Test Document',
-      cloneNode: () => mockDOMParser.parseFromString(html, type),
-    };
-  },
-};
-
-// @ts-ignore
-global.DOMParser = function() {
-  return mockDOMParser;
-};
+// Use real jsdom environment provided by Vitest (configured in package.json)
+// No custom DOMParser mock to ensure Readability.js works against a realistic DOM
 
 describe('Offline Capabilities System', () => {
   
@@ -395,6 +375,9 @@ describe('Offline Capabilities System', () => {
       
       expect(qualityReport.overallScore).toBeGreaterThan(70);
       expect(qualityReport.passesThreshold).toBe(true);
+
+      // Snapshot the final markdown for structural stability regression coverage
+      expect(result.markdown).toMatchSnapshot();
     });
     
     test('should handle edge cases gracefully', async () => {
