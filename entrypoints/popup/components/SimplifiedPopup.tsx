@@ -60,7 +60,11 @@ export default function SimplifiedPopup() {
         {/* Credits and Mode Toggle */}
         <div className="mt-3 flex items-center justify-between">
           <div className="text-xs opacity-90">
-            {state.isPro ? `Credits: ${state.credits?.remaining.toLocaleString() || 0}` : ' '}
+            {state.isPro
+              ? ` `
+              : state.trial && !state.trial.hasExhausted
+              ? `You have ${state.trial.credits} credits left.`
+              : ' '}
           </div>
           <div className="flex items-center space-x-2">
             <span className="text-sm opacity-90">Processing Mode</span>

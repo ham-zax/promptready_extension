@@ -10,11 +10,12 @@ export default defineConfig({
     description: "Clean and structure webpage content into prompt-ready formats with citations",
     permissions: [
       "activeTab",
-      "storage", 
+      "storage",
       "scripting",
       "downloads",
       "clipboardWrite",
-      "offscreen"
+      "offscreen",
+      "identity"
     ],
     commands: {
       "capture-selection": {
