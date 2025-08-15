@@ -1,0 +1,11 @@
+# Task ID: 8
+# Title: Extension: Implement BYOK Settings and Processing Logic
+# Status: pending
+# Dependencies: 7
+# Priority: medium
+# Description: Create the inline settings UI for users to input and save their API key. When a key is present, AI processing should use the user's key instead of the trial proxy.
+# Details:
+Add an input field and a 'Save' button within the popup, revealed by the upgrade prompt. Use `chrome.storage.local.set` to save the API key securely. When making an AI call, the extension logic should first check if a user key exists in `chrome.storage.local`. If yes, it should make the API call directly to the AI provider (e.g., Groq), using the user's key. If no, it should use the trial proxy flow. Add a visual indicator to show that the user is in BYOK mode.
+
+# Test Strategy:
+Test saving and retrieving the API key from `chrome.storage.local`. Use a valid test API key to perform an end-to-end test in BYOK mode, verifying that the network request goes directly to the AI provider. Test deleting the key and confirming the extension reverts to trial mode (if credits are available).

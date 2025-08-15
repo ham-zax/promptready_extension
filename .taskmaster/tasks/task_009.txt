@@ -1,0 +1,11 @@
+# Task ID: 9
+# Title: Extension: Advanced Model Selection for BYOK Users
+# Status: pending
+# Dependencies: 8
+# Priority: low
+# Description: For BYOK users, add a UI element in the settings to select from a list of advanced AI models, such as 'Llama 3.1 8B Instant' and 'Gemini 2.0 Flash'.
+# Details:
+In the inline settings area, add a `<select>` dropdown that is only visible and enabled when a user is in BYOK mode. Populate it with the predefined list of models. Save the user's selection in `chrome.storage.local`. When making a BYOK API call, retrieve the selected model and include it in the request payload to the AI provider.
+
+# Test Strategy:
+In BYOK mode, select each model from the dropdown and perform a test processing task. Use browser developer tools to inspect the network request and verify that the correct model name is being sent in the API call payload. Confirm the setting persists between popup opens.

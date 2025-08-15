@@ -1,0 +1,11 @@
+# Task ID: 6
+# Title: Extension: AI Mode Trial Integration & Credit Display
+# Status: pending
+# Dependencies: 3, 5
+# Priority: high
+# Description: Integrate the AI Mode into the UI. This includes handling the mode toggle, calling the backend AI proxy, and displaying the results. It also covers fetching and displaying the user's remaining credits.
+# Details:
+First, use `chrome.identity.getProfileUserInfo()` to get an anonymous user identifier for backend calls. When the user toggles to 'AI Mode' and processes text, the extension will make a `fetch` request to the AI Proxy endpoint (Task 3). The UI should show a loading state while waiting for the response. The remaining credits should be fetched from the `/user/status` endpoint (Task 2) when the popup opens and displayed in the UI.
+
+# Test Strategy:
+End-to-end test: Select text, switch to AI mode, process it, and verify the UI updates with the AI-cleaned text. Check that the credit counter updates correctly after each use. Test the loading and error states (e.g., when the backend returns an error).

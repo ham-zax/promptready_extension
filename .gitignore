@@ -11,6 +11,7 @@ node_modules
 .output
 .bmad-core
 .cursor
+.cline*
 .gemini
 .trae
 .windsurf
@@ -31,3 +32,16 @@ web-ext.config.ts
 *.njsproj
 *.sln
 *.sw?
+
+dev-debug.log
+# Dependency directories
+node_modules/
+# Environment variables
+.env
+.vscode
+# OS specific
+
+# Task files
+# tasks.json
+# tasks/ 
+gemini.md

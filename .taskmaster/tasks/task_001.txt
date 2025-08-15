@@ -1,0 +1,24 @@
+# Task ID: 1
+# Title: Backend: Implement Global Budget Circuit Breaker
+# Status: pending
+# Dependencies: None
+# Priority: high
+# Description: Set up the serverless backend environment and implement the non-negotiable Global Budget Circuit Breaker to cap weekly API spend. This is the highest priority task to mitigate financial risk.
+# Details:
+Use a serverless framework (e.g., AWS Lambda with API Gateway, or Cloudflare Workers). Create a centralized configuration service to store the weekly budget (e.g., $100). Implement a durable counter (e.g., in DynamoDB, Redis, or KV store) to track cumulative spend for the current week. Create a middleware for the AI proxy that checks this counter before processing any request. If the budget is exceeded, the middleware should return a '429 Too Many Requests' or a custom 'service unavailable' error. 
+
+Pseudo-code:
+```javascript
+// Middleware for API Gateway/Proxy
+async function circuitBreaker(request) {
+  const weeklySpend = await getWeeklySpend();
+  const weeklyBudget = await getWeeklyBudget();
+  if (weeklySpend >= weeklyBudget) {
+    return new Response('Free trial temporarily unavailable', { status: 429 });
+  }
+  // Proceed to next handler
+}
+```
+
+# Test Strategy:
+Unit test the budget checking logic. Create integration tests that simulate hitting the budget limit and verify that the API correctly returns a 429 error. Manually test by setting a low budget, making API calls to exceed it, and confirming the service is disabled.
