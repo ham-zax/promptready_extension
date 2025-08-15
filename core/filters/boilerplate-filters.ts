@@ -12,26 +12,27 @@ export const BOILERPLATE_FILTER_RULES: FilterRule[] = [
   {
     description: 'Remove navigation bars and menus',
     selector: 'nav, [role="navigation"], .navigation, .nav, .navbar, .menu, .main-menu',
-    action: FilterAction.REMOVE,
+    // Make conservative: unwrap navigation containers rather than removing inner content
+    action: FilterAction.UNWRAP,
   },
   
   // Headers and footers
   {
     description: 'Remove page headers',
     selector: 'header, [role="banner"], .header, .page-header, .site-header',
-    action: FilterAction.REMOVE,
+    action: FilterAction.UNWRAP,
   },
   {
     description: 'Remove page footers',
     selector: 'footer, [role="contentinfo"], .footer, .page-footer, .site-footer',
-    action: FilterAction.REMOVE,
+    action: FilterAction.UNWRAP,
   },
   
   // Sidebars and secondary content
   {
     description: 'Remove sidebars',
     selector: 'aside, [role="complementary"], .sidebar, .side-bar, .secondary',
-    action: FilterAction.REMOVE,
+    action: FilterAction.UNWRAP,
   },
   
   // Advertisements
@@ -50,7 +51,7 @@ export const BOILERPLATE_FILTER_RULES: FilterRule[] = [
   {
     description: 'Remove social media widgets and share buttons',
     selector: '.social, .share, .sharing, .social-share, .social-media, .follow-us',
-    action: FilterAction.REMOVE,
+    action: FilterAction.UNWRAP,
   },
   {
     description: 'Remove embedded social media posts',
@@ -76,21 +77,21 @@ export const BOILERPLATE_FILTER_RULES: FilterRule[] = [
   {
     description: 'Remove related articles sections',
     selector: '.related, .suggestions, .recommended, .more-articles, .you-might-like',
-    action: FilterAction.REMOVE,
+    action: FilterAction.UNWRAP,
   },
   
   // Newsletter signups and CTAs
   {
     description: 'Remove newsletter signup forms',
     selector: '.newsletter, .signup, .subscribe, .email-signup, .cta, .call-to-action',
-    action: FilterAction.REMOVE,
+    action: FilterAction.UNWRAP,
   },
   
   // Search and filter forms
   {
     description: 'Remove search forms and filters',
     selector: '.search, .filter, .search-form, .search-box, [role="search"]',
-    action: FilterAction.REMOVE,
+    action: FilterAction.UNWRAP,
   },
   
   // Popup and modal triggers
@@ -104,14 +105,14 @@ export const BOILERPLATE_FILTER_RULES: FilterRule[] = [
   {
     description: 'Remove breadcrumb navigation',
     selector: '.breadcrumb, .breadcrumbs, [aria-label="breadcrumb"]',
-    action: FilterAction.REMOVE,
+    action: FilterAction.UNWRAP,
   },
   
   // Skip links and accessibility helpers
   {
     description: 'Remove skip navigation links',
     selector: '.skip-link, .skip-nav, .screen-reader-text, .sr-only, .visually-hidden',
-    action: FilterAction.REMOVE,
+    action: FilterAction.UNWRAP,
   },
   
   // Site-specific patterns
@@ -143,7 +144,7 @@ export const BOILERPLATE_FILTER_RULES: FilterRule[] = [
   {
     description: 'Remove Wikipedia navigation and info boxes',
     selector: '.navbox, .infobox, .metadata, .navigation-not-searchable',
-    action: FilterAction.REMOVE,
+    action: FilterAction.UNWRAP,
   },
   
   // Code & Docs mode specific preservation rules
@@ -181,19 +182,45 @@ export class BoilerplateFilter {
   static applyRules(element: HTMLElement, mode: 'offline' | 'ai' = 'offline'): void {
     // Always use the same rules - no mode-specific filtering needed
     const rules = BOILERPLATE_FILTER_RULES;
+    // Diagnostics collections to help identify which rules remove/unwrap important content
+    const removedList: Element[] = [];
+    const unwrappedList: Element[] = [];
     
     for (const rule of rules) {
       try {
         const elementsToProcess = Array.from(element.querySelectorAll(rule.selector));
         
         for (const el of elementsToProcess) {
+          // Preserve elements that look like technical content sections
+          if (this.shouldPreserveElement(el as HTMLElement)) {
+            // Skip removal/unwrapping for these elements
+            // (We log for diagnostics; in production this can be toned down)
+            console.log(`[BoilerplateFilter] Preserving element for selector "${rule.selector}" due to heading match.`);
+            continue;
+          }
+ 
           switch (rule.action) {
             case FilterAction.REMOVE:
-              el.remove();
-              break;
+              // Conservative behavior: for broad structural selectors, prefer unwrapping to avoid losing nested valuable content.
+              if (this.isBroadSelector(rule.selector)) {
+                if (el.parentNode) {
+                  while (el.firstChild) {
+                    el.parentNode.insertBefore(el.firstChild, el);
+                  }
+                  // record unwrapped element for diagnostics before removal
+                  unwrappedList.push(el);
+                  el.remove();
+                }
+              } else {
+                // record removed element for diagnostics
+                removedList.push(el);
+                 el.remove();
+              }
+               break;
               
             case FilterAction.UNWRAP:
               // Replace the element with its children
+              unwrappedList.push(el);
               if (el.parentNode) {
                 while (el.firstChild) {
                   el.parentNode.insertBefore(el.firstChild, el);
@@ -207,6 +234,24 @@ export class BoilerplateFilter {
         console.warn(`Failed to apply filter rule "${rule.description}":`, error);
         // Continue with other rules even if one fails
       }
+    }
+    // After applying all rules, log a concise diagnostic summary
+    try {
+      const sampleRemoved = removedList.slice(0, 10).map(e => ({
+        tag: e.tagName,
+        id: e.id,
+        class: e.className,
+        text: (e.textContent || '').trim().slice(0, 120),
+      }));
+      const sampleUnwrapped = unwrappedList.slice(0, 10).map(e => ({
+        tag: e.tagName,
+        id: e.id,
+        class: e.className,
+        text: (e.textContent || '').trim().slice(0, 120),
+      }));
+      console.log(`[BoilerplateFilter] Applied ${rules.length} rules. Removed: ${removedList.length}, Unwrapped: ${unwrappedList.length}. Sample removed:`, sampleRemoved, 'Sample unwrapped:', sampleUnwrapped);
+    } catch (e) {
+      console.log('[BoilerplateFilter] Diagnostic logging failed:', e);
     }
   }
   
@@ -230,6 +275,53 @@ export class BoilerplateFilter {
         el.remove();
       }
     }
+  }
+  
+  /**
+   * Heuristic: decide whether an element contains headings that indicate technical/spec content
+   */
+  static shouldPreserveElement(el: HTMLElement): boolean {
+    try {
+      const headingSelector = 'h1,h2,h3,h4,h5,h6, [role="heading"], [class*="title"], [class*="heading"]';
+      const pattern = /technical|specification|specifications|cad|compatible|compatible products|technical specification|more information|overview/i;
+
+      // The ONLY check: Do any title-like elements INSIDE this element match our pattern?
+      const internalHeadings = Array.from(el.querySelectorAll(headingSelector));
+      for (const h of internalHeadings) {
+        const text = (h.textContent || '').trim();
+        if (pattern.test(text)) {
+          console.warn('[BMAD_PRESERVE] Match found for text "' + text + '". Preserving container.', el);
+          return true;
+        }
+      }
+
+      // If no internal headings match, this element is considered safe to filter.
+      return false;
+
+    } catch (e) {
+      console.error('[BMAD_PRESERVE] Error during shouldPreserveElement:', e);
+      return false; // Fail safe
+    }
+  }
+  
+  /**
+   * Decide whether to bypass Readability and convert cleaned DOM directly to Markdown.
+   * Reuses the existing preservation heuristic so behavior is consistent.
+   */
+  static shouldBypassReadability(el: HTMLElement): boolean {
+    try {
+      return this.shouldPreserveElement(el);
+    } catch (e) {
+      console.error('[BMAD_BYPASS] Error during shouldBypassReadability:', e);
+      return false;
+    }
+  }
+  
+  /**
+   * Heuristic to detect broad structural selectors where unwrapping is safer than full removal.
+   */
+  static isBroadSelector(selector: string): boolean {
+    return /nav|header|footer|aside|sidebar|related|suggestions|recommended|more-articles|you-might-like|newsletter|signup|subscribe|search|filter|breadcrumb|skip-link|main-menu|menu/i.test(selector);
   }
   
   /**

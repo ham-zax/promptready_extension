@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface ProBadgeProps {
-  onClick: () => void;
+  onClick?: () => void;
 }
 
 export function ProBadge({ onClick }: ProBadgeProps) {

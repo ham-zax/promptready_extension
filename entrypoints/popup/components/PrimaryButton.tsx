@@ -4,17 +4,20 @@ interface PrimaryButtonProps {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
-  loading?: boolean;
-  loadingText?: string;
+  isProcessing?: boolean;
+  processingText?: string;
 }
 
 export function PrimaryButton({ 
   children, 
   onClick, 
   disabled = false, 
-  loading = false, 
-  loadingText = 'Processing...' 
+  isProcessing = false, 
+  processingText = 'Processing...' 
 }: PrimaryButtonProps) {
+  const loading = isProcessing;
+  const loadingText = processingText;
+
   return (
     <button
       onClick={onClick}
@@ -30,9 +33,7 @@ export function PrimaryButton({
           <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
           <span>{loadingText}</span>
         </div>
-      ) : (
-        children
-      )}
+      ) : children}
     </button>
   );
 }

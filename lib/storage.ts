@@ -23,18 +23,24 @@ const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   templates: {
     bundles: [],
-  },
-  byok: {
+  }, byok: {
     provider: 'openrouter',
     apiBase: 'https://openrouter.ai/api/v1',
     apiKey: '', // No default key in defaults
     model: 'anthropic/claude-3-sonnet',
-  },
-  privacy: {
+  }, privacy: {
     telemetryEnabled: false,
-  },
-  isPro: false, // Default to Free; Pro features gated via flags and BYOK
-  renderer: 'turndown',
+  }, isPro: false, // Default to Free; being phased out for credits system
+  credits: {
+    remaining: 0,
+    total: 0,
+    lastReset: '',
+  }, user: {
+    id: '', // Anonymous ID will be generated
+  }, trial: {
+    hasExhausted: false,
+    showUpgradePrompt: false,
+  }, renderer: 'turndown',
   useReadability: true,
   processing: {
     profile: 'standard',
@@ -70,7 +76,12 @@ export class Storage {
       const stored = result[STORAGE_KEYS.SETTINGS];
 
       if (!stored) {
-        return DEFAULT_SETTINGS;
+        const newSettings = { ...DEFAULT_SETTINGS };
+        if (!newSettings.user) {
+          newSettings.user = { id: '' };
+        }
+        newSettings.user.id = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`; // Generate anonymous ID
+        return newSettings;
       }
 
       // Migrate legacy mode values
@@ -99,33 +110,42 @@ export class Storage {
     try {
       const currentSettings = await this.getSettings();
       // Deep-merge for nested objects we manage (byok, privacy, templates)
-      const { byok, privacy, templates, ...rest } = (updates || {}) as any;
+      const { byok, privacy, templates, credits, user, trial, ...rest } = (updates || {}) as any;
       const newSettings: Settings = {
         ...currentSettings,
         ...rest,
         byok: {
           ...currentSettings.byok,
-          ...(byok || {}),
-        },
-        privacy: {
+          ...(byok || {})
+        }, privacy: {
           ...currentSettings.privacy,
-          ...(privacy || {}),
-        },
-        templates: {
+          ...(privacy || {})
+        }, templates: {
           ...currentSettings.templates,
-          ...(templates || {}),
+          ...(templates || {})
+        }, credits: {
+          ...currentSettings.credits,
+          ...(credits || {})
+        }, user: {
+          ...currentSettings.user,
+          ...(user || {})
+        }, trial: {
+          ...currentSettings.trial,
+          ...(trial || {})
         },
       } as Settings;
-      await browser.storage.local.set({
-        [STORAGE_KEYS.SETTINGS]: newSettings,
-      });
+      await browser.storage.local.set(
+        {
+          [STORAGE_KEYS.SETTINGS]: newSettings,
+        }
+      );
     } catch (error) {
       console.error('Failed to update settings:', error);
       throw error;
     }
   }
   
-  // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------\
   // API Key Management (plain storage)
   // ---------------------------------------------------------------------------
 
@@ -133,9 +153,13 @@ export class Storage {
     try {
       const current = await this.getSettings();
       const byok = { ...current.byok, apiKey: apiKey || '' } as Settings['byok'];
-      await browser.storage.local.set({
-        [STORAGE_KEYS.SETTINGS]: { ...current, byok },
-      });
+      // A user with a BYOK key is considered "Pro"
+      const trial = { ...(current.trial || {}), hasExhausted: false, showUpgradePrompt: false };
+      await browser.storage.local.set(
+        {
+          [STORAGE_KEYS.SETTINGS]: { ...current, byok, trial, isPro: Boolean(apiKey) },
+        }
+      );
       // Cleanup any legacy encrypted key artifacts
       await browser.storage.local.remove([STORAGE_KEYS.ENCRYPTED_KEYS]);
       await browser.storage.session.remove(['passphrase']);
@@ -159,10 +183,12 @@ export class Storage {
   static async clearApiKey(): Promise<void> {
     try {
       const current = await this.getSettings();
-      const byok = { ...current.byok, apiKey: '' } as Settings['byok'];
-      await browser.storage.local.set({
-        [STORAGE_KEYS.SETTINGS]: { ...current, byok },
-      });
+      const byok = { ...current.byok, apiKey: '' } as Settings['byok']; 
+      await browser.storage.local.set(
+        {
+          [STORAGE_KEYS.SETTINGS]: { ...current, byok },
+        }
+      );
       // Also remove any legacy encrypted state
       await browser.storage.local.remove([STORAGE_KEYS.ENCRYPTED_KEYS]);
       await browser.storage.session.remove(['passphrase']);
@@ -213,18 +239,19 @@ export class Storage {
       events.push(event);
       
       // Keep only last 1000 events to prevent storage bloat
-      const trimmedEvents = events.slice(-1000);
-      
-      await browser.storage.local.set({
-        [STORAGE_KEYS.TELEMETRY]: trimmedEvents,
-      });
+      const trimmedEvents = events.slice(-1000);      
+      await browser.storage.local.set(
+        {
+          [STORAGE_KEYS.TELEMETRY]: trimmedEvents,
+        }
+      );
       
     } catch (error) {
       console.error('Failed to record telemetry:', error);
       // Don't throw - telemetry failures shouldn't break functionality
     }
   }
-  
+
   static async getTelemetryEvents(): Promise<TelemetryEvent[]> {
     try {
       const result = await browser.storage.local.get([STORAGE_KEYS.TELEMETRY]);

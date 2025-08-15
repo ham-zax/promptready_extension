@@ -20,7 +20,7 @@ export interface Settings {
   privacy: {
     telemetryEnabled: boolean;
   };
-  isPro: boolean; // Local flag for Pro features
+  isPro?: boolean; // Local flag for Pro features - being phased out
   // Optional: choose markdown renderer
   renderer?: 'structurer' | 'turndown';
   // Enable/disable Readability for general mode

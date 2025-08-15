@@ -7,56 +7,9 @@ import { usePopupController } from '../hooks/usePopupController';
 import { SettingsPanel } from './SettingsPanel';
 import { Toast } from './Toast';
 import type { Settings } from '@/lib/types';
-
-// Simple upgrade modal component (inline for now)
-function UpgradeModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 max-w-md mx-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Upgrade to Pro</h3>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-          >
-            ✕
-          </button>
-        </div>
-        <div className="mb-6">
-          <p className="text-gray-600 mb-4">
-            Unlock AI-powered processing with your own API key for enhanced content extraction and formatting.
-          </p>
-          <ul className="text-sm text-gray-600 space-y-2">
-            <li>• Use your own OpenAI or OpenRouter API key</li>
-            <li>• Advanced AI processing capabilities</li>
-            <li>• Custom processing profiles</li>
-            <li>• Priority support</li>
-          </ul>
-        </div>
-        <div className="flex space-x-3">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-          >
-            Maybe Later
-          </button>
-          <button
-            onClick={() => {
-              // TODO: Implement upgrade flow
-              console.log('Upgrade clicked');
-              onClose();
-            }}
-            className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-md hover:from-purple-600 hover:to-pink-600"
-          >
-            Upgrade Now
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { ProBadge } from './ProBadge';
+import { PrimaryButton } from './PrimaryButton';
+import { ProUpgradePrompt } from './ProUpgradePrompt';
 
 // Main popup component - now purely presentational
 export default function SimplifiedPopup() {
@@ -79,6 +32,12 @@ export default function SimplifiedPopup() {
 
   const [showSettings, setShowSettings] = useState(false);
 
+  const getAiLabel = () => {
+    if (state.isPro) return 'AI ✨';
+    if (state.trial && !state.trial.hasExhausted) return 'AI (Trial)';
+    return 'AI (Pro)';
+  };
+
   return (
     <div className="w-96 bg-white">
       {/* Header */}
@@ -87,6 +46,7 @@ export default function SimplifiedPopup() {
           <div className="flex items-center space-x-2">
             <span className="text-xl">📋</span>
             <h1 className="text-lg font-semibold">PromptReady</h1>
+            {state.isPro && <ProBadge />}
           </div>
           <button
             onClick={() => setShowSettings(!showSettings)}
@@ -97,26 +57,31 @@ export default function SimplifiedPopup() {
           </button>
         </div>
 
-        {/* Mode Toggle */}
+        {/* Credits and Mode Toggle */}
         <div className="mt-3 flex items-center justify-between">
-          <span className="text-sm opacity-90">Processing Mode</span>
-          <button
-            onClick={handleModeToggle}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              state.mode === 'ai' ? 'bg-green-500' : 'bg-gray-400'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                state.mode === 'ai' ? 'translate-x-6' : 'translate-x-1'
+          <div className="text-xs opacity-90">
+            {state.isPro ? `Credits: ${state.credits?.remaining.toLocaleString() || 0}` : ' '}
+          </div>
+          <div className="flex items-center space-x-2">
+            <span className="text-sm opacity-90">Processing Mode</span>
+            <button
+              onClick={handleModeToggle}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                state.mode === 'ai' ? 'bg-green-500' : 'bg-gray-400'
               }`}
-            />
-          </button>
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  state.mode === 'ai' ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
         </div>
         <div className="flex justify-between text-xs mt-1 opacity-75">
           <span className={state.mode === 'offline' ? 'font-medium' : ''}>Offline</span>
           <span className={state.mode === 'ai' ? 'font-medium' : ''}>
-            AI {!state.isPro && '(Pro)'}
+            {getAiLabel()}
           </span>
         </div>
       </div>
@@ -124,39 +89,26 @@ export default function SimplifiedPopup() {
       {/* Settings Panel */}
       <SettingsPanel
         isExpanded={showSettings}
-        settings={(state.settings || { mode: state.mode, isPro: state.isPro, theme: 'system', templates: { bundles: [] }, byok: { provider: 'openrouter', apiBase: 'https://openrouter.ai/api/v1', apiKey: '', model: '' }, privacy: { telemetryEnabled: false }, renderer: 'turndown', useReadability: true }) as Settings}
+        settings={state.settings as Settings}
         onSettingsChange={onSettingsChange}
         onApiKeyChange={onApiKeyChange}
         onApiKeySave={onApiKeySave}
         onApiKeyTest={onApiKeyTest}
-        hasApiKey={Boolean(state.settings?.byok?.apiKey)}
+        hasApiKey={state.hasApiKey}
         apiKeyInput={state.apiKeyInput}
       />
 
       {/* Main Content */}
       <div className="p-4">
         {/* Capture Button */}
-        <button
+        <PrimaryButton
           onClick={handleCapture}
           disabled={isProcessing}
-          className={`w-full py-3 px-4 rounded-lg font-medium transition-all ${
-            isProcessing
-              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg'
-          }`}
+          isProcessing={isProcessing}
+          processingText={state.processing.message || 'Processing...'}
         >
-          {isProcessing ? (
-            <div className="flex items-center justify-center space-x-2">
-              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-              <span>{state.processing.message || 'Processing...'}</span>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center space-x-2">
-              <span>📋</span>
-              <span>Capture Content</span>
-            </div>
-          )}
-        </button>
+          Capture Content
+        </PrimaryButton>
 
         {/* Processing Progress */}
         {isProcessing && state.processing.progress && (
@@ -207,13 +159,15 @@ export default function SimplifiedPopup() {
               <div className="border-t pt-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-600">Quality Score</span>
-                  <span className={`text-xs font-medium ${
-                    state.exportData.qualityReport.overallScore >= 80 
-                      ? 'text-green-600' 
-                      : state.exportData.qualityReport.overallScore >= 60 
-                      ? 'text-yellow-600' 
-                      : 'text-red-600'
-                  }`}>
+                  <span
+                    className={`text-xs font-medium ${
+                      state.exportData.qualityReport.overallScore >= 80
+                        ? 'text-green-600'
+                        : state.exportData.qualityReport.overallScore >= 60
+                        ? 'text-yellow-600'
+                        : 'text-red-600'
+                    }`}
+                  >
                     {state.exportData.qualityReport.overallScore}/100
                   </span>
                 </div>
@@ -233,9 +187,10 @@ export default function SimplifiedPopup() {
       )}
 
       {/* Upgrade Modal */}
-      <UpgradeModal
-        isOpen={state.showUpgrade}
+      <ProUpgradePrompt
+        isVisible={state.showUpgrade}
         onClose={handleUpgradeClose}
+        onUpgrade={() => setShowSettings(true)}
       />
     </div>
   );

@@ -4,14 +4,20 @@
 import { useReducer, useEffect, useCallback } from 'react';
 import { browser } from 'wxt/browser';
 import { Storage } from '@/lib/storage';
-import type { Settings } from '@/lib/types';
+import type { Settings, CreditsState, UserState, TrialState } from '@/lib/types';
 import { BYOKClient } from '@/pro/byok-client';
+import { MonetizationClient } from '@/pro/monetization-client';
+import { ExperimentationClient, type CohortAssignment } from '@/pro/experimentation-client';
 
 // State types
 interface PopupState {
   mode: 'offline' | 'ai';
   isPro: boolean;
   settings?: Settings;
+  credits?: CreditsState;
+  user?: UserState;
+  trial?: TrialState;
+  cohort?: CohortAssignment;
   hasApiKey: boolean;
   apiKeyInput: string;
   processing: {
@@ -34,8 +40,10 @@ interface PopupState {
 
 // Action types
 type PopupAction =
-  | { type: 'SETTINGS_LOADED'; payload: { mode: 'offline' | 'ai'; isPro: boolean; flags?: { aiModeEnabled: boolean; byokEnabled: boolean; trialEnabled: boolean }; settings: Settings } }
+  | { type: 'SETTINGS_LOADED'; payload: { settings: Settings } }
   | { type: 'SETTINGS_UPDATED'; payload: { settings: Settings } }
+  | { type: 'CREDITS_UPDATED'; payload: { credits: CreditsState } }
+  | { type: 'COHORT_UPDATED'; payload: { cohort: CohortAssignment } }
   | { type: 'SET_APIKEY_INPUT'; payload: { value: string } }
   | { type: 'MODE_CHANGED'; payload: { mode: 'offline' | 'ai' } }
   | { type: 'CAPTURE_START' }
@@ -51,24 +59,52 @@ type PopupAction =
 function popupReducer(state: PopupState, action: PopupAction): PopupState {
   switch (action.type) {
     case 'SETTINGS_LOADED': {
-      const flags = action.payload.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false };
-      const effectiveMode = flags.aiModeEnabled ? action.payload.mode : 'offline';
+      const { settings } = action.payload;
+      const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false };
+      const effectiveMode = flags.aiModeEnabled ? settings.mode : 'offline';
+      const hasApiKey = Boolean(settings.byok?.apiKey);
+      // "Pro" is having a BYOK key or having credits in the new system
+      const isPro = hasApiKey || (settings.credits?.remaining || 0) > 0;
+
       return {
         ...state,
         mode: effectiveMode,
-        isPro: action.payload.isPro,
-        settings: action.payload.settings,
-        hasApiKey: Boolean(action.payload.settings?.byok?.apiKey),
+        isPro,
+        settings,
+        credits: settings.credits,
+        user: settings.user,
+        trial: settings.trial,
+        hasApiKey,
         apiKeyInput: '',
+      };
+    }
+    case 'CREDITS_UPDATED': {
+      return {
+        ...state,
+        credits: action.payload.credits,
+        isPro: state.isPro || (action.payload.credits?.remaining || 0) > 0,
+      };
+    }
+    case 'COHORT_UPDATED': {
+      return {
+        ...state,
+        cohort: action.payload.cohort,
       };
     }
 
     case 'SETTINGS_UPDATED': {
+      const { settings } = action.payload;
+      const hasApiKey = Boolean(settings.byok?.apiKey);
+      const isPro = hasApiKey || (settings.credits?.remaining || 0) > 0;
+
       return {
         ...state,
-        settings: action.payload.settings,
-        isPro: action.payload.settings.isPro,
-        hasApiKey: Boolean(action.payload.settings?.byok?.apiKey),
+        settings,
+        isPro,
+        credits: settings.credits,
+        user: settings.user,
+        trial: settings.trial,
+        hasApiKey,
       };
     }
 
@@ -146,6 +182,9 @@ const initialState: PopupState = {
   mode: 'offline',
   isPro: false,
   settings: undefined,
+  credits: undefined,
+  user: undefined,
+  trial: undefined,
   hasApiKey: false,
   apiKeyInput: '',
   processing: { status: 'idle' },
@@ -171,13 +210,24 @@ export function usePopupController() {
     const loadSettings = async () => {
       try {
         const settings = await Storage.getSettings();
-        dispatch({
-          type: 'SETTINGS_LOADED',
-          payload: { mode: settings.mode, isPro: settings.isPro, flags: settings.flags, settings },
-        });
+        dispatch({ type: 'SETTINGS_LOADED', payload: { settings } });
+
+        if (settings.user?.id) {
+          const creditStatus = await MonetizationClient.checkCredits(settings.user.id);
+          const credits: CreditsState = {
+            remaining: creditStatus.balance,
+            // The 'total' might be based on a subscription plan in a real scenario
+            total: (settings.credits?.total || 0) > creditStatus.balance ? (settings.credits?.total || 0) : creditStatus.balance,
+            lastReset: settings.credits?.lastReset || new Date().toISOString(),
+          };
+          dispatch({ type: 'CREDITS_UPDATED', payload: { credits } });
+
+          const cohort = await ExperimentationClient.getCohort(settings.user.id);
+          dispatch({ type: 'COHORT_UPDATED', payload: { cohort } });
+        }
       } catch (error) {
-        console.error('Failed to load settings:', error);
-        showToast('Failed to load settings', 'error');
+        console.error('Failed to load settings or extras:', error);
+        showToast('Failed to load settings or extras', 'error');
       }
     };
 
@@ -263,8 +313,8 @@ export function usePopupController() {
 
     const newMode = state.mode === 'offline' ? 'ai' : 'offline';
 
-    // Gate AI mode behind Pro/BYOK for Phase 1
-    if (newMode === 'ai' && !state.isPro) {
+    // Gate AI mode behind Pro/BYOK/Trial for Phase 2
+    if (newMode === 'ai' && !state.isPro && state.trial?.hasExhausted) {
       dispatch({ type: 'SHOW_UPGRADE' });
       return;
     }
@@ -277,7 +327,7 @@ export function usePopupController() {
       console.error('Failed to update mode:', error);
       showToast('Failed to update mode', 'error');
     }
-  }, [state.mode, state.isPro, showToast]);
+  }, [state.mode, state.isPro, state.trial, showToast]);
 
   const onSettingsChange = useCallback(async (partial: Partial<Settings>) => {
     try {
@@ -299,8 +349,6 @@ export function usePopupController() {
     try {
       const key = state.apiKeyInput.trim();
       await Storage.setApiKey(key);
-      // Mark as Pro when BYOK key is present
-      await Storage.updateSettings({ isPro: Boolean(key) });
       const updated = await Storage.getSettings();
       dispatch({ type: 'SETTINGS_UPDATED', payload: { settings: updated } });
       showToast('API key saved', 'success');

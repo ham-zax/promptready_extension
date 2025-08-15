@@ -6,6 +6,7 @@ import { OfflineModeManager, OfflineModeConfig } from '../../core/offline-mode-m
 import { ReadabilityConfigManager } from '../../core/readability-config.js';
 import { TurndownConfigManager } from '../../core/turndown-config.js';
 import { MarkdownPostProcessor } from '../../core/post-processor.js';
+import { BoilerplateFilter } from '../../core/filters/boilerplate-filters';
 
 interface ProcessingMessage {
   type: 'ENHANCED_OFFSCREEN_PROCESS';
@@ -144,7 +145,93 @@ export class EnhancedOffscreenProcessor {
     try {
       this.sendProgress('Extracting content...', 30, 'extraction');
 
-      // Check if content is large and needs chunking
+      // Insert BoilerplateFilter application on the captured html before any processing
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        if (typeof (BoilerplateFilter as any)?.applyRules === 'function') {
+          // Apply boilerplate rules in offscreen and emit sentinel
+          BoilerplateFilter.applyRules(doc.documentElement);
+          console.warn('[BMAD_DBG] BoilerplateFilter applied in offscreen');
+        } else {
+          console.warn('[BMAD_DBG] BoilerplateFilter not found in offscreen bundle');
+        }
+  
+        // Serialize cleaned DOM back into the HTML string for downstream processing
+        html = doc.documentElement.innerHTML;
+
+        // Intelligent Readability bypass:
+        // If BoilerplateFilter signals this is technical content we should bypass Readability
+        try {
+          if (typeof (BoilerplateFilter as any)?.shouldBypassReadability === 'function' &&
+              BoilerplateFilter.shouldBypassReadability(doc.documentElement)) {
+            console.warn('[BMAD_BYPASS] Technical content detected. Bypassing Readability.js and using direct conversion.');
+
+            const cleanedHtml = html;
+            const turndownPreset = (config && (config as any).turndownPreset) ? (config as any).turndownPreset : 'standard';
+
+            // Convert cleaned HTML directly to markdown
+            const markdown = await TurndownConfigManager.convert(cleanedHtml, turndownPreset);
+
+            // Prepare post-processing options aligned with OfflineModeManager.getPostProcessingOptions
+            const postOptions = {
+              cleanupWhitespace: true,
+              normalizeHeadings: true,
+              fixListFormatting: true,
+              removeEmptyLines: true,
+              maxConsecutiveNewlines: 2,
+              improveCodeBlocks: true,
+              enhanceLinks: true,
+              optimizeImages: true,
+              addTableOfContents: config.postProcessing?.addTableOfContents || false,
+              preserveLineBreaks: config.postProcessing?.optimizeForPlatform === 'obsidian',
+            };
+
+            const postResult = MarkdownPostProcessor.process(markdown, postOptions);
+
+            // Construct a minimal result matching OfflineModeManager.processContent shape
+            const bypassResult: any = {
+              success: true,
+              markdown: postResult.markdown,
+              metadata: {
+                title: title || 'Untitled',
+                url,
+                capturedAt: new Date().toISOString(),
+                selectionHash: `bypass-${Date.now()}`,
+              },
+              processingStats: {
+                totalTime: 0,
+                readabilityTime: 0,
+                turndownTime: 0,
+                postProcessingTime: 0,
+                fallbacksUsed: [],
+                qualityScore: 100,
+              },
+              warnings: postResult.warnings || [],
+              errors: [],
+            };
+
+            const exportJson = this.generateStructuredExport(bypassResult, url, title);
+
+            return {
+              exportMd: bypassResult.markdown,
+              exportJson,
+              metadata: bypassResult.metadata,
+              stats: bypassResult.processingStats,
+              warnings: bypassResult.warnings,
+              originalHtml: cleanedHtml,
+            };
+          } else {
+            console.warn('[BMAD_BYPASS] No technical signal — using Readability pipeline.');
+          }
+        } catch (bypassErr) {
+          console.warn('[BMAD_BYPASS] Bypass check/processing failed:', bypassErr);
+        }
+      } catch (err) {
+        console.warn('[BMAD_DBG] BoilerplateFilter application failed:', err);
+      }
+
       const isLargeContent = html.length > config.performance.maxContentLength;
 
       let result;

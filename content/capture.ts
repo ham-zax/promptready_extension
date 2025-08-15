@@ -156,6 +156,15 @@ export class ContentCapture {
     }
   }
   
+  private static removeUnwantedTags(element: HTMLElement): void {
+    const selectors = 'script, style, noscript, template, link[rel="stylesheet"]';
+    try {
+      element.querySelectorAll(selectors).forEach(el => (el as HTMLElement).remove());
+    } catch (e) {
+      console.warn('[ContentCapture] Failed to remove some unwanted tags:', e);
+    }
+  }
+  
   /**
    * Capture full page content (fallback when no selection)
    * Uses similar logic to MarkDownload implementation
@@ -167,7 +176,12 @@ export class ContentCapture {
       this.ensureBase();
       this.ensureTitle();
       this.addLatexToMathJax3();
-      this.markHiddenNodes(document.documentElement);
+      // Mark hidden nodes (global behavior; no domain-specific exceptions)
+      try {
+        this.markHiddenNodes(document.documentElement);
+      } catch (e) {
+        console.warn('[ContentCapture] markHiddenNodes failed during captureFullPage:', e);
+      }
       // Get the main content area
       const article = document.querySelector('article, main, [role="main"]');
       const content = article || document.body;
@@ -179,6 +193,8 @@ export class ContentCapture {
       
       // Clone the content to avoid modifying the original page
       const clonedContent = content.cloneNode(true) as HTMLElement;
+      // New pre-clean step — run on the clone before any other processing
+      this.removeUnwantedTags(clonedContent);
       
       // Fix relative URLs
       this.fixRelativeUrls(clonedContent, window.location.href);
@@ -250,6 +266,7 @@ export namespace ContentCapture {
 
   export function markHiddenNodes(root: Element): void {
     try {
+      const hiddenList: Element[] = [];
       const filter: NodeFilter = {
         acceptNode(node: Node): number {
           if (node.nodeType !== Node.ELEMENT_NODE) return NodeFilter.FILTER_SKIP;
@@ -266,8 +283,24 @@ export namespace ContentCapture {
       const iter = document.createNodeIterator(root, NodeFilter.SHOW_ELEMENT, filter);
       let current: Node | null;
       while ((current = iter.nextNode())) {
-        (current as Element).setAttribute('markdownload-hidden', 'true');
+        const el = current as Element;
+        el.setAttribute('markdownload-hidden', 'true');
+        hiddenList.push(el);
       }
-    } catch {}
+      // Log count and a small sample to help debugging why visible content might be marked hidden
+      try {
+        const sample = hiddenList.slice(0, 10).map(e => ({
+          tag: e.tagName,
+          id: e.id,
+          class: e.className,
+          text: (e.textContent || '').trim().slice(0, 120),
+        }));
+        console.log(`[ContentCapture] markHiddenNodes marked ${hiddenList.length} elements. Sample:`, sample);
+      } catch (e) {
+        console.log('[ContentCapture] markHiddenNodes marked elements count:', hiddenList.length);
+      }
+    } catch (e) {
+      console.warn('[ContentCapture] markHiddenNodes failed:', e);
+    }
   }
 }
