@@ -37,11 +37,21 @@ Notes
 |---|---|---|---|---|---|
 | CLS-1 Selection capture | ✅ | ✅ | None | Must | 1 |
 | CLS-2 Rule-based cleaner | ✅ | ✅ | Expand site-specific rules incrementally (optional) | Should | 1 |
-| CLS-3 Structurer to Markdown | 🔄 | 🔄 | Finalize heading hierarchy, links/images, code blocks; align with integration guide | Must | 1 |
 | CLS-4 Auto-copy to clipboard | ✅ | ✅ | None | Must | 1 |
 
+## Epic: Intelligent Offline Pipeline (Replaces CLS-3)
+
+| Story | PRD Status | Current Impl | Gap | Priority | Phase |
+|---|---|---|---|---|---|
+| IHP-1 Hybrid Pipeline Orchestrator | 🔄 | ❌ | Implement the main orchestrator in `enhanced-processor.ts` to manage the two pipeline paths. | Must | 1 |
+| IHP-2 Bypass Heuristic | 🔄 | ❌ | Implement the `shouldBypassReadability` decision heuristic. | Must | 1 |
+| IHP-3 Aggressive Filtering | 🔄 | ❌ | Implement the second, aggressive `REMOVE` pass in the `boilerplate-filters.ts`. | Must | 1 |
+| IHP-4 Scoring Engine | 🔄 | ❌ | Build the `ScoringEngine` to analyze and score content "islands". | Must | 1 |
+| IHP-5 Content Pruning | 🔄 | ❌ | Implement the `pruneNode` function to remove nested boilerplate from the winning candidate. | Must | 1 |
+| IHP-6 Semantic Conversion | 🔄 | ❌ | Implement the `tableToGfmOrJson` rule in `TurndownConfigManager` to preserve table structures. | Must | 1 |
+
 Notes
-- Ref: docs/offline-capabilities-integration-guide.md, docs/rules_engine_spec.md
+- Ref: docs/offline-processing-pipeline.md, docs/rules_engine_spec.md
 
 ## Epic: AI Mode & Monetization
 
