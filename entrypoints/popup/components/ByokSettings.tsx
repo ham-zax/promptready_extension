@@ -3,6 +3,16 @@
 
 import React, { useState } from 'react';
 import { Settings } from '@/lib/types';
+import ByokChoice, { ByokProvider } from './ByokChoice';
+import {
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from '@/components/ui/dialog';
 
 
 interface ByokSettingsProps {
@@ -26,6 +36,18 @@ export function ByokSettings({
 }: ByokSettingsProps) {
   const [showApiKey, setShowApiKey] = useState(false);
 
+  // Show the BYOK Choice view by default if no provider is set.
+  const [showChoice, setShowChoice] = useState<boolean>(() => {
+    return !Boolean(settings?.byok?.provider);
+  });
+  const [provider, setProvider] = useState<ByokProvider>(settings?.byok?.provider || 'openrouter');
+
+  const handleChoose = (p: ByokProvider) => {
+    setProvider(p);
+    setShowChoice(false);
+    onSettingsChange({ byok: { ...settings.byok, provider: p } });
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex items-center space-x-2">
@@ -39,78 +61,128 @@ export function ByokSettings({
       </div>
 
       {(settings.isPro || settings.flags?.byokEnabled) ? (
-        <div className="space-y-3 pl-6">
-          {/* API Key Input */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">
-              API Key
-            </label>
-            <div className="flex space-x-2">
-              <div className="flex-1 relative">
-                <input
-                  type={showApiKey ? 'text' : 'password'}
-                  value={apiKeyInput}
-                  onChange={(e) => onApiKeyChange(e.target.value)}
-                  placeholder={hasApiKey ? '••••••••••••••••' : 'Enter your API key'}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <button
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
-                >
-                  {showApiKey ? '🙈' : '👁️'}
-                </button>
-              </div>
+        showChoice ? (
+          <div className="pl-6">
+            <ByokChoice onChoose={handleChoose} onClose={() => setShowChoice(false)} />
+          </div>
+        ) : (
+          <div className="space-y-3 pl-6">
+            <div className="flex justify-end">
               <button
-                onClick={onApiKeySave}
-                disabled={!apiKeyInput.trim()}
-                className="px-3 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                onClick={() => setShowChoice(true)}
+                className="text-xs text-blue-600 hover:underline"
               >
-                Save
+                Change provider
               </button>
             </div>
-          </div>
 
-          {hasApiKey && (
+            {/* API Key Input */}
             <div className="space-y-2">
-              <label htmlFor="model-select" className="block text-sm font-medium text-gray-700">
-                Model
+              <label className="block text-sm font-medium text-gray-700">
+                API Key
               </label>
-              <select
-                id="model-select"
-                value={settings.byok.model}
-                onChange={(e) => onSettingsChange({ byok: { ...settings.byok, selectedByokModel: e.target.value } })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              <div className="flex space-x-2">
+                <div className="flex-1 relative">
+                  <input
+                    type={showApiKey ? 'text' : 'password'}
+                    value={apiKeyInput}
+                    onChange={(e) => onApiKeyChange(e.target.value)}
+                    placeholder={hasApiKey ? '••••••••••••••••' : 'Enter your API key'}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <button
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+                  >
+                    {showApiKey ? '🙈' : '👁️'}
+                  </button>
+                </div>
+                <button
+                  onClick={onApiKeySave}
+                  disabled={!apiKeyInput.trim()}
+                  className="px-3 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+
+            {hasApiKey && (
+              <div className="space-y-2">
+                <label htmlFor="model-select" className="block text-sm font-medium text-gray-700">
+                  Model
+                </label>
+                <select
+                  id="model-select"
+                  value={settings.byok.model}
+                  onChange={(e) => onSettingsChange({ byok: { ...settings.byok, selectedByokModel: e.target.value } })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  {/* Hardcoded models */}
+                  <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant</option>
+                  <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                  {/* Add other models as needed */}
+                </select>
+              </div>
+            )}
+
+            {/* Provider Info */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Provider
+              </label>
+              <div className="px-3 py-2 bg-gray-100 rounded-md text-sm text-gray-600">
+                {settings.byok.provider === 'openrouter' ? 'OpenRouter' : 'Custom'}
+              </div>
+            </div>
+
+            {/* Test Button */}
+            {hasApiKey && (
+              <button
+                onClick={onApiKeyTest}
+                className="w-full px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors"
               >
-                {/* Hardcoded models */}
-                <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant</option>
-                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-                {/* Add other models as needed */}
-              </select>
-            </div>
-          )}
+                Test API Connection
+              </button>
+            )}
 
-          {/* Provider Info */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">
-              Provider
-            </label>
-            <div className="px-3 py-2 bg-gray-100 rounded-md text-sm text-gray-600">
-              {settings.byok.provider === 'openrouter' ? 'OpenRouter' : 'Custom'}
-            </div>
+            {/* Remove Key (destructive) */}
+            {hasApiKey && (
+              <div className="mt-2">
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <button
+                      className="w-full px-3 py-2 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 transition-colors"
+                    >
+                      Remove Key
+                    </button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogTitle>Remove API Key?</DialogTitle>
+                    <DialogDescription>
+                      Are you sure? This will remove your key and revert you to the free plan.
+                    </DialogDescription>
+                    <DialogFooter>
+                      <DialogClose asChild>
+                        <button className="px-3 py-2 bg-gray-200 rounded-md">Cancel</button>
+                      </DialogClose>
+                      <button
+                        onClick={() => {
+                          onSettingsChange({ byok: { ...settings.byok, apiKey: '' } });
+                          onApiKeyChange('');
+                        }}
+                        className="px-3 py-2 bg-red-600 text-white rounded-md"
+                      >
+                        Confirm & Remove
+                      </button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            )}
           </div>
-
-          {/* Test Button */}
-          {hasApiKey && (
-            <button
-              onClick={onApiKeyTest}
-              className="w-full px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors"
-            >
-              Test API Connection
-            </button>
-          )}
-        </div>
+        )
       ) : (
         <div className="pl-6 py-3 bg-purple-50 rounded-md border border-purple-200">
           <p className="text-sm text-purple-700 mb-2">

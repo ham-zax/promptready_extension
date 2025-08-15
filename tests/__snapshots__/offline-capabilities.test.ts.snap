@@ -1,10 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`Offline Capabilities System > Integration Tests > should process complete workflow without errors 1`] = `
-"> Source: https://example.com/article
-> Captured: <timestamp>
-> Hash: <hash>
-
+"
 # Main Title
 
 ## Table of Contents
@@ -38,5 +35,8 @@ More content with [a link](https://example.com/).
 ## Conclusion
 
 Final thoughts and summary.
-"
+
+
+---
+*Cleaned from: [Test Article](https://example.com/article) on 16/08/2025*"
 `;

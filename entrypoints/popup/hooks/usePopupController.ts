@@ -9,6 +9,7 @@ import type { Settings, CreditsState, UserState, TrialState } from '@/lib/types'
 import { BYOKClient } from '@/pro/byok-client';
 import { MonetizationClient } from '@/pro/monetization-client';
 import { ExperimentationClient, type CohortAssignment } from '@/pro/experimentation-client';
+import UI_MESSAGES from '@/lib/ui-messages';
 
 // State types
 interface PopupState {
@@ -256,7 +257,7 @@ export function usePopupController() {
         }
       } catch (error) {
         console.error('Failed to load settings or extras:', error);
-        showToast('Failed to load settings or extras', 'error');
+        showToast(UI_MESSAGES.failedToLoadSettings, 'error');
       }
     };
 
@@ -285,7 +286,7 @@ export function usePopupController() {
             type: 'PROCESSING_COMPLETE',
             payload: message.payload,
           });
-          showToast('Content processed successfully!', 'success');
+          showToast(UI_MESSAGES.contentProcessed, 'success');
 
           // Auto-copy Markdown after processing completes (like working version)
           (async () => {
@@ -305,23 +306,23 @@ export function usePopupController() {
             type: 'PROCESSING_ERROR',
             payload: { error: message.payload.error },
           });
-          showToast(`Processing failed: ${message.payload.error}`, 'error');
+          showToast(UI_MESSAGES.processingFailed(message.payload.error), 'error');
           break;
 
         case 'EXPORT_COMPLETE':
-          showToast('Content exported successfully!', 'success');
+          showToast(UI_MESSAGES.contentExported, 'success');
           break;
 
         case 'COPY_COMPLETE':
           if (message.payload.success) {
-            showToast('Copied to clipboard!', 'success');
+            showToast(UI_MESSAGES.copiedToClipboard, 'success');
           } else {
-            showToast(`Copy failed: ${message.payload.error || 'Unknown error'}`, 'error');
+            showToast(UI_MESSAGES.copyFailed(message.payload.error || 'Unknown error'), 'error');
           }
           break;
 
         case 'EXPORT_ERROR':
-          showToast(`Export failed: ${message.payload.error}`, 'error');
+          showToast(UI_MESSAGES.failedToExport, 'error');
           break;
       }
     };
@@ -336,7 +337,7 @@ export function usePopupController() {
     const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false };
 
     if (!flags.aiModeEnabled) {
-      showToast('AI Mode is not available yet', 'info');
+      showToast(UI_MESSAGES.failedToLoadSettings, 'info');
       return;
     }
 
@@ -351,10 +352,10 @@ export function usePopupController() {
     try {
       await Storage.updateSettings({ mode: newMode });
       dispatch({ type: 'MODE_CHANGED', payload: { mode: newMode } });
-      showToast(`Switched to ${newMode.toUpperCase()} mode`, 'success');
+      showToast(UI_MESSAGES.switchedToMode(newMode), 'success');
     } catch (error) {
       console.error('Failed to update mode:', error);
-      showToast('Failed to update mode', 'error');
+      showToast(UI_MESSAGES.failedToUpdateMode, 'error');
     }
   }, [state.mode, state.isPro, state.trial, showToast]);
 
@@ -363,10 +364,10 @@ export function usePopupController() {
       await Storage.updateSettings(partial);
       const updated = await Storage.getSettings();
       dispatch({ type: 'SETTINGS_UPDATED', payload: { settings: updated } });
-      showToast('Settings saved', 'success');
+      showToast(UI_MESSAGES.settingsSaved, 'success');
     } catch (error) {
       console.error('Failed to save settings:', error);
-      showToast('Failed to save settings', 'error');
+      showToast(UI_MESSAGES.failedToSaveSettings, 'error');
     }
   }, [showToast]);
 
@@ -380,10 +381,10 @@ export function usePopupController() {
       await Storage.setApiKey(key);
       const updated = await Storage.getSettings();
       dispatch({ type: 'SETTINGS_UPDATED', payload: { settings: updated } });
-      showToast('API key saved', 'success');
+      showToast(UI_MESSAGES.apiKeySaved, 'success');
     } catch (error) {
       console.error('Failed to save API key:', error);
-      showToast('Failed to save API key', 'error');
+      showToast(UI_MESSAGES.failedToSaveApiKey, 'error');
     }
   }, [state.apiKeyInput, showToast]);
 
@@ -392,7 +393,7 @@ export function usePopupController() {
       const settings = await Storage.getSettings();
       const key = settings.byok.apiKey;
       if (!key) {
-        showToast('Please enter and save an API key first', 'info');
+        showToast(UI_MESSAGES.enterAndSaveApiKeyFirst, 'info');
         return;
       }
       const result = await BYOKClient.makeRequest(
@@ -401,21 +402,43 @@ export function usePopupController() {
         { requireExplicitConsent: false }
       );
       if (result.content) {
-        showToast('BYOK connection OK', 'success');
+        showToast(UI_MESSAGES.byokConnectionOk, 'success');
       } else {
-        showToast('BYOK test completed (no content)', 'info');
+        showToast(UI_MESSAGES.byokTestNoContent, 'info');
       }
     } catch (error) {
       const msg = (error instanceof Error ? error.message : String(error));
       console.error('BYOK test failed:', msg);
-      if (msg.includes('timed out')) {
-        showToast('BYOK test timed out. Check network or try again.', 'error');
-      } else if (msg.includes('401') || msg.toLowerCase().includes('unauthorized')) {
-        showToast('BYOK test failed: Unauthorized (check API key).', 'error');
-      } else if (msg.includes('429') || msg.toLowerCase().includes('rate')) {
-        showToast('BYOK test failed: Rate limited. Please wait and retry.', 'error');
+
+      const lower = msg.toLowerCase();
+
+      // Timeout / aborts
+      if (lower.includes('timed out') || lower.includes('timeout') || lower.includes('abort')) {
+        showToast(UI_MESSAGES.byokTestTimeout, 'error');
+
+      // Network connectivity issues (fetch failed / DNS / offline)
+      } else if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('could not connect') || lower.includes('connection error')) {
+        showToast(UI_MESSAGES.connectionError, 'error');
+
+      // Service capacity / 5xx responses
+      } else if (msg.includes('503') || msg.includes('502') || lower.includes('service temporarily') || lower.includes('temporarily unavailable') || lower.includes('service unavailable') || lower.includes('capacity')) {
+        showToast(UI_MESSAGES.serviceTemporarilyUnavailable, 'error');
+
+      // Authorization / invalid key
+      } else if (msg.includes('401') || lower.includes('unauthorized') || lower.includes('invalid api key')) {
+        showToast(UI_MESSAGES.byokTestUnauthorized, 'error');
+
+      // Rate limiting
+      } else if (msg.includes('429') || lower.includes('rate') || lower.includes('rate limited')) {
+        showToast(UI_MESSAGES.byokTestRateLimited, 'error');
+
+      // Model list / OpenRouter-specific model fetch failures
+      } else if (lower.includes('could not fetch') || lower.includes("couldn't fetch") || (lower.includes('models') && lower.includes('fetch'))) {
+        showToast(UI_MESSAGES.modelFetchFailed, 'error');
+
+      // Fallback: show a truncated generic message
       } else {
-        showToast(`BYOK test failed: ${msg.slice(0, 120)}`, 'error');
+        showToast(UI_MESSAGES.byokTestFailedGeneric(msg.slice(0, 120)), 'error');
       }
     }
   }, [showToast]);
@@ -440,7 +463,7 @@ export function usePopupController() {
         type: 'PROCESSING_ERROR',
         payload: { error: 'Capture failed' },
       });
-      showToast('Failed to capture content', 'error');
+      showToast(UI_MESSAGES.failedToCapture, 'error');
     }
   }, [state.mode, showToast]);
 
@@ -460,13 +483,13 @@ export function usePopupController() {
     } catch (error) {
       console.error('Copy request failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Copy failed';
-      showToast(`Copy failed: ${errorMessage}`, 'error');
+      showToast(UI_MESSAGES.copyFailed(errorMessage), 'error');
     }
   }, [showToast]);
 
   const handleExport = useCallback(async (format: 'md' | 'json', action: 'copy' | 'download' = 'download') => {
     if (!state.exportData) {
-      showToast('No content to export', 'error');
+      showToast(UI_MESSAGES.noContentToExport, 'error');
       return;
     }
 
@@ -485,7 +508,7 @@ export function usePopupController() {
 
     } catch (error) {
       console.error('Export failed:', error);
-      showToast('Failed to export content', 'error');
+      showToast(UI_MESSAGES.failedToExport, 'error');
     }
   }, [state.exportData, showToast]);
 
