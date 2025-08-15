@@ -1,9 +1,10 @@
 // BYOK (Bring Your Own Key) Settings Component
 // Handles AI configuration including API keys, models, and providers
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings } from '@/lib/types';
 import ByokChoice, { ByokProvider } from './ByokChoice';
+import { ModelSelect } from './ModelSelect';
 import {
   Dialog,
   DialogTrigger,
@@ -47,6 +48,12 @@ export function ByokSettings({
     setShowChoice(false);
     onSettingsChange({ byok: { ...settings.byok, provider: p } });
   };
+
+  useEffect(() => {
+    if (showChoice) {
+      onApiKeyChange('');
+    }
+  }, [showChoice]);
 
   return (
     <div className="space-y-3">

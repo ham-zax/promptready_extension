@@ -8,6 +8,7 @@ import { SettingsPanel } from './SettingsPanel';
 import { Toast } from './Toast';
 import type { Settings } from '@/lib/types';
 import { ProBadge } from './ProBadge';
+import { ModeToggle } from './ModeToggle';
 import { PrimaryButton } from './PrimaryButton';
 import { ProUpgradePrompt } from './ProUpgradePrompt';
 import { CreditExhaustedPrompt } from './CreditExhaustedPrompt';
@@ -67,26 +68,15 @@ export default function SimplifiedPopup() {
         {/* Credits and Mode Toggle */}
         <div className="mt-3 flex items-center justify-between">
           <div className="text-xs opacity-90">
-            {state.isPro
-              ? ` `
-              : state.trial && !state.trial.hasExhausted
-              ? `You have ${state.credits?.remaining} credits left.`
-              : ' '}
+            {!state.isPro && state.trial && !state.trial.hasExhausted ? `You have ${state.credits?.remaining} credits left.` : ' '}
           </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-sm opacity-90">Processing Mode</span>
-            <button
-              onClick={handleModeToggle}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                state.mode === 'ai' ? 'bg-green-500' : 'bg-gray-400'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  state.mode === 'ai' ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
+          <div className="flex items-center">
+            <ModeToggle
+              mode={state.mode}
+              isPro={state.isPro}
+              onChange={(m: Settings['mode']) => onSettingsChange({ mode: m })}
+              onUpgradePrompt={handleModeToggle}
+            />
           </div>
         </div>
         <div className="flex justify-between text-xs mt-1 opacity-75">

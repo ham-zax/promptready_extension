@@ -244,13 +244,23 @@ export function usePopupController() {
             dispatch({ type: 'SETTINGS_UPDATED', payload: { settings: updatedSettings } });
           }
 
-          const creditStatus = await MonetizationClient.checkCredits(userId);
-          const credits: CreditsState = {
-            remaining: creditStatus.balance,
-            total: (settings.credits?.total || 0) > creditStatus.balance ? (settings.credits?.total || 0) : creditStatus.balance,
-            lastReset: settings.credits?.lastReset || new Date().toISOString(),
-          };
-          dispatch({ type: 'CREDITS_UPDATED', payload: { credits } });
+          // Only query the credit system for non-BYOK users (BYOK implies paid)
+          if (!settings.byok?.apiKey) {
+            try {
+              const creditStatus = await MonetizationClient.checkCredits(userId);
+              const credits: CreditsState = {
+                remaining: creditStatus.balance,
+                total: settings.credits?.total || 150, // sensible default total if not present
+                lastReset: settings.credits?.lastReset || new Date().toISOString(),
+              };
+              // Dispatch credits update so reducer can recalculate isPro
+              dispatch({ type: 'CREDITS_UPDATED', payload: { credits } });
+            } catch (creditErr) {
+              console.warn('Failed to fetch credits:', creditErr);
+              // Do not block startup on credit fetch failure; show a non-blocking toast
+              showToast(UI_MESSAGES.failedToLoadSettings, 'info');
+            }
+          }
 
           const cohort = await ExperimentationClient.getCohort(userId);
           dispatch({ type: 'COHORT_UPDATED', payload: { cohort } });
