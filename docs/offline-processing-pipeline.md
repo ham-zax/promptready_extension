@@ -140,3 +140,34 @@ A robust testing strategy is crucial for maintaining the quality of the complex,
         npm test -- -u
         ```
         
+### Known Issues & Research Notes
+
+* Focus/clipboard constraint: On certain pages with strict security or embedding contexts, `window.focus()` may be blocked by the browser and the subsequent `navigator.clipboard.writeText` call will throw a `NotAllowedError` or similar `DOMException`.
+    - Symptom: Clipboard writes fail intermittently with `[object DOMException]` in content script logs.
+    - Workaround: The extension attempts `window.focus()` then waits 50ms before calling `navigator.clipboard.writeText`. If that fails, the content script falls back to a `document.execCommand('copy')` flow or presents a manual copy prompt to the user.
+    - Research task (LOW PRIORITY): Investigate alternative focus-gaining techniques for pages with strict security contexts, and whether a headless/background clipboard relay (with explicit user gesture) is feasible under the browser security model. Consider telemetry to measure frequency of these failures in the wild.
+ 
+    ### Transient User Activation (Why clipboard sometimes requires a second click)
+
+    On certain flows initiated from the extension UI (popup, browser action, or context menu), you will see the following pattern in logs:
+
+    ```
+    [BMAD_CLIPBOARD] clipboard-write permission state: granted
+    [BMAD_CLIPBOARD] navigator.clipboard failed... NotAllowedError: Document is not focused.
+    ```
+
+    This is not a bug. It is the browser enforcing the transient user activation security model. In short:
+
+    - A user's click in the extension UI creates a very short-lived activation (think of it as a time-limited keycard).
+    - That activation must be consumed almost immediately and synchronously by the privileged API call (e.g., `navigator.clipboard.writeText`).
+    - Our asynchronous pipeline (offscreen processing, background orchestration, and message forwarding) usually exceeds that window. By the time we attempt the call in the content script the activation has expired.
+
+    Recommended approach (published decision):
+
+    1. Accept and document this platform constraint. The pipeline should remain as-is: offscreen processing for heavy DOM work, background for orchestration, content script for the privileged clipboard write.
+    2. Improve UX by offering a user-gesture fallback in the page: the content script already shows a manual prompt with a prominent "Copy" button that will succeed because the button click provides a fresh activation in the focused document.
+    3. Optionally, add telemetry (via `COPY_COMPLETE` messages) so we can measure how often `navigator.clipboard` succeeds vs. execCommand/manual fallbacks. This will let us decide if a larger UX change (injecting a permanent in-page copy button) is warranted.
+
+    Treat the execCommand/manual fallback as intentional and robust — they are the pragmatic, platform-compliant solution to an unavoidable browser security model.
+
+        

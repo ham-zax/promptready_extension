@@ -1,0 +1,30 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Cloudflare integration snapshot > produces stable markdown snapshot 1`] = `
+"> Source: https://api-production.usecodex.com/api/github/auth/vscode
+> Captured: <timestamp>
+> Hash: <hash>
+
+# Error 1016
+
+Ray ID: <ray-id> • <timestamp>
+
+## Origin DNS error
+
+## What can I do?
+
+**If you are a visitor of this website:**
+
+Please try again in a few minutes.
+
+**If you are the owner of this website:**
+
+Check your DNS settings. If you are using a CNAME origin record, make sure it is valid and resolvable. [Additional troubleshooting information here.](https://support.cloudflare.com/hc/en-us/articles/234979888-Error-1016-Origin-DNS-error)
+
+Was this page helpful?
+
+Thank you for your feedback!
+
+Cloudflare Ray ID: **96f7f214fadd85de** • Your IP: <ip> • Performance & security by [Cloudflare](https://www.cloudflare.com/5xx-error-landing)
+"
+`;

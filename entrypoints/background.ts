@@ -41,6 +41,9 @@ class EnhancedContentProcessor {
   // Map selectionHash -> tabId so we can forward processing results back to the originating tab
   private pendingCaptureMap: Map<string, number> = new Map();
 
+  // Gatekeeper to prevent duplicate long-running processing for the same selectionHash
+  private inProgressRequests: Set<string> = new Set();
+
   /**
    * Store export data in session storage to survive service worker termination
    */
@@ -190,12 +193,28 @@ class EnhancedContentProcessor {
    * Handle capture completion from content script
    */
   async handleCaptureComplete(message: any, sender: any): Promise<void> {
+    // Gatekeeper: ensure only one processing pipeline runs per unique selectionHash
+    const selectionHash = message?.payload?.selectionHash;
+
+    if (!selectionHash) {
+      // If there's no selectionHash, proceed but log a warning — we can't gate duplicate requests
+      console.warn('[BMAD_GATE] Missing selectionHash for incoming capture; proceeding without gate');
+    } else {
+      if (this.inProgressRequests.has(selectionHash)) {
+        console.warn(`[BMAD_GATE] Request for hash ${selectionHash} is already in progress. Aborting duplicate.`);
+        return; // Abort duplicate request early
+      }
+      // Register this selectionHash as in-progress
+      this.inProgressRequests.add(selectionHash);
+      console.log(`[BMAD_GATE] Registered in-progress request for hash ${selectionHash}`);
+    }
+
     try {
       if (!message.payload) {
         throw new Error('No content data provided');
       }
 
-      const { html, url, title, selectionHash } = message.payload;
+      const { html, url, title } = message.payload;
       // Determine originating tab id from sender (content scripts send messages with sender.tab)
       const originatingTabId = sender?.tab?.id || message.payload?.tabId;
       if (selectionHash && originatingTabId) {
@@ -259,6 +278,16 @@ class EnhancedContentProcessor {
       } else {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         this.broadcastError(`Failed to process content: ${errorMessage}`).catch(console.error);
+      }
+    } finally {
+      // Ensure we always clear the gatekeeper entry for this selectionHash so future requests can proceed
+      try {
+        if (selectionHash && this.inProgressRequests.has(selectionHash)) {
+          this.inProgressRequests.delete(selectionHash);
+          console.log(`[BMAD_GATE] Cleared in-progress request for hash ${selectionHash}`);
+        }
+      } catch (cleanupErr) {
+        console.warn('[BMAD_GATE] Failed to clear in-progress request:', cleanupErr);
       }
     }
   }
