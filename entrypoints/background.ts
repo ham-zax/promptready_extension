@@ -36,6 +36,9 @@ class EnhancedContentProcessor {
   private readonly EXPORT_DATA_KEY = 'currentExportData';
   private offscreenCreationPromise: Promise<void> | null = null;
 
+  // Map selectionHash -> tabId so we can forward processing results back to the originating tab
+  private pendingCaptureMap: Map<string, number> = new Map();
+
   /**
    * Store export data in session storage to survive service worker termination
    */
@@ -125,7 +128,8 @@ class EnhancedContentProcessor {
     try {
       switch (message.type) {
         case 'CAPTURE_COMPLETE':
-          await this.handleCaptureComplete(message);
+          // Pass sender so we can remember the originating tab for later forwarding
+          await this.handleCaptureComplete(message, _sender);
           break;
 
         case 'CAPTURE_REQUEST':
@@ -183,13 +187,23 @@ class EnhancedContentProcessor {
   /**
    * Handle capture completion from content script
    */
-  async handleCaptureComplete(message: any): Promise<void> {
+  async handleCaptureComplete(message: any, sender: any): Promise<void> {
     try {
       if (!message.payload) {
         throw new Error('No content data provided');
       }
 
       const { html, url, title, selectionHash } = message.payload;
+      // Determine originating tab id from sender (content scripts send messages with sender.tab)
+      const originatingTabId = sender?.tab?.id || message.payload?.tabId;
+      if (selectionHash && originatingTabId) {
+        try {
+          this.pendingCaptureMap.set(selectionHash, originatingTabId);
+        } catch (e) {
+          console.warn('[Background] Failed to record pending capture mapping:', e);
+        }
+      }
+
       const settings = await Storage.getSettings();
 
       console.log(`Processing content: ${title} (${html.length} chars)`);
@@ -275,6 +289,29 @@ class EnhancedContentProcessor {
   async handleProcessingComplete(message: any): Promise<void> {
     try {
       const { exportMd, exportJson, metadata, stats, warnings, originalHtml } = message.payload;
+
+      // If we have a selectionHash -> tabId mapping, forward the raw markdown to that tab's content script.
+      try {
+        const selectionHash = message.payload?.metadata?.selectionHash || message.payload?.exportJson?.metadata?.selectionHash;
+        if (selectionHash) {
+          const tabId = this.pendingCaptureMap.get(selectionHash);
+          if (tabId) {
+            console.log(`[Background] Forwarding PROCESSING_COMPLETE exportMd to originating tab ${tabId} for selection ${selectionHash}`);
+            try {
+              await browser.tabs.sendMessage(tabId, {
+                type: 'PROCESSING_COMPLETE_FOR_TAB',
+                payload: { exportMd },
+              });
+            } catch (sendErr) {
+              console.warn('[Background] Failed to send processing result to content script:', sendErr);
+            }
+            // remove mapping after forwarding to avoid leaks
+            this.pendingCaptureMap.delete(selectionHash);
+          }
+        }
+      } catch (forwardErr) {
+        console.warn('[Background] Forwarding step failed:', forwardErr);
+      }
 
       // Validate quality of processed content with original HTML for accurate scoring
       const qualityReport = ContentQualityValidator.validate(

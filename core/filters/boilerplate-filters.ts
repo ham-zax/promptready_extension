@@ -300,8 +300,49 @@ export class BoilerplateFilter {
    */
   static shouldPreserveElement(el: HTMLElement): boolean {
     try {
+      // 1) explicit selectors / data-attrs whitelist
+      const TECHNICAL_WHITELIST_SELECTORS = [
+        '.technical-spec',
+        '.product-spec',
+        '[data-spec]',
+        '[data-specs]',
+        '[data-product-spec]',
+        '.panel-title',
+        '.accordion-header',
+        '.spec-table',
+        '.datasheet',
+        '.product-details',
+      ];
+
+      // If element itself or any descendant/ancestor matches a whitelist selector, preserve it.
+      for (const sel of TECHNICAL_WHITELIST_SELECTORS) {
+        try {
+          if (el.matches && el.matches(sel)) {
+            console.warn('[BMAD_PRESERVE] Whitelist selector matched on element — preserving.', sel, el);
+            return true;
+          }
+          if (el.querySelector && el.querySelector(sel)) {
+            console.warn('[BMAD_PRESERVE] Whitelist selector matched within element — preserving.', sel, el);
+            return true;
+          }
+          if (el.closest && el.closest(sel)) {
+            console.warn('[BMAD_PRESERVE] Whitelist selector matched on ancestor — preserving.', sel, el);
+            return true;
+          }
+        } catch {
+          // Silently ignore invalid selector matches
+        }
+      }
+
+      // 2) explicit data-* attribute checks commonly used for specs
+      if (el.hasAttribute && (el.hasAttribute('data-spec') || el.hasAttribute('data-specs') || el.hasAttribute('data-product-spec'))) {
+        console.warn('[BMAD_PRESERVE] data-* attribute found — preserving element.', el);
+        return true;
+      }
+
+      // 3) internal heading checks (existing behavior)
       const headingSelector = 'h1,h2,h3,h4,h5,h6, [role="heading"], [class*="title"], [class*="heading"]';
-      const pattern = /technical|specification|specifications|cad|compatible|compatible products|technical specification|more information|overview/i;
+      const pattern = /technical|specification|specifications|cad|compatible|compatible products|technical specification|datasheet|more information|overview/i;
 
       // The ONLY check: Do any title-like elements INSIDE this element match our pattern?
       const internalHeadings = Array.from(el.querySelectorAll(headingSelector));
@@ -313,7 +354,30 @@ export class BoilerplateFilter {
         }
       }
 
-      // If no internal headings match, this element is considered safe to filter.
+      // 4) nearby sibling heading heuristic: preserve if a heading immediately precedes this element
+      const prev = el.previousElementSibling as HTMLElement | null;
+      if (prev && /^H[1-6]$/.test(prev.tagName)) {
+        const prevText = (prev.textContent || '').trim();
+        if (pattern.test(prevText)) {
+          console.warn('[BMAD_PRESERVE] Preserving because previous sibling heading matches pattern.', el);
+          return true;
+        }
+      }
+
+      // 5) ancestor heading heuristic: preserve if an ancestor heading matches the pattern
+      let ancestor: HTMLElement | null = el.parentElement;
+      while (ancestor) {
+        if (/^H[1-6]$/.test(ancestor.tagName)) {
+          const ancText = (ancestor.textContent || '').trim();
+          if (pattern.test(ancText)) {
+            console.warn('[BMAD_PRESERVE] Preserving because ancestor heading matches pattern.', el);
+            return true;
+          }
+        }
+        ancestor = ancestor.parentElement;
+      }
+
+      // If no whitelist, data-attr, or heading matches, this element is considered safe to filter.
       return false;
 
     } catch (e) {

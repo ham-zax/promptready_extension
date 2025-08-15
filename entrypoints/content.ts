@@ -26,6 +26,92 @@ export default defineContentScript({
             return true;
           }
 
+          // Offscreen/background forwarded processing result for this tab - perform clipboard write here
+          if (message.type === 'PROCESSING_COMPLETE_FOR_TAB') {
+            console.log('Content script received PROCESSING_COMPLETE_FOR_TAB');
+            const exportMd = message.payload?.exportMd || '';
+            if (!exportMd) {
+              console.warn('No exportMd provided in PROCESSING_COMPLETE_FOR_TAB');
+              return true;
+            }
+
+            try {
+              console.log('Attempting navigator.clipboard.writeText from content script for processed markdown...');
+              await navigator.clipboard.writeText(exportMd);
+              console.log('navigator.clipboard.writeText succeeded in content script for processed markdown');
+              // Optionally notify background/popup that copy succeeded
+              await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'content-script' } }).catch(() => {});
+              return true;
+            } catch (clipErr) {
+              console.warn('navigator.clipboard.writeText failed for processed markdown, falling back to execCommand:', clipErr);
+            }
+
+            // ExecCommand fallback (visible minimal textarea to ensure selection works)
+            try {
+              const textArea = document.createElement('textarea');
+              textArea.value = exportMd;
+              textArea.style.position = 'fixed';
+              textArea.style.top = '10px';
+              textArea.style.left = '10px';
+              textArea.style.width = '10px';
+              textArea.style.height = '10px';
+              textArea.style.opacity = '0.01';
+              textArea.style.zIndex = '9999';
+              document.body.appendChild(textArea);
+              textArea.focus();
+              textArea.select();
+              const success = document.execCommand('copy');
+              document.body.removeChild(textArea);
+              console.log('Fallback clipboard copy success for processed markdown:', success);
+              await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success, method: 'content-script-fallback' } }).catch(() => {});
+              return true;
+            } catch (fallbackErr) {
+              console.error('Fallback clipboard copy also failed for processed markdown:', fallbackErr);
+              // As last resort, show manual prompt to user
+              try {
+                const promptDiv = document.createElement('div');
+                promptDiv.style.position = 'fixed';
+                promptDiv.style.top = '50%';
+                promptDiv.style.left = '50%';
+                promptDiv.style.transform = 'translate(-50%, -50%)';
+                promptDiv.style.backgroundColor = 'white';
+                promptDiv.style.padding = '20px';
+                promptDiv.style.border = '1px solid black';
+                promptDiv.style.zIndex = '10000';
+                promptDiv.style.maxWidth = '80%';
+                promptDiv.style.maxHeight = '80%';
+                promptDiv.style.overflow = 'auto';
+                promptDiv.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
+
+                const promptText = document.createElement('p');
+                promptText.textContent = 'Automatic copy failed. Please press Ctrl+C/Cmd+C now to copy the processed text:';
+                promptDiv.appendChild(promptText);
+
+                const manualTextArea = document.createElement('textarea');
+                manualTextArea.value = exportMd;
+                manualTextArea.style.width = '100%';
+                manualTextArea.style.height = '200px';
+                manualTextArea.style.marginTop = '10px';
+                promptDiv.appendChild(manualTextArea);
+
+                const closeButton = document.createElement('button');
+                closeButton.textContent = 'Close';
+                closeButton.style.marginTop = '10px';
+                closeButton.style.padding = '5px 10px';
+                closeButton.addEventListener('click', () => document.body.removeChild(promptDiv));
+                promptDiv.appendChild(closeButton);
+
+                document.body.appendChild(promptDiv);
+                manualTextArea.focus();
+                manualTextArea.select();
+                return true;
+              } catch (uiErr) {
+                console.error('Failed to show manual copy prompt:', uiErr);
+                return true;
+              }
+            }
+          }
+
           if (message.type === 'CAPTURE_SELECTION' || message.type === 'CAPTURE_SELECTION_ONLY') {
             console.log('Starting content capture...');
             const result = await ContentCapture.captureSelection();
@@ -36,7 +122,7 @@ export default defineContentScript({
               url: result.url,
               selectionHash: result.selectionHash
             });
-            
+
             // Send captured content to background service worker
             console.log('Sending CAPTURE_COMPLETE message to background...');
             await browser.runtime.sendMessage({
@@ -44,14 +130,14 @@ export default defineContentScript({
               payload: result,
             });
             console.log('CAPTURE_COMPLETE message sent successfully');
-            
+
             return true;
           } else if (message.type === 'COPY_TO_CLIPBOARD') {
             // Fallback clipboard copy for when navigator.clipboard fails
             console.log('Content script received COPY_TO_CLIPBOARD message');
             console.log('Content to copy (first 100 chars):', message.payload.content.substring(0, 100));
             console.log('Content length:', message.payload.content.length);
-            
+
             try {
               // Try navigator.clipboard first
               console.log('Attempting navigator.clipboard.writeText from content script...');
@@ -62,11 +148,11 @@ export default defineContentScript({
               console.warn('Content script clipboard API failed, error:', clipError);
               console.log('Attempting execCommand fallback in content script...');
             }
-            
+
             // Create a visible textarea to ensure focus and selection work
             const textArea = document.createElement('textarea');
             textArea.value = message.payload.content;
-            
+
             // Make it visible but minimally intrusive
             textArea.style.position = 'fixed';
             textArea.style.top = '10px';
@@ -75,24 +161,24 @@ export default defineContentScript({
             textArea.style.height = '10px';
             textArea.style.opacity = '0.01'; // Almost invisible but still technically visible
             textArea.style.zIndex = '9999';
-            
+
             document.body.appendChild(textArea);
-            
+
             // Focus and select the text
             console.log('Focusing and selecting textarea...');
             textArea.focus();
             textArea.select();
-            
+
             // Execute copy command
             console.log('Executing document.execCommand("copy")...');
             const success = document.execCommand('copy');
             document.body.removeChild(textArea);
-            
+
             console.log('Fallback clipboard copy success:', success);
-            
+
             if (!success) {
               console.warn('execCommand returned false, trying one more approach...');
-              
+
               // Try one more approach - create a user-visible prompt
               const promptDiv = document.createElement('div');
               promptDiv.style.position = 'fixed';
@@ -107,39 +193,39 @@ export default defineContentScript({
               promptDiv.style.maxHeight = '80%';
               promptDiv.style.overflow = 'auto';
               promptDiv.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
-              
+
               const promptText = document.createElement('p');
               promptText.textContent = 'Automatic copy failed. Please press Ctrl+C/Cmd+C now to copy the selected text:';
               promptDiv.appendChild(promptText);
-              
+
               const manualTextArea = document.createElement('textarea');
               manualTextArea.value = message.payload.content;
               manualTextArea.style.width = '100%';
               manualTextArea.style.height = '200px';
               manualTextArea.style.marginTop = '10px';
               promptDiv.appendChild(manualTextArea);
-              
+
               const closeButton = document.createElement('button');
               closeButton.textContent = 'Close';
               closeButton.style.marginTop = '10px';
               closeButton.style.padding = '5px 10px';
               closeButton.addEventListener('click', () => document.body.removeChild(promptDiv));
               promptDiv.appendChild(closeButton);
-              
+
               document.body.appendChild(promptDiv);
-              
+
               manualTextArea.focus();
               manualTextArea.select();
-              
+
               // Return true even though we're showing a manual prompt
               return true;
             }
-            
+
             return true;
           }
         } catch (error) {
           console.error('Content script operation failed:', error);
-          
+
           // Send error to background
           await browser.runtime.sendMessage({
             type: 'ERROR',
@@ -149,7 +235,7 @@ export default defineContentScript({
           });
         }
       });
-      
+
     console.log('PromptReady content script loaded');
   },
 });

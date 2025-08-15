@@ -82,16 +82,6 @@ export class EnhancedOffscreenProcessor {
         return true; // Keep message channel open for async response
       }
 
-      if (message.type === 'OFFSCREEN_COPY') {
-        this.handleCopyRequest(message.payload.content)
-          .then(() => sendResponse({ success: true }))
-          .catch(error => sendResponse({
-            success: false,
-            error: error instanceof Error ? error.message : 'Copy failed'
-          }));
-        return true;
-      }
-
       // Return false for unhandled messages
       return false;
     });
@@ -209,7 +199,12 @@ export class EnhancedOffscreenProcessor {
 
             if (bestCandidate && maxScore > 10) {
               console.log(`[BMAD_WINNER] Selected candidate with score ${maxScore}:`, bestCandidate);
-              const cleanedHtml = bestCandidate.outerHTML;
+
+              // --- PRUNE the winner to remove low-scoring direct children before conversion.
+              const prunedCandidate = ScoringEngine.pruneNode(bestCandidate);
+              const cleanedHtml = prunedCandidate.outerHTML;
+              // --------------------------------
+
               const markdown = await TurndownConfigManager.convert(cleanedHtml, turndownPreset);
               const postOptions = {
                 cleanupWhitespace: true,
@@ -247,6 +242,14 @@ export class EnhancedOffscreenProcessor {
               };
 
               const exportJson = this.generateStructuredExport(bypassResult, url, title);
+
+              // Notify background via PROCESSING_COMPLETE from offscreen processor
+              try {
+                this.sendComplete(bypassResult.markdown, exportJson, bypassResult.metadata, bypassResult.processingStats, bypassResult.warnings, cleanedHtml);
+              } catch (e) {
+                console.warn('[EnhancedOffscreenProcessor] sendComplete failed:', e);
+              }
+
               return {
                 exportMd: bypassResult.markdown,
                 exportJson,
@@ -294,6 +297,14 @@ export class EnhancedOffscreenProcessor {
               };
 
               const exportJson = this.generateStructuredExport(bypassResult, url, title);
+
+              // Notify background via PROCESSING_COMPLETE from offscreen processor
+              try {
+                this.sendComplete(bypassResult.markdown, exportJson, bypassResult.metadata, bypassResult.processingStats, bypassResult.warnings, cleanedHtml);
+              } catch (e) {
+                console.warn('[EnhancedOffscreenProcessor] sendComplete failed:', e);
+              }
+
               return {
                 exportMd: bypassResult.markdown,
                 exportJson,
@@ -341,6 +352,13 @@ export class EnhancedOffscreenProcessor {
               errors: [],
             };
             const exportJson = this.generateStructuredExport(bypassResult, url, title);
+            // Notify background via PROCESSING_COMPLETE from offscreen processor
+            try {
+              this.sendComplete(bypassResult.markdown, exportJson, bypassResult.metadata, bypassResult.processingStats, bypassResult.warnings, cleanedHtml);
+            } catch (e) {
+              console.warn('[EnhancedOffscreenProcessor] sendComplete failed:', e);
+            }
+
             return {
               exportMd: bypassResult.markdown,
               exportJson,
@@ -383,6 +401,13 @@ export class EnhancedOffscreenProcessor {
       console.log('[EnhancedOffscreenProcessor] Offline processing completed successfully');
 
       // Return the result instead of sending it
+      // Notify background via PROCESSING_COMPLETE message
+      try {
+        this.sendComplete(enhancedResult.markdown, exportJson, enhancedResult.metadata, enhancedResult.processingStats, enhancedResult.warnings, html);
+      } catch (e) {
+        console.warn('[EnhancedOffscreenProcessor] sendComplete failed:', e);
+      }
+
       return {
         exportMd: enhancedResult.markdown,
         exportJson,
@@ -510,78 +535,6 @@ export class EnhancedOffscreenProcessor {
         fallbacksUsed: result.processingStats.fallbacksUsed,
       },
     };
-  }
-
-  private async handleCopyRequest(content: string): Promise<void> {
-    console.log('[EnhancedOffscreenProcessor] Handling copy request, content length:', content.length);
-
-    // Check clipboard permission first
-    try {
-      const permission = await navigator.permissions.query({
-        name: 'clipboard-write' as PermissionName
-      });
-      console.log('[EnhancedOffscreenProcessor] Clipboard permission state:', permission.state);
-
-      if (permission.state === 'denied') {
-        throw new Error('Clipboard permission denied');
-      }
-    } catch (permError) {
-      console.warn('[EnhancedOffscreenProcessor] Permission check failed:', permError);
-      // Continue anyway - some browsers don't support permission query
-    }
-
-    // Method 1: Try navigator.clipboard
-    try {
-      if (!navigator.clipboard) {
-        throw new Error('Clipboard API not available');
-      }
-
-      console.log('[EnhancedOffscreenProcessor] Attempting navigator.clipboard.writeText...');
-      await navigator.clipboard.writeText(content);
-      console.log('[EnhancedOffscreenProcessor] ✅ Content copied via navigator.clipboard');
-      return;
-    } catch (error) {
-      console.error('[EnhancedOffscreenProcessor] ❌ navigator.clipboard failed:', error);
-    }
-
-    // Method 2: Try execCommand fallback
-    try {
-      console.log('[EnhancedOffscreenProcessor] Attempting execCommand fallback...');
-
-      const textArea = document.createElement('textarea');
-      textArea.value = content;
-      textArea.style.position = 'fixed';
-      textArea.style.left = '-9999px';
-      textArea.style.top = '-9999px';
-      textArea.style.opacity = '0';
-      textArea.style.pointerEvents = 'none';
-
-      document.body.appendChild(textArea);
-
-      // Focus and select with error handling
-      try {
-        textArea.focus();
-        textArea.select();
-        textArea.setSelectionRange(0, content.length);
-      } catch (selectError) {
-        console.warn('[EnhancedOffscreenProcessor] Selection failed:', selectError);
-      }
-
-      const success = document.execCommand('copy');
-      document.body.removeChild(textArea);
-
-      if (!success) {
-        throw new Error('execCommand returned false');
-      }
-
-      console.log('[EnhancedOffscreenProcessor] ✅ Content copied via execCommand');
-      return;
-    } catch (fallbackError) {
-      console.error('[EnhancedOffscreenProcessor] ❌ execCommand fallback failed:', fallbackError);
-    }
-
-    // If we get here, both methods failed
-    throw new Error('All clipboard methods failed in offscreen document');
   }
 
   private lastProgressTime = 0;

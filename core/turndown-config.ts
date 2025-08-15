@@ -2,6 +2,7 @@
 // Provides custom rules and presets for different output formats
 
 import TurndownService from '@joplin/turndown';
+import { gfm } from '@joplin/turndown-plugin-gfm';
 
 // Type definitions for TurndownService
 type TurndownOptions = {
@@ -47,6 +48,28 @@ export interface PostProcessor {
 
 export class TurndownConfigManager {
   
+  /**
+   * Convert HTML to Markdown using the chosen preset.
+   * Ensures the GFM plugin is applied so tables become Markdown pipe tables.
+   */
+  public static async convert(html: string, presetName: string = 'standard'): Promise<string> {
+    // Create and configure Turndown service (async to allow plugin to load)
+    const turndown = await this.createService(presetName);
+    let markdown = turndown.turndown(html);
+
+    // Apply post-processors if any (preserve earlier semantics)
+    const preset = TurndownConfigManager.PRESETS.find(p => p.name === presetName) || TurndownConfigManager.PRESETS[0];
+    for (const proc of preset.postProcessors || []) {
+      try {
+        markdown = proc.process(markdown);
+      } catch (e) {
+        console.warn(`[TurndownConfigManager] postProcessor ${proc.name} failed:`, e);
+      }
+    }
+
+    return markdown;
+  }
+
   // Base configuration optimized for clean markdown output
   private static readonly BASE_CONFIG: TurndownOptions = {
     headingStyle: 'atx',
@@ -118,6 +141,41 @@ export class TurndownConfigManager {
             markdown += ')';
             
             return markdown;
+          },
+        },
+        {
+          name: 'tableToGfmOrJson',
+          filter: 'table',
+          replacement: (content: string, node: any) => {
+            try {
+              const table = node as HTMLTableElement;
+              const cells = Array.from(table.querySelectorAll('td,th'));
+              const hasComplex = cells.some(cell => cell.hasAttribute('rowspan') || cell.hasAttribute('colspan'));
+
+              const rows = Array.from(table.rows).map(row =>
+                Array.from(row.cells).map(cell => (cell.textContent || '').trim())
+              );
+
+              if (rows.length === 0) return '';
+
+              // If complex table (rowspan/colspan), fallback to structured JSON for reliability
+              if (hasComplex) {
+                const json = JSON.stringify({ headers: (rows[0] || []).map(h => h), rows: rows.slice(1) }, null, 2);
+                return `\n\n\`\`\`json\n${json}\n\`\`\`\n\n`;
+              }
+
+              // Simple GFM pipe table
+              const header = rows[0] || [];
+              const body = rows.slice(1);
+              const pipeHeader = `| ${header.join(' | ')} |`;
+              const delimiter = `| ${header.map(() => '---').join(' | ')} |`;
+              const pipeRows = body.map(r => `| ${r.join(' | ')} |`).join('\n');
+
+              return `\n\n${pipeHeader}\n${delimiter}\n${pipeRows}\n\n`;
+            } catch (e) {
+              console.warn('[TurndownConfig] tableToGfmOrJson failed, returning raw HTML:', e);
+              return `\n\n${content}\n\n`;
+            }
           },
         },
       ],
@@ -213,7 +271,7 @@ export class TurndownConfigManager {
             const codeElement = node.querySelector('code');
             const language = codeElement?.className?.match(/(?:language-|lang-)(\w+)/)?.[1] || '';
             const cleanContent = content.replace(/^\n+|\n+$/g, '');
-            
+
             // Use GitHub-style language hints
             const githubLanguage = TurndownConfigManager.mapToGitHubLanguage(language);
             return `\n\n\`\`\`${githubLanguage}\n${cleanContent}\n\`\`\`\n\n`;
@@ -237,8 +295,33 @@ export class TurndownConfigManager {
           name: 'githubTables',
           filter: 'table',
           replacement: (content: string, node: any) => {
-            // Enhanced table processing for GitHub
-            return `\n\n${content}\n\n`;
+            try {
+              const table = node as HTMLTableElement;
+              const cells = Array.from(table.querySelectorAll('td,th'));
+              const hasComplex = cells.some(cell => cell.hasAttribute('rowspan') || cell.hasAttribute('colspan'));
+
+              const rows = Array.from(table.rows).map(row =>
+                Array.from(row.cells).map(cell => (cell.textContent || '').trim())
+              );
+
+              if (rows.length === 0) return '';
+
+              if (hasComplex) {
+                const json = JSON.stringify({ headers: (rows[0] || []).map(h => h), rows: rows.slice(1) }, null, 2);
+                return `\n\n\`\`\`json\n${json}\n\`\`\`\n\n`;
+              }
+
+              const header = rows[0] || [];
+              const body = rows.slice(1);
+              const pipeHeader = `| ${header.join(' | ')} |`;
+              const delimiter = `| ${header.map(() => '---').join(' | ')} |`;
+              const pipeRows = body.map(r => `| ${r.join(' | ')} |`).join('\n');
+
+              return `\n\n${pipeHeader}\n${delimiter}\n${pipeRows}\n\n`;
+            } catch (e) {
+              console.warn('[TurndownConfig] tableToGfmOrJson failed, returning raw HTML:', e);
+              return `\n\n${content}\n\n`;
+            }
           },
         },
       ],
@@ -301,7 +384,7 @@ export class TurndownConfigManager {
   /**
    * Create a configured Turndown service instance
    */
-  static createService(presetName: string = 'standard', customOptions?: Partial<TurndownOptions>): typeof TurndownService {
+  static async createService(presetName: string = 'standard', customOptions?: Partial<TurndownOptions>): Promise<typeof TurndownService> {
     const preset = this.getPreset(presetName);
     if (!preset) {
       throw new Error(`Unknown preset: ${presetName}`);
@@ -313,7 +396,7 @@ export class TurndownConfigManager {
 
     // Add GFM plugin if enabled
     if (preset.enableGfm) {
-      this.addGfmPlugin(turndown);
+      await this.addGfmPlugin(turndown);
     }
 
     // Add custom rules
@@ -325,33 +408,6 @@ export class TurndownConfigManager {
     });
 
     return turndown;
-  }
-
-  /**
-   * Convert HTML to markdown using specified preset
-   */
-  static async convert(
-    html: string,
-    presetName: string = 'standard',
-    customOptions?: Partial<TurndownOptions>
-  ): Promise<string> {
-    try {
-      const turndown = this.createService(presetName, customOptions);
-      let markdown = turndown.turndown(html);
-
-      // Apply post-processors
-      const preset = this.getPreset(presetName);
-      if (preset) {
-        preset.postProcessors.forEach(processor => {
-          markdown = processor.process(markdown);
-        });
-      }
-
-      return markdown;
-    } catch (error) {
-      console.error('[TurndownConfig] Conversion failed:', error);
-      throw error;
-    }
   }
 
   /**
@@ -371,18 +427,17 @@ export class TurndownConfigManager {
   /**
    * Add GFM plugin to Turndown service
    */
-  private static addGfmPlugin(turndown: typeof TurndownService): void {
+  private static async addGfmPlugin(turndown: typeof TurndownService): Promise<void> {
     try {
-      // Dynamic import to handle potential loading issues
-      import('@joplin/turndown-plugin-gfm').then(gfmModule => {
-        if (gfmModule.gfm) {
-          turndown.use(gfmModule.gfm);
-        }
-      }).catch(error => {
-        console.warn('[TurndownConfig] Failed to load GFM plugin:', error);
-      });
+      // Await dynamic import so the plugin is applied before conversion
+      const gfmModule = await import('@joplin/turndown-plugin-gfm');
+      if (gfmModule && gfmModule.gfm) {
+        turndown.use(gfmModule.gfm);
+      } else {
+        console.warn('[TurndownConfig] GFM plugin loaded but did not export "gfm"');
+      }
     } catch (error) {
-      console.warn('[TurndownConfig] GFM plugin not available:', error);
+      console.warn('[TurndownConfig] Failed to load/apply GFM plugin:', error);
     }
   }
 
