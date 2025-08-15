@@ -1,9 +1,31 @@
-// Client for interacting with the backend monetization services
+// pro/monetization-client.ts (Corrected and Type-Safe)
 
 import { browser } from 'wxt/browser';
 import { Storage } from '@/lib/storage';
 
-// --- Interfaces based on backend-monetization-mvp-architecture.md ---
+// --- Define the explicit API response contracts ---
+
+interface CheckCreditsApiResponse {
+  balance: number;
+  weeklyCap: number;
+}
+
+interface ProcessAiSuccessResponse {
+  status: 'SUCCESS';
+  content?: string;
+  processed_content?: string;
+  remaining?: number;
+}
+
+interface ProcessAiErrorResponse {
+  error: 'INSUFFICIENT_CREDITS' | 'WEEKLY_CAP_EXCEEDED';
+  remaining?: number;
+}
+
+// A union type for all possible valid responses from the /process-ai endpoint
+type ProcessAiApiResponse = ProcessAiSuccessResponse | ProcessAiErrorResponse;
+
+// --- Interfaces for the client's public methods ---
 
 export interface CheckCreditsResponse {
   balance: number;
@@ -22,33 +44,31 @@ export interface ProcessAIResponse {
 export class MonetizationClient {
 
   private static getApiBase(): string {
-    // In the future, this could be dynamically configured
-    return 'https://api.promptready.dev';
+    // For local dev, change this to your wrangler dev URL (e.g., http://127.0.0.1:8788)
+    return 'http://127.0.0.1:8788'; 
   }
 
   /**
    * Checks a user's credit balance by calling the backend endpoint.
    */
   static async checkCredits(userId: string): Promise<CheckCreditsResponse> {
-    const url = `${this.getApiBase()}/check-credits`;
+    const url = `${this.getApiBase()}/user/status`; // Corrected endpoint from your functions/credit-service
 
     try {
       const resp = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),
       });
 
       if (!resp.ok) {
-        // Surface a default response on failure so callers can still render safely
         console.warn(`[MonetizationClient] checkCredits returned ${resp.status}`);
         return { balance: 0, weeklyCap: 0 };
       }
 
-      const data = await resp.json();
-      // Expecting { balance: number, weeklyCap: number }
+      // Use the type assertion here
+      const data = await resp.json() as CheckCreditsApiResponse;
+      
       return {
         balance: typeof data.balance === 'number' ? data.balance : 0,
         weeklyCap: typeof data.weeklyCap === 'number' ? data.weeklyCap : 0,
@@ -61,37 +81,29 @@ export class MonetizationClient {
 
   /**
    * Processes an AI request through the backend proxy.
-   * Maps backend responses and common HTTP status codes to ProcessAIResponse.
    */
   static async processWithAI(userId: string, prompt: string): Promise<ProcessAIResponse> {
-    const url = `${this.getApiBase()}/process-ai`;
+    const url = `${this.getApiBase()}/`; // The ai-proxy is the root of the service
 
     try {
       const resp = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ userId, prompt }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, content: prompt }), // Match ai-proxy expected body
       });
 
       if (!resp.ok) {
-        // Map known statuses to domain errors
-        if (resp.status === 402) {
-          return { success: false, error: 'INSUFFICIENT_CREDITS' };
-        }
-        if (resp.status === 429 || resp.status === 403) {
-          // 429 (rate/limit) or 403 (forbidden / cap) -> weekly cap exceeded in many deployments
-          return { success: false, error: 'WEEKLY_CAP_EXCEEDED' };
-        }
-
+        if (resp.status === 402) return { success: false, error: 'INSUFFICIENT_CREDITS' };
+        if (resp.status === 503) return { success: false, error: 'WEEKLY_CAP_EXCEEDED' };
         console.warn(`[MonetizationClient] processWithAI non-ok status ${resp.status}`);
         return { success: false, error: 'UNKNOWN_ERROR' };
       }
 
-      const data = await resp.json();
-      // Expecting at least { status: 'SUCCESS', processed_content: string, remaining?: number }
-      if (data && data.status === 'SUCCESS') {
+      // Use the type assertion here
+      const data = await resp.json() as ProcessAiApiResponse;
+
+      // Type guard to narrow down the union type
+      if ('status' in data && data.status === 'SUCCESS') {
         return {
           success: true,
           content: data.processed_content || data.content || '',
@@ -99,15 +111,10 @@ export class MonetizationClient {
         };
       }
 
-      // Backend may return structured error info
-      if (data && data.error === 'INSUFFICIENT_CREDITS') {
-        return { success: false, error: 'INSUFFICIENT_CREDITS', remaining: data.remaining };
-      }
-      if (data && data.error === 'WEEKLY_CAP_EXCEEDED') {
-        return { success: false, error: 'WEEKLY_CAP_EXCEEDED', remaining: data.remaining };
+      if ('error' in data) {
+        return { success: false, error: data.error, remaining: data.remaining };
       }
 
-      // Fallback
       return { success: false, error: 'UNKNOWN_ERROR' };
     } catch (err) {
       console.error('[MonetizationClient] processWithAI error:', err);

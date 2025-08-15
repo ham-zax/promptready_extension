@@ -9,6 +9,7 @@ export interface Env {
   AI_API_KEY: string;
   SERVICE_SECRET: string; // Added for inter-service authentication
   costTrackingQueue: Queue; // Added for resilient budget updates
+  CREDIT_SERVICE: Fetcher; // <-- ADD THIS BINDING TYPE
 }
 
 interface AIProxyRequest {
@@ -53,20 +54,20 @@ export default {
       }
 
       // 1. Check user credits by calling the credit-service
-      const creditsResponse = await fetch(`https://credit-service.your-worker-domain.workers.dev/user/status`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId }),
+      const creditsResponse = await env.CREDIT_SERVICE.fetch(`http://localhost/user/status`, { // URL hostname doesn't matter here
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
       });
 
       if (!creditsResponse.ok) {
-          return new Response('Failed to verify credits', { status: creditsResponse.status });
+        return new Response('Failed to verify credits', { status: creditsResponse.status });
       }
 
       const { creditsRemaining } = await creditsResponse.json() as CreditsResponse;
 
       if (creditsRemaining <= 0) {
-          return new Response('Insufficient credits', { status: 402 });
+        return new Response('Insufficient credits', { status: 402 });
       }
 
 
@@ -90,16 +91,17 @@ export default {
       const aiData = await aiResponse.json() as AIResponse;
       const processedContent = aiData.choices[0].message.content;
       const tokensUsed = aiData.usage.total_tokens;
-
-      // 3. Decrement user credits
-      ctx.waitUntil(fetch(`https://credit-service.your-worker-domain.workers.dev/credits/decrement`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            // --- THIS IS THE FIX ---
-            'Authorization': `Bearer ${env.SERVICE_SECRET}` // Use the same secret
-          },
-          body: JSON.stringify({ userId }),
+      
+      
+      // 3. Decrement user credits using the binding
+      ctx.waitUntil(env.CREDIT_SERVICE.fetch(`http://localhost/credits/decrement`, { // URL hostname doesn't matter
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // The binding is secure, but our service still expects the header for its own logic
+          'Authorization': `Bearer ${env.SERVICE_SECRET}`
+        },
+        body: JSON.stringify({ userId }),
       }));
 
 

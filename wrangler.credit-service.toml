@@ -1,0 +1,10 @@
+name = "credit-service"
+main = "functions/credit-service/index.ts"
+compatibility_date = "2024-03-20"
+
+[[kv_namespaces]]
+binding = "CREDITS_KV"
+id = "placeholder_for_local_dev_1"
+
+[vars]
+SERVICE_SECRET = "local-secret-string"
