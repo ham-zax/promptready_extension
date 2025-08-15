@@ -11,6 +11,21 @@ vi.mock('../lib/storage', () => ({
   },
 }));
 
+// Mock the dialog UI (Radix-based) to avoid pulling in runtime deps like react-remove-scroll in tests
+vi.mock('@/components/ui/dialog', () => {
+  const React = require('react');
+  const Passthrough = ({ children }: any) => React.createElement('div', null, children);
+  return {
+    Dialog: Passthrough,
+    DialogTrigger: ({ children }: any) => children,
+    DialogContent: Passthrough,
+    DialogTitle: ({ children }: any) => React.createElement('div', null, children),
+    DialogDescription: ({ children }: any) => React.createElement('div', null, children),
+    DialogFooter: Passthrough,
+    DialogClose: ({ children }: any) => children,
+  };
+});
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
