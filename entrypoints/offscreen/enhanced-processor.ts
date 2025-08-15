@@ -6,7 +6,9 @@ import { OfflineModeManager, OfflineModeConfig } from '../../core/offline-mode-m
 import { ReadabilityConfigManager } from '../../core/readability-config.js';
 import { TurndownConfigManager } from '../../core/turndown-config.js';
 import { MarkdownPostProcessor } from '../../core/post-processor.js';
-import { BoilerplateFilter } from '../../core/filters/boilerplate-filters';
+import { BoilerplateFilter, AGGRESSIVE_FILTER_RULES } from '../../core/filters/boilerplate-filters';
+import { ScoringEngine } from '../../core/scoring/scoring-engine';
+import DOMPurify from 'dompurify';
 
 interface ProcessingMessage {
   type: 'ENHANCED_OFFSCREEN_PROCESS';
@@ -145,37 +147,168 @@ export class EnhancedOffscreenProcessor {
     try {
       this.sendProgress('Extracting content...', 30, 'extraction');
 
-      // Insert BoilerplateFilter application on the captured html before any processing
+      // Sanitize incoming HTML with DOMPurify first to remove script/style and other unsafe nodes.
+      let doc: Document;
       try {
+        const sanitizedHtml = DOMPurify.sanitize(html);
         const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        doc = parser.parseFromString(sanitizedHtml, 'text/html');
+        console.warn('[BMAD_SANITIZE] DOMPurify sanitization applied in offscreen');
+      } catch (sanitizeErr) {
+        // If sanitization fails for any reason, fall back to parsing the raw HTML
+        console.warn('[BMAD_SANITIZE] DOMPurify sanitization failed, falling back to raw HTML:', sanitizeErr);
+        const parser = new DOMParser();
+        doc = parser.parseFromString(html, 'text/html');
+      }
 
-        if (typeof (BoilerplateFilter as any)?.applyRules === 'function') {
-          // Apply boilerplate rules in offscreen and emit sentinel
-          BoilerplateFilter.applyRules(doc.documentElement);
-          console.warn('[BMAD_DBG] BoilerplateFilter applied in offscreen');
-        } else {
-          console.warn('[BMAD_DBG] BoilerplateFilter not found in offscreen bundle');
-        }
-  
-        // Serialize cleaned DOM back into the HTML string for downstream processing
-        html = doc.documentElement.innerHTML;
+      if (typeof (BoilerplateFilter as any)?.applyRules === 'function') {
+        // Apply boilerplate rules to the document body in offscreen and emit sentinel
+        BoilerplateFilter.applyRules(doc.body);
+        console.warn('[BMAD_DBG] BoilerplateFilter applied in offscreen (body)');
+      } else {
+        console.warn('[BMAD_DBG] BoilerplateFilter not found in offscreen bundle');
+      }
 
-        // Intelligent Readability bypass:
-        // If BoilerplateFilter signals this is technical content we should bypass Readability
-        try {
-          if (typeof (BoilerplateFilter as any)?.shouldBypassReadability === 'function' &&
-              BoilerplateFilter.shouldBypassReadability(doc.documentElement)) {
-            console.warn('[BMAD_BYPASS] Technical content detected. Bypassing Readability.js and using direct conversion.');
+      // Serialize cleaned body back into the HTML string for downstream processing
+      html = doc.body.innerHTML;
 
-            const cleanedHtml = html;
+      // Intelligent Readability bypass:
+      // If BoilerplateFilter signals this is technical content we should bypass Readability
+      try {
+        if (typeof (BoilerplateFilter as any)?.shouldBypassReadability === 'function' &&
+            BoilerplateFilter.shouldBypassReadability(doc.body)) {
+          console.warn('[BMAD_BYPASS] Technical content detected. Engaging ScoringEngine.');
+
+          // Two-stage cleaning: after the safe UNWRAP pass, apply an aggressive REMOVE-only pass
+          try {
+            if (typeof (BoilerplateFilter as any)?.applyRules === 'function') {
+              BoilerplateFilter.applyRules(doc.body, AGGRESSIVE_FILTER_RULES);
+              console.warn('[BMAD_BYPASS] Aggressive second-stage filtering applied.');
+            }
+          } catch (aggErr) {
+            console.warn('[BMAD_BYPASS] Aggressive second-stage filtering failed:', aggErr);
+          }
+
+          try {
+            // Candidate selection: look for likely content containers
+            const candidates = Array.from(doc.body.querySelectorAll('main, article, section, div')) as HTMLElement[];
+            console.log(`[BMAD_DBG] Scoring ${candidates.length} potential candidates...`);
+
+            let bestCandidate: HTMLElement | null = null;
+            let maxScore = -Infinity;
+            for (const candidate of candidates) {
+              const score = ScoringEngine.scoreNode(candidate);
+              console.log(`[BMAD_DBG] Candidate: <${candidate.tagName.toLowerCase()} id="${candidate.id}" class="${candidate.className}"> -- Score: ${score}`);
+              if (score > maxScore) {
+                maxScore = score;
+                bestCandidate = candidate;
+              }
+            }
+
             const turndownPreset = (config && (config as any).turndownPreset) ? (config as any).turndownPreset : 'standard';
 
-            // Convert cleaned HTML directly to markdown
-            const markdown = await TurndownConfigManager.convert(cleanedHtml, turndownPreset);
+            if (bestCandidate && maxScore > 10) {
+              console.log(`[BMAD_WINNER] Selected candidate with score ${maxScore}:`, bestCandidate);
+              const cleanedHtml = bestCandidate.outerHTML;
+              const markdown = await TurndownConfigManager.convert(cleanedHtml, turndownPreset);
+              const postOptions = {
+                cleanupWhitespace: true,
+                normalizeHeadings: true,
+                fixListFormatting: true,
+                removeEmptyLines: true,
+                maxConsecutiveNewlines: 2,
+                improveCodeBlocks: true,
+                enhanceLinks: true,
+                optimizeImages: true,
+                addTableOfContents: config.postProcessing?.addTableOfContents || false,
+                preserveLineBreaks: config.postProcessing?.optimizeForPlatform === 'obsidian',
+              };
+              const postResult = MarkdownPostProcessor.process(markdown, postOptions);
 
-            // Prepare post-processing options aligned with OfflineModeManager.getPostProcessingOptions
-            const postOptions = {
+              const bypassResult: any = {
+                success: true,
+                markdown: postResult.markdown,
+                metadata: {
+                  title: title || 'Untitled',
+                  url,
+                  capturedAt: new Date().toISOString(),
+                  selectionHash: `bypass-${Date.now()}`,
+                },
+                processingStats: {
+                  totalTime: 0,
+                  readabilityTime: 0,
+                  turndownTime: 0,
+                  postProcessingTime: 0,
+                  fallbacksUsed: [],
+                  qualityScore: 100,
+                },
+                warnings: postResult.warnings || [],
+                errors: [],
+              };
+
+              const exportJson = this.generateStructuredExport(bypassResult, url, title);
+              return {
+                exportMd: bypassResult.markdown,
+                exportJson,
+                metadata: bypassResult.metadata,
+                stats: bypassResult.processingStats,
+                warnings: bypassResult.warnings,
+                originalHtml: cleanedHtml,
+              };
+            } else {
+              console.warn('[BMAD_BYPASS] ScoringEngine failed to find a confident candidate. Falling back to body conversion.');
+              const cleanedHtml = doc.body.innerHTML;
+              const markdown = await TurndownConfigManager.convert(cleanedHtml, turndownPreset);
+              const postResult = MarkdownPostProcessor.process(markdown, {
+                cleanupWhitespace: true,
+                normalizeHeadings: true,
+                fixListFormatting: true,
+                removeEmptyLines: true,
+                maxConsecutiveNewlines: 2,
+                improveCodeBlocks: true,
+                enhanceLinks: true,
+                optimizeImages: true,
+                addTableOfContents: config.postProcessing?.addTableOfContents || false,
+                preserveLineBreaks: config.postProcessing?.optimizeForPlatform === 'obsidian',
+              });
+
+              const bypassResult: any = {
+                success: true,
+                markdown: postResult.markdown,
+                metadata: {
+                  title: title || 'Untitled',
+                  url,
+                  capturedAt: new Date().toISOString(),
+                  selectionHash: `bypass-${Date.now()}`,
+                },
+                processingStats: {
+                  totalTime: 0,
+                  readabilityTime: 0,
+                  turndownTime: 0,
+                  postProcessingTime: 0,
+                  fallbacksUsed: [],
+                  qualityScore: 90,
+                },
+                warnings: postResult.warnings || [],
+                errors: [],
+              };
+
+              const exportJson = this.generateStructuredExport(bypassResult, url, title);
+              return {
+                exportMd: bypassResult.markdown,
+                exportJson,
+                metadata: bypassResult.metadata,
+                stats: bypassResult.processingStats,
+                warnings: bypassResult.warnings,
+                originalHtml: cleanedHtml,
+              };
+            }
+          } catch (scoreErr) {
+            console.warn('[BMAD_BYPASS] ScoringEngine processing failed, falling back to direct conversion:', scoreErr);
+            const cleanedHtml = doc.body.innerHTML;
+            const turndownPreset = (config && (config as any).turndownPreset) ? (config as any).turndownPreset : 'standard';
+            const markdown = await TurndownConfigManager.convert(cleanedHtml, turndownPreset);
+            const postResult = MarkdownPostProcessor.process(markdown, {
               cleanupWhitespace: true,
               normalizeHeadings: true,
               fixListFormatting: true,
@@ -186,11 +319,7 @@ export class EnhancedOffscreenProcessor {
               optimizeImages: true,
               addTableOfContents: config.postProcessing?.addTableOfContents || false,
               preserveLineBreaks: config.postProcessing?.optimizeForPlatform === 'obsidian',
-            };
-
-            const postResult = MarkdownPostProcessor.process(markdown, postOptions);
-
-            // Construct a minimal result matching OfflineModeManager.processContent shape
+            });
             const bypassResult: any = {
               success: true,
               markdown: postResult.markdown,
@@ -206,14 +335,12 @@ export class EnhancedOffscreenProcessor {
                 turndownTime: 0,
                 postProcessingTime: 0,
                 fallbacksUsed: [],
-                qualityScore: 100,
+                qualityScore: 80,
               },
               warnings: postResult.warnings || [],
               errors: [],
             };
-
             const exportJson = this.generateStructuredExport(bypassResult, url, title);
-
             return {
               exportMd: bypassResult.markdown,
               exportJson,
@@ -222,14 +349,12 @@ export class EnhancedOffscreenProcessor {
               warnings: bypassResult.warnings,
               originalHtml: cleanedHtml,
             };
-          } else {
-            console.warn('[BMAD_BYPASS] No technical signal — using Readability pipeline.');
           }
-        } catch (bypassErr) {
-          console.warn('[BMAD_BYPASS] Bypass check/processing failed:', bypassErr);
+        } else {
+          console.warn('[BMAD_BYPASS] No technical signal — using Readability pipeline.');
         }
-      } catch (err) {
-        console.warn('[BMAD_DBG] BoilerplateFilter application failed:', err);
+      } catch (bypassErr) {
+        console.warn('[BMAD_BYPASS] Bypass check/processing failed:', bypassErr);
       }
 
       const isLargeContent = html.length > config.performance.maxContentLength;

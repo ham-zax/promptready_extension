@@ -174,14 +174,32 @@ export const CODE_DOCS_FILTER_RULES: FilterRule[] = [
   },
 ];
 
+export const AGGRESSIVE_FILTER_RULES: FilterRule[] = [
+  {
+    description: 'Aggressively remove common site navigation bars.',
+    selector: 'nav, [role="navigation"], .navigation, .nav, .navbar, .menu, .main-menu',
+    action: FilterAction.REMOVE,
+  },
+  {
+    description: 'Aggressively remove common site footers.',
+    selector: 'footer, [role="contentinfo"], .footer, .page-footer, .site-footer',
+    action: FilterAction.REMOVE,
+  },
+  {
+    description: 'Aggressively remove social widgets and sidebars.',
+    selector: '.social, .share, .sharing, .sidebar, .side-bar, .secondary, .follow-us',
+    action: FilterAction.REMOVE,
+  },
+];
+
 /**
  * Apply filter rules to a DOM element
  */
 export class BoilerplateFilter {
   
-  static applyRules(element: HTMLElement, mode: 'offline' | 'ai' = 'offline'): void {
-    // Always use the same rules - no mode-specific filtering needed
-    const rules = BOILERPLATE_FILTER_RULES;
+  static applyRules(element: HTMLElement, rulesParam?: FilterRule[], mode: 'offline' | 'ai' = 'offline'): void {
+    // Use provided rules if given; otherwise default to BOILERPLATE_FILTER_RULES
+    const rules = (rulesParam && rulesParam.length) ? rulesParam : BOILERPLATE_FILTER_RULES;
     // Diagnostics collections to help identify which rules remove/unwrap important content
     const removedList: Element[] = [];
     const unwrappedList: Element[] = [];
