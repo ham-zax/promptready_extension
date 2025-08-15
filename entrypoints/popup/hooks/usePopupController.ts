@@ -58,7 +58,7 @@ type PopupAction =
   | { type: 'SHOW_UPGRADE' }
   | { type: 'HIDE_UPGRADE' };
 
-// Reducer function
+ // Reducer function
 function popupReducer(state: PopupState, action: PopupAction): PopupState {
   switch (action.type) {
     case 'SETTINGS_LOADED': {
@@ -66,7 +66,6 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
       const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false };
       const effectiveMode = flags.aiModeEnabled ? settings.mode : 'offline';
       const hasApiKey = Boolean(settings.byok?.apiKey);
-      // "Pro" is having a BYOK key or having credits in the new system
       const isPro = hasApiKey || (settings.credits?.remaining || 0) > 0;
 
       return {
@@ -81,31 +80,30 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
         apiKeyInput: '',
       };
     }
+
+    // V-- THIS IS THE MISSING PIECE --V
     case 'CREDITS_UPDATED': {
       const credits = action.payload.credits;
       const hasExhausted = credits.remaining <= 0;
       return {
         ...state,
         credits: credits,
-        trial: {
-          ...state.trial,
-          hasExhausted: hasExhausted,
-        },
-        isPro: state.hasApiKey || !hasExhausted,
+        trial: { ...state.trial, hasExhausted: hasExhausted },
+        isPro: state.hasApiKey || !hasExhausted, // Recalculate isPro
       };
     }
+    // A-- THIS IS THE MISSING PIECE --A
+
     case 'COHORT_UPDATED': {
       return {
         ...state,
         cohort: action.payload.cohort,
       };
     }
-
     case 'SETTINGS_UPDATED': {
       const { settings } = action.payload;
       const hasApiKey = Boolean(settings.byok?.apiKey);
       const isPro = hasApiKey || (settings.credits?.remaining || 0) > 0;
-
       return {
         ...state,
         settings,
@@ -116,24 +114,20 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
         hasApiKey,
       };
     }
-
     case 'SET_APIKEY_INPUT': {
       return { ...state, apiKeyInput: action.payload.value };
     }
-
     case 'MODE_CHANGED':
       return {
         ...state,
         mode: action.payload.mode,
       };
-
     case 'CAPTURE_START':
       return {
         ...state,
         processing: { status: 'capturing', message: 'Capturing content...' },
         exportData: null,
       };
-
     case 'PROCESSING_PROGRESS':
       return {
         ...state,
@@ -143,19 +137,15 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
           progress: action.payload.progress,
         },
       };
-
     case 'PROCESSING_COMPLETE': {
-      const remainingCredits = action.payload.metadata?.remainingCredits;
+      const remainingCredits = (action.payload.metadata as any)?.remainingCredits;
       const newCredits: CreditsState | undefined = remainingCredits !== undefined ? {
         ...state.credits!,
         remaining: remainingCredits,
       } : state.credits;
 
       const hasExhausted = newCredits ? newCredits.remaining <= 0 : true;
-
-      // Preserve pipelineUsed from payload.stats if present
       const pipelineUsed = (action.payload as any)?.stats?.pipelineUsed;
-
       return {
         ...state,
         processing: { status: 'complete' },
@@ -168,37 +158,31 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
         isPro: state.hasApiKey || !hasExhausted,
       };
     }
-
     case 'PROCESSING_ERROR':
       return {
         ...state,
         processing: { status: 'error', message: action.payload.error },
       };
-
     case 'SHOW_TOAST':
       return {
         ...state,
         toast: action.payload,
       };
-
     case 'HIDE_TOAST':
       return {
         ...state,
         toast: null,
       };
-
     case 'SHOW_UPGRADE':
       return {
         ...state,
         showUpgrade: true,
       };
-
     case 'HIDE_UPGRADE':
       return {
         ...state,
         showUpgrade: false,
       };
-
     default:
       return state;
   }
