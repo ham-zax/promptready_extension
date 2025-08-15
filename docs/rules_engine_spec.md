@@ -1,80 +1,73 @@
 
----
+### **Rules Engine Specification v2.0**
 
-### **Rules Engine Specification**
-
-As you agreed, here is the specification to guide the implementation of the `boilerplate-filters.ts` module. This will serve as the core of your extension's "secret sauce."
+*   **Status:** FINAL (v2.0)
+*   **Purpose:** To provide a definitive source of truth for the architecture and responsibilities of the `boilerplate-filters.ts` module.
 
 **1. Objective**
-To create a deterministic, extensible, and performant engine for removing boilerplate and non-essential content from a captured DOM snapshot *before* it is processed by `Readability.js`.
+To provide a versatile, two-stage cleaning engine that intelligently removes boilerplate from a captured DOM snapshot. The engine is a core component of a hybrid pipeline, capable of performing both a conservative "safe" pass for all content and a subsequent "aggressive" pass for content that bypasses the standard Readability.js extractor.
 
 **2. Location**
-The entire logic for this engine will be contained within:
-`content/clean/boilerplate-filters.ts`
+The entire logic for this engine is contained within:
+`core/filters/boilerplate-filters.ts`
 
 **3. Input / Output**
--   **Input:** A raw DOM `Document` or `DocumentFragment` object captured from the page.
--   **Output:** A mutated `Document` or `DocumentFragment` with boilerplate elements removed.
+-   **Input:** An `HTMLElement` (typically `doc.body`) and an optional array of `FilterRule` objects.
+-   **Output:** A mutated `HTMLElement` with boilerplate elements removed or unwrapped.
 
-**4. Proposed Rule Structure**
-The engine will be driven by an array of `FilterRule` objects. This structure allows for easy addition, removal, and testing of individual rules.
+**4. Core Concepts & Architecture**
+
+The engine's architecture is defined by three core concepts:
+
+*   **Two-Stage Cleaning:** The engine's primary strategy is to apply filters in two distinct passes.
+    1.  **Safe Pass (Default):** A comprehensive set of rules that favors the `UNWRAP` action for broad structural elements (`nav`, `footer`). This is designed to remove boilerplate containers without destroying potentially valuable content nested inside them. This pass runs on *all* pages.
+    2.  **Aggressive Pass (Conditional):** A smaller, more targeted set of rules that uses the `REMOVE` action. This pass is only executed within the "Intelligent Bypass Pipeline" after the Safe Pass is complete, allowing it to aggressively delete the now-orphaned text and links left behind by the `UNWRAP` action.
+
+*   **Intelligent Preservation:** The engine is not a "dumb" filter. Before applying any rule, it uses a powerful heuristic function (`shouldPreserveElement`) to check if the target element contains signals of being important technical content. This function uses a combination of whitelist selectors, data attributes, and contextual heading analysis to protect valuable content from being filtered.
+
+*   **Pipeline Decision Making:** The engine exposes a wrapper function (`shouldBypassReadability`) that uses the same preservation heuristic to provide a high-level `true/false` signal to the main pipeline orchestrator, allowing it to decide whether to use the standard Readability path or the advanced bypass path.
+
+**5. Rule Structure**
+The engine is driven by an array of `FilterRule` objects. The `FilterAction` enum has been simplified to reflect the final, implemented strategy.
 
 ```typescript
 // in lib/types.ts
 export enum FilterAction {
-  REMOVE = 'remove', // Completely remove the element
-  STRIP_ATTRIBUTES = 'strip_attributes', // Remove all attributes except a whitelist
-  UNWRAP = 'unwrap', // Remove the element but keep its children
+  REMOVE = 'remove', // Completely remove the element and all its children.
+  UNWRAP = 'unwrap', // Remove the element but keep its children.
 }
 
 export interface FilterRule {
-  /** A human-readable description of what the rule does. */
   description: string;
-  /** The CSS selector to identify target elements. */
   selector: string;
-  /** The action to perform on the matched elements. */
   action: FilterAction;
-  /** Optional array of attributes to keep for STRIP_ATTRIBUTES action. */
-  allowedAttributes?: string[];
 }
 ```
 
-**5. Rule Categories (Heuristics)**
-The `boilerplate-filters.ts` module will export an array of `FilterRule` instances, categorized by purpose:
+**6. Exported Rule Sets**
+The module exports two distinct rule sets, corresponding to the two cleaning stages:
 
-*   **General Boilerplate:** Rules to remove common site elements.
-    *   `header`, `footer`, `nav`, `aside`, `[role="navigation"]`, `[class*="cookie"]`
-*   **Social & Engagement:** Rules to remove social sharing widgets, comment sections, etc.
-    *   `[class*="social"]`, `[class*="share"]`, `#comments`, `[id*="comments"]`
-*   **Ads & Promotions:** Rules to remove common ad network patterns.
-    *   `[class*="ad"]`, `[id*="adbox"]`, `iframe[src*="ads"]`
-*   **Site-Specific Heuristics:** A section for rules targeting popular sites from the test matrix (MDN, GitHub, etc.) to handle their unique structures.
-    *   *MDN:* `.main-menu`, `.mdn-header`
-    *   *GitHub:* `[aria-label="Issues"]`, `.gh-header-actions`
+*   **`BOILERPLATE_FILTER_RULES` (Safe Pass):** The main, comprehensive list of rules. It targets a wide range of boilerplate but uses `UNWRAP` for structural tags.
+    ```typescript
+    // Example from BOILERPLATE_FILTER_RULES
+    {
+      description: 'Remove page footers',
+      selector: 'footer, [role="contentinfo"], .footer',
+      action: FilterAction.UNWRAP, // <-- Safe default
+    }
+    ```
+*   **`AGGRESSIVE_FILTER_RULES` (Aggressive Pass):** The smaller, specialized list for the bypass pipeline. It uses `REMOVE`.
+    ```typescript
+    // Example from AGGRESSIVE_FILTER_RULES
+    {
+      description: 'Aggressively remove common site footers.',
+      selector: 'footer, [role="contentinfo"], .footer',
+      action: FilterAction.REMOVE, // <-- Aggressive action
+    }
+    ```
 
-**6. Implementation Notes**
--   The filter function should be a pure, stateless function that accepts a DOM node and the rules array.
--   It should iterate through the rules and apply them sequentially to the DOM node.
--   Each rule should be well-documented with a `description`.
+**7. Key Responsibilities & Public API**
 
-**7. Example Rule**
-
-```typescript
-// in content/clean/boilerplate-filters.ts
-
-import { FilterAction, FilterRule } from '~/lib/types';
-
-export const BOILERPLATE_RULES: FilterRule[] = [
-  {
-    description: 'Remove common site navigation bars.',
-    selector: 'nav, [role="navigation"]',
-    action: FilterAction.REMOVE,
-  },
-  {
-    description: 'Remove typical comment sections.',
-    selector: '#comments, .comments, [id*="comments-container"]',
-    action: FilterAction.REMOVE,
-  },
-  // ... more rules
-];
-```
+*   **`applyRules(element, [rules])`:** The main workhorse function. It iterates through a given set of rules (or the default `BOILERPLATE_FILTER_RULES`) and applies them to the DOM element, respecting the preservation heuristic.
+*   **`shouldPreserveElement(element)`:** The core intelligence of the module. Returns `true` if an element should be protected from filtering.
+*   **`shouldBypassReadability(element)`:** The primary decision-making function for the external pipeline orchestrator.
