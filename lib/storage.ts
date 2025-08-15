@@ -19,7 +19,7 @@ const STORAGE_KEYS = {
 // =============================================================================
 
 const DEFAULT_SETTINGS: Settings = {
-  mode: 'offline',
+  mode: 'ai',
   theme: 'system',
   templates: {
     bundles: [],

@@ -1,4 +1,12 @@
+import '@testing-library/jest-dom/vitest';
 import { beforeAll } from 'vitest';
+import { JSDOM } from 'jsdom';
+
+// Polyfill DOMParser for tests running in Node
+const dom = new JSDOM();
+globalThis.DOMParser = dom.window.DOMParser;
+globalThis.document = dom.window.document;
+
 
 // Minimal mock for wxt/browser storage used in lib/storage
 const memoryLocal: Record<string, any> = {};
@@ -50,15 +58,6 @@ globalThis.browser = {
   },
 };
 
-// Ensure DOMParser is available globally in tests using jsdom
-// Some environments expose it on window only
-// @ts-ignore
-if (typeof globalThis.DOMParser === 'undefined' && typeof window !== 'undefined' && (window as any).DOMParser) {
-  // @ts-ignore
-  globalThis.DOMParser = (window as any).DOMParser;
-}
-
 beforeAll(() => {
   // Nothing for now; placeholder for future setup
 });
-

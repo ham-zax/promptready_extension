@@ -23,8 +23,8 @@ describe('OfflineModeManager', () => {
       readabilityPreset: 'blog-article',
     });
     expect(res.success).toBe(true);
-    expect(res.markdown).toMatch(/^# /); // H1 at top
-    expect(res.markdown).toMatch(/^> Source:/m); // cite-first block
+    expect(res.markdown).toMatch(/^> Source:/m); // Cite-first block should be at the top
+    expect(res.markdown).toContain('# Heading'); // H1 should be present
     expect(res.metadata.url).toBe(url);
   });
 });

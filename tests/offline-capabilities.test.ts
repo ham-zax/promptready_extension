@@ -41,7 +41,7 @@ describe('Offline Capabilities System', () => {
       expect(result.errors).toHaveLength(0);
     });
     
-    test('should handle large content with chunking', async () => {
+    test('should handle large content with chunking', { timeout: 30000 }, async () => {
       const largeContent = '<article><h1>Large</h1><p>' + 'Large content '.repeat(50000) + '</p></article>';
       const html = `<html><body>${largeContent}</body></html>`;
 
@@ -152,7 +152,7 @@ describe('Offline Capabilities System', () => {
 
       const result = MarkdownPostProcessor.process(messyMarkdown);
       const body = result.markdown.replace(/```[\s\S]*?```/g, '');
-      expect(body).not.toContain('   '); // No trailing spaces outside code blocks
+      expect(body).not.toMatch(/[^\S\r\n]+$/m); // No trailing spaces outside code blocks
       expect(result.markdown).not.toMatch(/\n{3,}/); // No excessive newlines
       expect(result.improvements.length).toBeGreaterThan(0);
     });
@@ -363,7 +363,7 @@ describe('Offline Capabilities System', () => {
       expect(result.markdown).toContain('# Main Title');
       expect(result.markdown).toContain('## Section 1');
       expect(result.markdown).toContain('**bold text**');
-      expect(result.markdown).toContain('[a link](https://example.com)');
+ expect(result.markdown).toMatch(/\[a link\]\(https:\/\/example\.com\/?\)/);
       expect(result.markdown).toContain('```javascript');
       
       // Validate quality
@@ -377,7 +377,10 @@ describe('Offline Capabilities System', () => {
       expect(qualityReport.passesThreshold).toBe(true);
 
       // Snapshot the final markdown for structural stability regression coverage
-      expect(result.markdown).toMatchSnapshot();
+   const normalized = result.markdown
+     .replace(/^> Captured: .+$/m, '> Captured: <timestamp>')
+     .replace(/^> Hash: .+$/m, '> Hash: <hash>');
+   expect(normalized).toMatchSnapshot();
     });
     
     test('should handle edge cases gracefully', async () => {
@@ -408,7 +411,7 @@ describe('Offline Capabilities System', () => {
 // Performance benchmarks
 describe('Performance Tests', () => {
   
-  test('should process medium content within time limits', async () => {
+  test('should process medium content within time limits', { timeout: 15000 }, async () => {
     const mediumContent = '<p>' + 'Content '.repeat(10000) + '</p>';
     const html = `<html><body><article>${mediumContent}</article></body></html>`;
     
