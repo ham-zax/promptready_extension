@@ -1,10 +1,17 @@
 import { browser } from 'wxt/browser';
 
 function saveSettings() {
-  const defaultMode = (document.getElementById('defaultMode') as HTMLSelectElement).value;
-  const telemetry = (document.getElementById('telemetry') as HTMLInputElement).checked;
-  const aiModeEnabled = (document.getElementById('aiModeEnabled') as HTMLInputElement).checked;
-  const devEnablePro = (document.getElementById('devEnablePro') as HTMLInputElement).checked;
+  const defaultModeElement = document.getElementById('defaultMode') as HTMLSelectElement | null;
+  const defaultMode = defaultModeElement ? defaultModeElement.value : 'offline';
+
+  const telemetryElement = document.getElementById('telemetry') as HTMLInputElement | null;
+  const telemetry = telemetryElement ? telemetryElement.checked : false;
+
+  const aiModeEnabledElement = document.getElementById('aiModeEnabled') as HTMLInputElement | null;
+  const aiModeEnabled = aiModeEnabledElement ? aiModeEnabledElement.checked : false;
+
+  const devEnableProElement = document.getElementById('devEnablePro') as HTMLInputElement | null;
+  const devEnablePro = devEnableProElement ? devEnableProElement.checked : false;
 
   browser.storage.local.set({
     promptready_settings: {
@@ -32,10 +39,25 @@ document.addEventListener('DOMContentLoaded', () => {
   browser.storage.local.get(['promptready_settings']).then((result: Record<string, any>) => {
     const settings = result.promptready_settings as any;
     if (settings) {
-      (document.getElementById('defaultMode') as HTMLSelectElement).value = settings.mode || 'offline';
-      (document.getElementById('telemetry') as HTMLInputElement).checked = settings.privacy?.telemetryEnabled || false;
-      (document.getElementById('aiModeEnabled') as HTMLInputElement).checked = Boolean(settings.flags?.aiModeEnabled);
-      (document.getElementById('devEnablePro') as HTMLInputElement).checked = Boolean(settings.isPro);
+      const defaultModeElement = document.getElementById('defaultMode') as HTMLSelectElement | null;
+      if (defaultModeElement) {
+        defaultModeElement.value = settings.mode || 'offline';
+      }
+
+      const telemetryElement = document.getElementById('telemetry') as HTMLInputElement | null;
+      if (telemetryElement) {
+        telemetryElement.checked = settings.privacy?.telemetryEnabled || false;
+      }
+
+      const aiModeEnabledElement = document.getElementById('aiModeEnabled') as HTMLInputElement | null;
+      if (aiModeEnabledElement) {
+        aiModeEnabledElement.checked = Boolean(settings.flags?.aiModeEnabled);
+      }
+
+      const devEnableProElement = document.getElementById('devEnablePro') as HTMLInputElement | null;
+      if (devEnableProElement) {
+        devEnableProElement.checked = Boolean(settings.isPro);
+      }
     }
   });
 });

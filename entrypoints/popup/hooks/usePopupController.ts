@@ -2,6 +2,7 @@
 // Separates UI logic from presentation for clean architecture
 
 import { useReducer, useEffect, useCallback } from 'react';
+import { getUserId } from '@/lib/user';
 import { browser } from 'wxt/browser';
 import { Storage } from '@/lib/storage';
 import type { Settings, CreditsState, UserState, TrialState } from '@/lib/types';
@@ -79,10 +80,16 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
       };
     }
     case 'CREDITS_UPDATED': {
+      const credits = action.payload.credits;
+      const hasExhausted = credits.remaining <= 0;
       return {
         ...state,
-        credits: action.payload.credits,
-        isPro: state.isPro || (action.payload.credits?.remaining || 0) > 0,
+        credits: credits,
+        trial: {
+          ...state.trial,
+          hasExhausted: hasExhausted,
+        },
+        isPro: state.hasApiKey || !hasExhausted,
       };
     }
     case 'COHORT_UPDATED': {
@@ -135,12 +142,27 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
         },
       };
 
-    case 'PROCESSING_COMPLETE':
+    case 'PROCESSING_COMPLETE': {
+      const remainingCredits = action.payload.metadata?.remainingCredits;
+      const newCredits: CreditsState | undefined = remainingCredits !== undefined ? {
+        ...state.credits!,
+        remaining: remainingCredits,
+      } : state.credits;
+
+      const hasExhausted = newCredits ? newCredits.remaining <= 0 : true;
+
       return {
         ...state,
         processing: { status: 'complete' },
         exportData: action.payload,
+        credits: newCredits,
+        trial: {
+          ...state.trial,
+          hasExhausted: hasExhausted,
+        },
+        isPro: state.hasApiKey || !hasExhausted,
       };
+    }
 
     case 'PROCESSING_ERROR':
       return {
@@ -207,22 +229,29 @@ export function usePopupController() {
 
   // Load initial settings
   useEffect(() => {
-    const loadSettings = async () => {
+    const loadInitialData = async () => {
       try {
         const settings = await Storage.getSettings();
         dispatch({ type: 'SETTINGS_LOADED', payload: { settings } });
 
-        if (settings.user?.id) {
-          const creditStatus = await MonetizationClient.checkCredits(settings.user.id);
+        const userId = await getUserId();
+        if (userId) {
+          // Store user ID in settings if it's not already there
+          if (!settings.user?.id) {
+            await Storage.updateSettings({ user: { id: userId } });
+            const updatedSettings = await Storage.getSettings();
+            dispatch({ type: 'SETTINGS_UPDATED', payload: { settings: updatedSettings } });
+          }
+
+          const creditStatus = await MonetizationClient.checkCredits(userId);
           const credits: CreditsState = {
             remaining: creditStatus.balance,
-            // The 'total' might be based on a subscription plan in a real scenario
             total: (settings.credits?.total || 0) > creditStatus.balance ? (settings.credits?.total || 0) : creditStatus.balance,
             lastReset: settings.credits?.lastReset || new Date().toISOString(),
           };
           dispatch({ type: 'CREDITS_UPDATED', payload: { credits } });
 
-          const cohort = await ExperimentationClient.getCohort(settings.user.id);
+          const cohort = await ExperimentationClient.getCohort(userId);
           dispatch({ type: 'COHORT_UPDATED', payload: { cohort } });
         }
       } catch (error) {
@@ -231,7 +260,7 @@ export function usePopupController() {
       }
     };
 
-    loadSettings();
+    loadInitialData();
   }, [showToast]);
 
   // Message listener for background script communication

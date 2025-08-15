@@ -28,6 +28,7 @@ const DEFAULT_SETTINGS: Settings = {
     apiBase: 'https://openrouter.ai/api/v1',
     apiKey: '', // No default key in defaults
     model: 'anthropic/claude-3-sonnet',
+    selectedByokModel: 'llama-3.1-8b-instant', // Default selected model for BYOK
   }, privacy: {
     telemetryEnabled: false,
   }, isPro: false, // Default to Free; being phased out for credits system

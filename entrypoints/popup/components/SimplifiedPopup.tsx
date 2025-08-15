@@ -10,6 +10,7 @@ import type { Settings } from '@/lib/types';
 import { ProBadge } from './ProBadge';
 import { PrimaryButton } from './PrimaryButton';
 import { ProUpgradePrompt } from './ProUpgradePrompt';
+import { CreditExhaustedPrompt } from './CreditExhaustedPrompt';
 
 // Main popup component - now purely presentational
 export default function SimplifiedPopup() {
@@ -31,6 +32,12 @@ export default function SimplifiedPopup() {
   } = usePopupController();
 
   const [showSettings, setShowSettings] = useState(false);
+  const [isSettingsVisible, setIsSettingsVisible] = useState(false);
+
+  const handleShowSettings = () => {
+    setIsSettingsVisible(true);
+    setShowSettings(true); // Also open the main settings panel
+  };
 
   const getAiLabel = () => {
     if (state.isPro) return 'AI ✨';
@@ -63,7 +70,7 @@ export default function SimplifiedPopup() {
             {state.isPro
               ? ` `
               : state.trial && !state.trial.hasExhausted
-              ? `You have ${state.trial.credits} credits left.`
+              ? `You have ${state.credits?.remaining} credits left.`
               : ' '}
           </div>
           <div className="flex items-center space-x-2">
@@ -107,12 +114,17 @@ export default function SimplifiedPopup() {
         {/* Capture Button */}
         <PrimaryButton
           onClick={handleCapture}
-          disabled={isProcessing}
+          disabled={isProcessing || state.credits?.remaining === 0}
           isProcessing={isProcessing}
           processingText={state.processing.message || 'Processing...'}
         >
           Capture Content
         </PrimaryButton>
+
+        {/* Credit Exhaustion Prompt */}
+        {state.credits?.remaining === 0 && (
+          <CreditExhaustedPrompt onUpgrade={handleShowSettings} />
+        )}
 
         {/* Processing Progress */}
         {isProcessing && state.processing.progress && (

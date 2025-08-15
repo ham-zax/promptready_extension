@@ -618,35 +618,12 @@ export class OfflineModeManager {
   static insertCiteFirstBlock(markdown: string, metadata: ExportMetadata): string {
     let result = markdown || '';
 
-    const lines = result.split('\n');
-    // Find first non-empty line
-    const firstContentIndex = lines.findIndex(l => l.trim().length > 0);
-    const firstLine = firstContentIndex >= 0 ? lines[firstContentIndex] : '';
+    const title = metadata.title || 'Untitled Page';
+    const url = metadata.url || '';
+    const date = metadata.capturedAt ? new Date(metadata.capturedAt).toLocaleDateString() : 'Unknown Date';
 
-    const hasTopH1 = /^#\s+/.test(firstLine);
-    const hasCiteBlock = /^>\s*Source:/m.test(result) && /^>\s*Captured:/m.test(result);
+    const citationFooter = `\n\n---\n*Cleaned from: [${title}](${url}) on ${date}*`;
 
-    const h1Title = `# ${metadata.title || 'Untitled'}`;
-    const citeBlock = [
-      `> Source: ${metadata.url || ''}`,
-      `> Captured: ${metadata.capturedAt || ''}`,
-      `> Hash: ${metadata.selectionHash || ''}`,
-      ''
-    ].join('\n');
-
-    const parts: string[] = [];
-
-    if (!hasTopH1) {
-      parts.push(h1Title, '');
-    }
-    if (!hasCiteBlock) {
-      parts.push(citeBlock);
-    }
-
-    if (parts.length === 0) {
-      return result; // nothing to insert
-    }
-
-    return parts.join('\n') + result.replace(/^\n+/, '\n');
+    return result + citationFooter;
   }
 }

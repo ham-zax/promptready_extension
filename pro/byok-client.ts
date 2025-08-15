@@ -20,12 +20,27 @@ export interface BYOKOptions {
   requireExplicitConsent?: boolean;
 }
 
+import { browser } from 'wxt/browser';
+
 export interface BYOKResponse {
   content: string;
   usage?: {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
+  };
+}
+
+interface OpenAICompletionResponse {
+  choices: Array<{
+    message: {
+      content: string;
+    };
+  }>;
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
   };
 }
 
@@ -68,7 +83,7 @@ export class BYOKClient {
           'X-Title': 'PromptReady Extension',
         },
         body: JSON.stringify({
-          model: settings.model,
+          model: (await browser.storage.local.get('selectedByokModel')).selectedByokModel || settings.model,
           messages: [
             {
               role: 'user',
@@ -88,7 +103,7 @@ export class BYOKClient {
         throw new Error(`BYOK request failed: ${response.status} ${text.slice(0, 300)}`);
       }
       
-      const data = await response.json();
+      const data = await response.json() as OpenAICompletionResponse;
       const content = data?.choices?.[0]?.message?.content ?? '';
       
       return {

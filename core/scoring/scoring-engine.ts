@@ -109,33 +109,56 @@ export class ScoringEngine {
     return score;
   }
 
+  public static findBestCandidate(root: HTMLElement): { bestCandidate: { element: HTMLElement; score: number } | null } {
+    let bestCandidate: { element: HTMLElement; score: number } | null = null;
+    let maxScore = -Infinity;
+
+    const candidates: HTMLElement[] = [];
+    // Collect all block-level elements as candidates
+    root.querySelectorAll('div, p, article, section, main, aside, header, footer, nav').forEach(el => {
+      candidates.push(el as HTMLElement);
+    });
+
+    for (const candidate of candidates) {
+      const score = this.scoreNode(candidate);
+      if (score > maxScore) {
+        maxScore = score;
+        bestCandidate = { element: candidate, score: score };
+      }
+    }
+    return { bestCandidate };
+  }
+
   /**
-   * Takes a candidate element and removes its direct children that are likely boilerplate.
+   * Takes a candidate element and recursively removes its children that are likely boilerplate.
    * Returns a pruned clone of the original element.
    */
   public static pruneNode(el: HTMLElement): HTMLElement {
     try {
       const workingCopy = el.cloneNode(true) as HTMLElement;
-  // Tuned threshold: be more aggressive removing low-scoring children.
-  // Setting to 0 removes any child with a non-positive score.
-  const NEGATIVE_SCORE_THRESHOLD = 0; // Changed from -5
-
-      for (const child of Array.from(workingCopy.children)) {
-        const childEl = child as HTMLElement;
-        const score = this.scoreNode(childEl);
-
-        console.log(`[BMAD_PRUNE_DBG] Pruning Candidate: <${childEl.tagName.toLowerCase()} id="${childEl.id}" class="${childEl.className}"> -- Score: ${score}`);
-
-        if (score < NEGATIVE_SCORE_THRESHOLD) {
-          console.warn(`[BMAD_PRUNE] Pruning node with score ${score}:`, childEl);
-          childEl.remove();
-        }
-      }
-
+      this.pruneRecursively(workingCopy);
       return workingCopy;
     } catch (e) {
       console.warn('[ScoringEngine] pruneNode failed, returning original clone:', e);
       return el.cloneNode(true) as HTMLElement;
+    }
+  }
+
+  private static pruneRecursively(node: HTMLElement) {
+    const NEGATIVE_SCORE_THRESHOLD = 0; // Tuned threshold
+    for (const child of Array.from(node.children)) {
+      const childEl = child as HTMLElement;
+      const score = this.scoreNode(childEl);
+
+      console.log(`[BMAD_PRUNE_DBG] Pruning Candidate: <${childEl.tagName.toLowerCase()} id="${childEl.id}" class="${childEl.className}"> -- Score: ${score}`);
+
+      if (score < NEGATIVE_SCORE_THRESHOLD) {
+        console.warn(`[BMAD_PRUNE] Pruning node with score ${score}:`, childEl);
+        childEl.remove();
+      } else {
+        // If the child is not removed, prune its children
+        this.pruneRecursively(childEl);
+      }
     }
   }
 }

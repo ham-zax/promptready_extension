@@ -16,6 +16,7 @@ export interface Settings {
     apiBase: string;
     apiKey: string; // Will be encrypted at rest
     model: string;
+    selectedByokModel?: string; // New field for selected model
   };
   privacy: {
     telemetryEnabled: boolean;
@@ -60,7 +61,7 @@ export interface UserState {
 
 export interface TrialState {
   hasExhausted: boolean;
-  showUpgradePrompt: boolean;
+  showUpgradePrompt?: boolean;
 }
 
 // Extend Settings with optional feature flags and Phase 2 state (interface merging)
@@ -146,8 +147,8 @@ export type MessageType =
   | 'OFFSCREEN_COPY'       // Background → Offscreen Document
   | 'OFFSCREEN_PROCESS'    // Background → Offscreen Document
   | 'OFFSCREEN_PROCESSED'  // Offscreen → Background
-  | 'BYOK_REQUEST'         // UI → Service Worker
-  | 'BYOK_RESULT'          // Service Worker → UI
+  | 'BYOK_MESSAGE_REQUEST' // UI → Service Worker
+  | 'BYOK_MESSAGE_RESPONSE'// Service Worker → UI
   | 'FETCH_MODELS'         // UI → Service Worker
   | 'MODELS_RESULT'        // Service Worker → UI
   | 'ERROR';               // Any → UI
@@ -178,12 +179,12 @@ export type ExportRequestMessage = Message<'EXPORT_REQUEST', {
   action: 'copy' | 'download';
 }>;
 
-export type ByokRequestMessage = Message<'BYOK_REQUEST', {
+export type ByokMessageRequest = Message<'BYOK_MESSAGE_REQUEST', {
   bundleContent: string;
   model: string;
 }>;
 
-export type ByokResultMessage = Message<'BYOK_RESULT', {
+export type ByokMessageResponse = Message<'BYOK_MESSAGE_RESPONSE', {
   content: string;
 }>;
 

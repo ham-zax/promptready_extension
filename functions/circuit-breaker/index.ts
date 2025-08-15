@@ -1,4 +1,6 @@
 
+/// <reference types="@cloudflare/workers-types" />
+
 export interface Env {
   // This binding is provided by Cloudflare and holds our key-value store.
   BUDGET_KV: KVNamespace;

@@ -2,6 +2,7 @@
 // Replaces the existing offscreen processing with optimized pipeline
 
 import { browser } from 'wxt/browser';
+import { getUserId } from '../../lib/user';
 import { OfflineModeManager, OfflineModeConfig } from '../../core/offline-mode-manager.js';
 import { ReadabilityConfigManager } from '../../core/readability-config.js';
 import { TurndownConfigManager } from '../../core/turndown-config.js';
@@ -9,6 +10,9 @@ import { MarkdownPostProcessor } from '../../core/post-processor.js';
 import { BoilerplateFilter, AGGRESSIVE_FILTER_RULES } from '../../core/filters/boilerplate-filters';
 import { ScoringEngine } from '../../core/scoring/scoring-engine';
 import DOMPurify from 'dompurify';
+import { Storage } from '../../lib/storage';
+import { BYOKClient } from '../../pro/byok-client';
+import { Settings } from '../../lib/types';
 
 interface ProcessingMessage {
   type: 'ENHANCED_OFFSCREEN_PROCESS';
@@ -44,6 +48,15 @@ interface ProcessingCompleteMessage {
     warnings: string[];
     originalHtml: string; // Include original HTML for quality validation
   };
+}
+
+interface AIErrorResponse {
+  error: string;
+}
+
+interface AISuccessResponse {
+  content: string;
+  remaining: number;
 }
 
 interface ProcessingErrorMessage {
@@ -101,7 +114,7 @@ export class EnhancedOffscreenProcessor {
       if (mode === 'offline') {
         return await this.processOfflineMode(html, url, title, finalConfig);
       } else {
-        return await this.processAIMode(html, url, title, finalConfig);
+        return await this.processAIMode(html, url, title, finalConfig, settings); // Pass settings here
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown processing error';
@@ -223,10 +236,72 @@ export class EnhancedOffscreenProcessor {
     html: string,
     url: string,
     title: string,
-    config: OfflineModeConfig
+    config: OfflineModeConfig,
+    settings: Settings // Add settings here
   ): Promise<ProcessingCompleteMessage['payload']> {
-    this.sendProgress('AI mode not yet implemented, using enhanced offline processing...', 20, 'fallback');
-    return await this.processOfflineMode(html, url, title, config);
+    this.sendProgress('Sending to AI for processing...', 30, 'ai-processing');
+
+    try {
+      const apiKey = await Storage.getApiKey(); // Get API key from storage
+
+      let processedMarkdown: string;
+      let remainingCredits: number | undefined;
+
+      if (apiKey) {
+        // Use BYOK client if API key is available
+        this.sendProgress('Using BYOK for AI processing...', 40, 'byok-processing');
+        const byokResult = await BYOKClient.makeRequest(
+          { prompt: html, maxTokens: 4000, temperature: 0.7 }, // Use html as prompt
+          { apiBase: settings.byok.apiBase, apiKey: apiKey, model: settings.byok.model }
+        );
+        processedMarkdown = byokResult.content;
+        // BYOK does not return remaining credits, so it will be undefined
+      } else {
+        // Fallback to trial proxy
+        const userId = await getUserId();
+        // NOTE: This assumes the AI proxy is available at this relative path.
+        // In a real extension, this would be a full URL to the deployed function.
+        const response = await fetch('/api/process-ai', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userId: userId,
+            content: html,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json() as AIErrorResponse;
+          throw new Error(errorData.error || `AI service returned status ${response.status}`);
+        }
+
+        const result = await response.json() as AISuccessResponse;
+        processedMarkdown = result.content;
+        remainingCredits = result.remaining;
+      }
+
+      this.sendProgress('Post-processing AI response...', 80, 'postprocessing');
+      const postResult = MarkdownPostProcessor.process(processedMarkdown, {});
+      const exportJson = this.generateStructuredExport(postResult, url, title);
+
+      this.sendComplete(postResult.markdown, exportJson, { title, url, remainingCredits }, {}, [], html);
+      
+      return {
+        exportMd: postResult.markdown,
+        exportJson,
+        metadata: { title, url, remainingCredits },
+        stats: {},
+        warnings: [],
+        originalHtml: html,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown AI processing error';
+      this.sendError(errorMessage, 'ai-processing');
+      this.sendProgress('AI processing failed, falling back to offline mode...', 90, 'fallback');
+      return await this.processOfflineMode(html, url, title, config);
+    }
   }
 
   private async enhanceProcessingResult(

@@ -171,7 +171,7 @@
         "dependencies": [
           4
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -213,8 +213,8 @@
             "id": 5,
             "title": "IHP: Implement Content Pruning",
             "description": "Implement the `pruneNode` function within the ScoringEngine to recursively remove nested, low-scoring boilerplate from the winning content candidate.",
-            "details": "",
-            "status": "pending",
+            "details": "<info added on 2025-08-15T17:34:57.362Z>\nImplemented the `pruneNode` function in `core/scoring/scoring-engine.ts` to recursively remove nested, low-scoring boilerplate. A new test `tests/scoring-engine.test.ts` was added to verify the recursive pruning.\n</info added on 2025-08-15T17:34:57.362Z>",
+            "status": "done",
             "dependencies": [],
             "parentTaskId": 5
           },
@@ -222,8 +222,8 @@
             "id": 6,
             "title": "IHP: Implement Semantic Conversion for Tables",
             "description": "Enhance `core/turndown-config.ts` with a custom rule (`tableToGfmOrJson`) to intelligently convert HTML tables into GFM pipe tables or a structured JSON fallback to preserve their semantic meaning for LLMs.",
-            "details": "",
-            "status": "pending",
+            "details": "<info added on 2025-08-15T17:35:15.976Z>\nFunctionality for intelligent conversion of HTML tables into GFM pipe tables or structured JSON fallback was already present in `core/turndown-config.ts`.\n</info added on 2025-08-15T17:35:15.976Z>",
+            "status": "done",
             "dependencies": [],
             "parentTaskId": 5
           }
@@ -240,8 +240,60 @@
           3,
           5
         ],
-        "status": "pending",
-        "subtasks": []
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Fetch and Display User Credits on Popup Load",
+            "description": "Implement the logic to call the `/user/status` endpoint when the extension popup is opened. The fetched credit count should be displayed in the designated UI area. This provides immediate feedback to the user about their trial status.",
+            "dependencies": [],
+            "details": "In the main popup component (`SimplifiedPopup.tsx`), use a React `useEffect` hook that runs on component mount. This hook will trigger an asynchronous `fetch` request to the `/user/status` endpoint. You will need to obtain the user's anonymous ID first (see Subtask 6.2) to make this call. Store the credit count, loading status, and any potential errors in the component's state. Render a loading indicator while fetching, the credit count on success, or an error message on failure.\n<info added on 2025-08-15T17:35:38.912Z>\nImplemented logic in `usePopupController.ts` to fetch user credits on popup load using the new `getUserId` utility and display them in `SimplifiedPopup.tsx`. The reducer was updated to correctly manage credit and trial states.\n</info added on 2025-08-15T17:35:38.912Z>",
+            "status": "done",
+            "testStrategy": "Open the popup and verify the credit count is displayed. Use browser dev tools to mock the API response to test the loading, success (e.g., `{ \"remainingCredits\": 10 }`), and error states."
+          },
+          {
+            "id": 2,
+            "title": "Implement Anonymous User Identification Utility",
+            "description": "Create a reusable utility function to retrieve a stable, anonymous user identifier using the `chrome.identity.getProfileUserInfo()` API. This ID is required for all backend communications to track trial usage.",
+            "dependencies": [],
+            "details": "Create a new helper function, e.g., `getUserId()`. This function will be asynchronous and will call `chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' })`. It should return the `id` field from the resulting object. Ensure the `identity` permission is correctly specified in the manifest (via `wxt.config.ts`). This function will be called by Subtask 6.1 before fetching credits and by Subtask 6.4 before calling the AI proxy.\n<info added on 2025-08-15T17:36:04.402Z>\nImplemented the `getUserId` function in `lib/user.ts`. It uses `chrome.identity.getProfileUserInfo()` and includes a fallback to a randomly generated ID that is stored in local storage to ensure a stable identifier is always available.\n</info added on 2025-08-15T17:36:04.402Z>",
+            "status": "done",
+            "testStrategy": "Call the function from the browser console within the extension's service worker or popup context and verify it consistently returns a non-empty string ID. Ensure it handles potential promise rejections."
+          },
+          {
+            "id": 3,
+            "title": "Implement AI Mode Toggle and UI State Management",
+            "description": "Wire up the UI toggle for switching between 'Offline Mode' and 'AI Mode'. Manage the application's state to reflect the currently selected mode, which will determine the text processing logic to be executed.",
+            "dependencies": [],
+            "details": "In `SimplifiedPopup.tsx`, use a React state variable (e.g., `const [mode, setMode] = useState('offline')`) to track the current mode. Connect this state to the mode selection UI element (e.g., a toggle switch or segmented control). The primary 'Process' button's `onClick` handler will check this state to decide whether to call the local cleaning engine (from Task 5) or the AI proxy fetch logic (from Subtask 6.4).\n<info added on 2025-08-15T17:36:22.540Z>\nThe AI Mode toggle and UI state management were implemented in `usePopupController.ts` and `SimplifiedPopup.tsx`.\n</info added on 2025-08-15T17:36:22.540Z>",
+            "status": "done",
+            "testStrategy": "Click the mode toggle and verify the UI visually changes to indicate the active mode. Use React DevTools to confirm that the internal state variable updates correctly between 'offline' and 'ai'."
+          },
+          {
+            "id": 4,
+            "title": "Implement AI Proxy Fetch Logic with Loading State",
+            "description": "When the user processes text in 'AI Mode', implement the `fetch` request to the AI Proxy endpoint. This includes getting the selected text, retrieving the user ID, constructing the request body, and showing a loading state in the UI.",
+            "dependencies": [
+              "6.2",
+              "6.3"
+            ],
+            "details": "In the 'Process' button's handler, when `mode` is 'ai', first set a new 'loading' state to true. This should trigger a UI change (e.g., show a spinner, disable the button). Get the selected text from the active tab using `chrome.scripting.executeScript`. Call the `getUserId()` function from Subtask 6.2. Construct a POST `fetch` request to the AI Proxy endpoint with a JSON body like `{ \"userId\": \"...\", \"text\": \"...\" }`.\n<info added on 2025-08-15T17:36:44.718Z>\nImplemented the `processAIMode` function in `entrypoints/offscreen/enhanced-processor.ts` to handle the `fetch` request to the AI Proxy endpoint, including retrieving the user ID and managing the loading state.\n</info added on 2025-08-15T17:36:44.718Z>",
+            "status": "done",
+            "testStrategy": "With 'AI Mode' selected, process some text. Use the Network tab in browser dev tools to inspect the outgoing request. Verify the URL, HTTP method, and JSON payload are correct. Confirm the UI enters a visible loading state."
+          },
+          {
+            "id": 5,
+            "title": "Handle AI Response, Update UI, and Manage Errors",
+            "description": "Process the response from the AI Proxy. On success, display the cleaned text in the output area and update the displayed credit count. On failure, display a user-friendly error message.",
+            "dependencies": [
+              "6.1",
+              "6.4"
+            ],
+            "details": "Chain `.then()` and `.catch()` blocks to the `fetch` call from Subtask 6.4. On a successful response, parse the JSON body. Update a state variable with the `cleanedText` to display it in the UI, and also copy it to the clipboard using `navigator.clipboard.writeText`. Update the credit count state (from Subtask 6.1) with the `remainingCredits` value from the response. If the response status is not ok (e.g., 402 Payment Required, 500 Server Error), parse the error message and display it in the UI. In both success and error cases, set the 'loading' state back to false.\n<info added on 2025-08-15T17:37:06.904Z>\nUpdated the `processAIMode` function in `entrypoints/offscreen/enhanced-processor.ts` and the `usePopupController.ts` to correctly handle the AI proxy response, update the UI with processed content, manage credit count, and display user-friendly error messages.\n</info added on 2025-08-15T17:37:06.904Z>",
+            "status": "done",
+            "testStrategy": "Mock a successful API response and verify the output text is displayed and the credit count in the UI decrements correctly. Mock various error responses (e.g., out of credits, invalid input) and verify that appropriate, user-friendly error messages are shown."
+          }
+        ]
       },
       {
         "id": 7,
@@ -253,8 +305,61 @@
         "dependencies": [
           6
         ],
-        "status": "pending",
-        "subtasks": []
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Disable 'AI Mode' Button When Credits are Zero",
+            "description": "Modify the main UI component to disable the 'AI Mode' processing button when the user's credit balance is zero. This prevents users from attempting to use the AI feature without available credits.",
+            "dependencies": [],
+            "details": "In the `SimplifiedPopup.tsx` component, locate the button responsible for triggering AI processing. Add a `disabled` attribute to it. The value of this attribute should be a boolean expression that evaluates to true when the `creditsRemaining` state or prop is equal to 0 (e.g., `disabled={creditsRemaining === 0}`). Ensure the button has corresponding disabled styles for clear visual feedback.",
+            "status": "done",
+            "testStrategy": "Manually set the `creditsRemaining` state to 0 in React DevTools and verify the 'AI Mode' button becomes unclickable and visually disabled. Set it back to a positive number to ensure it becomes enabled again."
+          },
+          {
+            "id": 2,
+            "title": "Create 'CreditExhaustedPrompt' Component",
+            "description": "Develop a new, reusable React component that displays a message informing the user their credits are exhausted and provides a clear call-to-action to upgrade by adding their own API key.",
+            "dependencies": [],
+            "details": "Create a new file, `CreditExhaustedPrompt.tsx`. This component should render a message like 'You've used all your free credits' and a button with the text 'Add Your API Key'. It should accept an `onClick` prop that will be passed directly to the button's `onClick` event handler. This keeps the component's logic separate from its presentation.",
+            "status": "done",
+            "testStrategy": "Render the component in a storybook or isolated test environment. Verify that it displays the correct text and that the `onClick` prop is called when the button is clicked."
+          },
+          {
+            "id": 3,
+            "title": "Conditionally Render the 'CreditExhaustedPrompt' in the Main UI",
+            "description": "Integrate the `CreditExhaustedPrompt` component into the main popup UI, making it appear only when the user's credit count is zero.",
+            "dependencies": [
+              "7.1",
+              "7.2"
+            ],
+            "details": "In `SimplifiedPopup.tsx`, import the `CreditExhaustedPrompt` component. Use conditional rendering logic to display it. Place `{creditsRemaining === 0 && <CreditExhaustedPrompt onShowSettings={...} />}` in the appropriate layout location. The prompt should appear in a prominent but non-intrusive position.",
+            "status": "done",
+            "testStrategy": "In the main extension UI, simulate the `creditsRemaining` state changing. Verify that the `CreditExhaustedPrompt` component is not visible when credits > 0 and appears correctly when credits are 0."
+          },
+          {
+            "id": 4,
+            "title": "Implement State Management for BYOK Settings Visibility",
+            "description": "Add state management to the main popup component to control the visibility of the inline BYOK (Bring Your Own Key) settings panel. The call-to-action button in the credit exhaustion prompt will trigger this state change.",
+            "dependencies": [
+              "7.3"
+            ],
+            "details": "In `SimplifiedPopup.tsx`, introduce a new state variable using the `useState` hook: `const [isSettingsVisible, setIsSettingsVisible] = useState(false);`. Create a handler function, `const handleShowSettings = () => setIsSettingsVisible(true);`. Pass this `handleShowSettings` function as the `onClick` prop to the `CreditExhaustedPrompt` component instance.",
+            "status": "done",
+            "testStrategy": "Use React DevTools to monitor the `isSettingsVisible` state. Click the 'Add Your API Key' button and confirm that the state toggles from `false` to `true`."
+          },
+          {
+            "id": 5,
+            "title": "Connect State to Conditionally Render the BYOK Settings Panel",
+            "description": "Use the new visibility state to show or hide the placeholder for the BYOK settings panel. This completes the user flow from seeing the exhaustion prompt to revealing the API key input form.",
+            "dependencies": [
+              "7.4"
+            ],
+            "details": "Create a placeholder component, `ByokSettingsPanel.tsx`, if it doesn't exist. In `SimplifiedPopup.tsx`, use the `isSettingsVisible` state to conditionally render this panel: `{isSettingsVisible && <ByokSettingsPanel />}`. This ensures the settings UI is only mounted and displayed after the user explicitly clicks the call-to-action button.",
+            "status": "done",
+            "testStrategy": "End-to-end test: Set credits to 0. Verify the prompt appears. Click the 'Add Your API Key' button. Verify the BYOK settings panel (even if it's just a placeholder `<div>`) appears in the UI."
+          }
+        ]
       },
       {
         "id": 8,
@@ -266,8 +371,62 @@
         "dependencies": [
           7
         ],
-        "status": "pending",
-        "subtasks": []
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create BYOK Settings UI Components in Popup",
+            "description": "Implement the React components for the 'Bring Your Own Key' (BYOK) settings panel within the extension's popup. This includes a text input for the API key, a 'Save' button, and a 'Remove' button. This panel should be conditionally rendered.",
+            "dependencies": [],
+            "details": "In the main popup component (`SimplifiedPopup.tsx`), create a new component for the BYOK settings. This component will contain a password-type `<input>` field for the API key, a `<button>` for saving, and another `<button>` for removing the key. The entire panel should be conditionally rendered, shown when a user clicks an 'Use your own key' link or button within the existing upgrade prompt UI.",
+            "status": "done",
+            "testStrategy": "Manually open the popup, trigger the view for the settings panel, and verify that the input field and buttons are rendered correctly and are responsive. Check that the input field masks the key entry."
+          },
+          {
+            "id": 2,
+            "title": "Implement API Key Storage Logic using chrome.storage.local",
+            "description": "Wire up the 'Save' and 'Remove' buttons to securely store and delete the user's API key using `chrome.storage.local`. Also, implement logic to retrieve the key when the popup loads to manage the UI state.",
+            "dependencies": [
+              "8.1"
+            ],
+            "details": "Create a state variable in the main popup component to hold the API key. On the 'Save' button's `onClick` handler, call `chrome.storage.local.set({ userApiKey: '...' })`. On the 'Remove' button's `onClick`, call `chrome.storage.local.remove('userApiKey')`. When the popup component mounts, use a `useEffect` hook to call `chrome.storage.local.get('userApiKey')` to check for an existing key and update the component's state accordingly.",
+            "status": "done",
+            "testStrategy": "Use the extension's dev tools to inspect `chrome.storage.local`. Save a key and verify it's stored. Remove the key and verify it's deleted. Close and reopen the popup to ensure the state persists and is loaded correctly into the UI."
+          },
+          {
+            "id": 3,
+            "title": "Modify AI Service to Conditionally Route Requests",
+            "description": "Update the core AI processing service to check for a user-provided API key before making a network request. The logic should decide whether to use the direct API call (BYOK) or the existing trial proxy flow.",
+            "dependencies": [
+              "8.2"
+            ],
+            "details": "In the function responsible for making AI calls (from Task 6), add a preliminary step to fetch the API key from `chrome.storage.local.get('userApiKey')`. Based on the result, create a conditional branch: if a key exists and is not empty, call a new function for direct API communication; otherwise, call the existing function that uses the trial proxy.",
+            "status": "done",
+            "testStrategy": "Add `console.log` statements to verify the correct logic path is taken based on the presence or absence of a saved API key. Unit test this routing logic with mocked storage responses to ensure it branches correctly."
+          },
+          {
+            "id": 4,
+            "title": "Implement Direct API Call to AI Provider",
+            "description": "Create the function that performs the direct API call to the AI provider (e.g., Groq) using the user's stored API key.",
+            "dependencies": [
+              "8.3"
+            ],
+            "details": "Create a new async function, e.g., `callDirectApi(apiKey, text)`. This function will use `fetch` to make a POST request to the AI provider's API endpoint (e.g., `https://api.groq.com/openai/v1/chat/completions`). The request headers must include `Authorization: Bearer ${apiKey}` and `Content-Type: application/json`. The request body should match the provider's specification. Implement robust error handling for network issues or invalid API key responses.",
+            "status": "done",
+            "testStrategy": "Using a valid test API key, trigger the AI processing in BYOK mode. Use the Network tab in browser dev tools to inspect the outgoing request. Verify the endpoint, headers (especially Authorization), and payload are correct. Confirm a successful response is received and processed by the UI."
+          },
+          {
+            "id": 5,
+            "title": "Add Visual Indicator for BYOK Mode in UI",
+            "description": "Update the popup UI to clearly indicate to the user when they are operating in BYOK mode (i.e., when their own API key is being used).",
+            "dependencies": [
+              "8.2"
+            ],
+            "details": "In `SimplifiedPopup.tsx`, use the state that tracks the presence of an API key to conditionally render a visual indicator. This could be a small badge or text element near the mode toggle or title, saying 'BYOK Active'. This indicator should appear as soon as a key is saved and disappear when it's removed. This also means the credit display (from Task 6) should be hidden when in BYOK mode.",
+            "status": "done",
+            "testStrategy": "Manually test the UI flow. Save an API key and verify the indicator appears immediately and the credit counter is hidden. Remove the key and verify the indicator disappears and the credit counter reappears. Close and reopen the popup with a key saved to ensure the correct state is shown on load."
+          }
+        ]
       },
       {
         "id": 9,
@@ -279,8 +438,62 @@
         "dependencies": [
           8
         ],
-        "status": "pending",
-        "subtasks": []
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "UI: Create and Populate the Model Selection Dropdown",
+            "description": "Add a new `<select>` dropdown component to the inline settings UI. This dropdown will be used for model selection and should be populated with a predefined, hardcoded list of advanced AI models.",
+            "dependencies": [],
+            "details": "In the relevant React component for settings (likely within `SimplifiedPopup.tsx` or a child component), add a `label` and a `<select>` element. Define a constant array of model objects, e.g., `[{ id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant' }, { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' }]`. Use this array to dynamically generate the `<option>` elements for the dropdown. Initially, do not worry about visibility or state management.",
+            "status": "done",
+            "testStrategy": "Load the extension and open the popup. Verify that the new model selection dropdown and its label are visible in the settings area and contain the correct list of models."
+          },
+          {
+            "id": 2,
+            "title": "Logic: Implement Conditional Rendering for the Dropdown",
+            "description": "Modify the settings component to only render the model selection dropdown when the user is in BYOK (Bring Your Own Key) mode. The dropdown should be hidden or disabled otherwise.",
+            "dependencies": [
+              "9.1"
+            ],
+            "details": "The component should check for the BYOK status, which is determined by the presence of a user-saved API key in `chrome.storage.local` (as implemented in Task 8). Use this status to conditionally render the dropdown component created in subtask 9.1. For example, in React: `{isByokMode && <ModelSelector />}`.",
+            "status": "done",
+            "testStrategy": "1. With no API key saved, open the popup and confirm the model dropdown is not visible. 2. Enter and save a BYOK API key, then reopen the popup. Confirm the model dropdown is now visible."
+          },
+          {
+            "id": 3,
+            "title": "State: Save and Restore Selected Model using `chrome.storage.local`",
+            "description": "Implement the logic to save the user's model selection to persistent storage and restore it when the popup is opened.",
+            "dependencies": [
+              "9.1"
+            ],
+            "details": "Add an `onChange` event handler to the `<select>` element. When the user changes the selection, call `chrome.storage.local.set({ selectedByokModel: event.target.value })`. In the component's mounting logic (e.g., a `useEffect` hook), use `chrome.storage.local.get('selectedByokModel')` to retrieve the saved value and set the initial state of the dropdown, ensuring the user's choice persists across sessions.",
+            "status": "done",
+            "testStrategy": "In BYOK mode, select a model from the dropdown. Close and reopen the popup. Verify that the previously selected model is still the active selection in the dropdown. Check `chrome.storage.local` via the browser's developer tools to confirm the value is being saved correctly."
+          },
+          {
+            "id": 4,
+            "title": "API: Retrieve Selected Model in the BYOK Service Logic",
+            "description": "Update the background service or utility function responsible for handling BYOK API calls to first retrieve the user's selected model from `chrome.storage.local`.",
+            "dependencies": [
+              "9.3"
+            ],
+            "details": "Locate the function that prepares and sends the API request for BYOK users. Before constructing the request payload, add an asynchronous call to `chrome.storage.local.get('selectedByokModel')`. The function should handle cases where a model is selected and where no model has been selected yet (i.e., it's undefined), falling back to a sensible default model in the latter case.",
+            "status": "done",
+            "testStrategy": "Add `console.log` statements or use a debugger in the API handling function to verify that it correctly reads the selected model name from storage. Test both scenarios: one where a model has been saved, and one where it has not, ensuring the default is used correctly."
+          },
+          {
+            "id": 5,
+            "title": "Integration: Include Selected Model in the API Request Payload",
+            "description": "Modify the construction of the BYOK API request payload to include the model name that was retrieved from storage.",
+            "dependencies": [
+              "9.4"
+            ],
+            "details": "Using the model name retrieved in subtask 9.4, add or update the `model` key in the JSON body of the `fetch` request sent to the AI provider. The final payload should look something like `{ \"model\": \"llama-3.1-8b-instant\", \"messages\": [...] }`.",
+            "status": "done",
+            "testStrategy": "In BYOK mode, select a specific model (e.g., 'Gemini 2.0 Flash') from the dropdown. Perform a text processing action. Use the Network tab in the browser's developer tools to inspect the outgoing request to the AI provider. Verify that the request payload contains the correct `model` key and value."
+          }
+        ]
       },
       {
         "id": 10,
@@ -293,13 +506,13 @@
           5,
           6
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": []
       }
     ],
     "metadata": {
       "created": "2025-08-15T12:07:53.720Z",
-      "updated": "2025-08-15T16:26:05.366Z",
+      "updated": "2025-08-15T18:29:08.868Z",
       "description": "Tasks for master context"
     }
   }

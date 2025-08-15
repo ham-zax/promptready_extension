@@ -3,7 +3,7 @@
 
 import React, { useState } from 'react';
 import { Settings } from '@/lib/types';
-import { ModelSelect } from './ModelSelect';
+
 
 interface ByokSettingsProps {
   settings: Settings;
@@ -72,17 +72,24 @@ export function ByokSettings({
             </div>
           </div>
 
-          {/* Model Selection */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">
-              Model
-            </label>
-            <ModelSelect
-              value={settings.byok.model}
-              onChange={(model) => onSettingsChange({ byok: { ...settings.byok, model } })}
-              apiBase={settings.byok.apiBase}
-            />
-          </div>
+          {hasApiKey && (
+            <div className="space-y-2">
+              <label htmlFor="model-select" className="block text-sm font-medium text-gray-700">
+                Model
+              </label>
+              <select
+                id="model-select"
+                value={settings.byok.model}
+                onChange={(e) => onSettingsChange({ byok: { ...settings.byok, selectedByokModel: e.target.value } })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                {/* Hardcoded models */}
+                <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant</option>
+                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                {/* Add other models as needed */}
+              </select>
+            </div>
+          )}
 
           {/* Provider Info */}
           <div className="space-y-2">

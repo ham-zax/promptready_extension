@@ -1,6 +1,13 @@
 
+/// <reference types="@cloudflare/workers-types" />
+
 export interface Env {
   CREDITS_KV: KVNamespace;
+  SERVICE_SECRET: string; // Added for inter-service authentication
+}
+
+interface UserRequest {
+  userId: string;
 }
 
 // A simple router to handle different paths
@@ -16,7 +23,7 @@ export default {
     ctx: ExecutionContext
   ): Promise<Response> {
     const url = new URL(request.url);
-    const handler = router[url.pathname];
+    const handler = router[url.pathname as keyof typeof router];
 
     if (handler) {
       return handler(request, env);
@@ -32,7 +39,7 @@ async function handleUserStatus(request: Request, env: Env): Promise<Response> {
   }
 
   try {
-    const { userId } = await request.json();
+    const { userId } = await request.json() as UserRequest;
     if (!userId) {
       return new Response('User ID is required', { status: 400 });
     }
@@ -62,12 +69,19 @@ async function handleUserStatus(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleDecrement(request: Request, env: Env): Promise<Response> {
+    // --- THIS IS THE FIX ---
+    const expectedToken = env.SERVICE_SECRET; // You must set this secret in your worker's settings
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+    // ---------------------
     if (request.method !== 'POST') {
         return new Response('Method Not Allowed', { status: 405 });
     }
 
     try {
-        const { userId } = await request.json();
+        const { userId } = await request.json() as UserRequest;
         if (!userId) {
             return new Response('User ID is required', { status: 400 });
         }

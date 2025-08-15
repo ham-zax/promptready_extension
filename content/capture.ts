@@ -248,7 +248,7 @@ export namespace ContentCapture {
       if (head.getElementsByTagName('title').length === 0) {
         const titleEl = document.createElement('title');
         titleEl.innerText = document.title || window.location.hostname;
-        head.append(titleEl);
+        head.appendChild(titleEl);
       }
     } catch {}
   }
