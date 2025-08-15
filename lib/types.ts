@@ -46,9 +46,29 @@ export interface FeatureFlags {
   trialEnabled: boolean;    // Gate trial/credit experience
 }
 
-// Extend Settings with optional feature flags (interface merging)
+// Phase 2 state (optional on client; populated when backend is enabled)
+export interface CreditsState {
+  remaining: number;
+  total: number;
+  lastReset: string; // ISO 8601
+}
+
+export interface UserState {
+  id: string;            // Anonymous or chrome.identity id
+  cohort?: 'A' | 'B' | 'C';
+}
+
+export interface TrialState {
+  hasExhausted: boolean;
+  showUpgradePrompt: boolean;
+}
+
+// Extend Settings with optional feature flags and Phase 2 state (interface merging)
 export interface Settings {
   flags?: FeatureFlags;
+  credits?: CreditsState;
+  user?: UserState;
+  trial?: TrialState;
 }
 
 
