@@ -37,6 +37,7 @@ export default defineContentScript({
           if (message.type === 'PROCESSING_COMPLETE_FOR_TAB') {
             console.log('Content script received PROCESSING_COMPLETE_FOR_TAB');
             const exportMd = message.payload?.exportMd || '';
+            console.log('[BMAD_TRACE] Content script received for clipboard (PROCESSING_COMPLETE_FOR_TAB):', (exportMd || '').substring(0, 100));
             if (!exportMd) {
               console.warn('No exportMd provided in PROCESSING_COMPLETE_FOR_TAB');
               return true;
@@ -154,8 +155,9 @@ export default defineContentScript({
           } else if (message.type === 'COPY_TO_CLIPBOARD') {
             // Fallback clipboard copy for when navigator.clipboard fails
             console.log('Content script received COPY_TO_CLIPBOARD message');
-            console.log('Content to copy (first 100 chars):', message.payload.content.substring(0, 100));
-            console.log('Content length:', message.payload.content.length);
+            // BMAD diagnostic trace
+            console.log('[BMAD_TRACE] Content script received for clipboard (COPY_TO_CLIPBOARD):', (message.payload?.content || '').substring(0, 100));
+            console.log('[BMAD_TRACE] Content length:', (message.payload?.content || '').length);
 
             try {
               // Try navigator.clipboard first

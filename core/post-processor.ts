@@ -53,6 +53,13 @@ export class MarkdownPostProcessor {
     const warnings: string[] = [];
     const originalLength = markdown.length;
     let processed = markdown;
+  // Capture cite-first block (if present) so we can ensure it isn't accidentally removed
+  // This matches a block that starts with a line beginning `> Source:` and any subsequent
+  // contiguous blockquote lines (e.g. `> Captured: ...`, `> Hash: ...`). We store it and
+  // re-insert it at the top if post-processing removed it.
+  const citeFirstRegex = /^> Source:[^\n]*(?:\n>.*)*/m;
+  const citeFirstMatch = markdown.match(citeFirstRegex);
+  const citeFirstBlock = citeFirstMatch ? citeFirstMatch[0].trim() : null;
     let structureChanges = 0;
 
     console.log('[PostProcessor] Starting post-processing...');
@@ -120,6 +127,17 @@ export class MarkdownPostProcessor {
       // Step 9: Final cleanup
       processed = this.finalCleanup(processed, config);
 
+      // If the original content had a cite-first block but processing removed it,
+      // re-insert it at the top to guarantee citation preservation.
+      if (citeFirstBlock && !/^> Source:/m.test(processed)) {
+        processed = citeFirstBlock + '\n\n' + processed;
+        improvements.push('Preserved cite-first block');
+      }
+
+  // No synthesized cite-first here: the OfflineModeManager inserts a canonical
+  // cite-first block (Source/Captured/Hash) after post-processing. We only
+  // preserve an existing cite-first block above.
+
       const linesRemoved = (markdown.match(/\n/g) || []).length - (processed.match(/\n/g) || []).length;
 
       console.log(`[PostProcessor] Processing completed. ${improvements.length} improvements made.`);
@@ -152,6 +170,21 @@ export class MarkdownPostProcessor {
         },
       };
     }
+  }
+
+  /**
+   * Simple deterministic fingerprint function (FNV-1a 32-bit) returning 8-char hex
+   * Used only for lightweight in-repo hashes for cite-first fingerprints.
+   */
+  private static simpleFingerprint(input: string): string {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < input.length; i++) {
+      hash ^= input.charCodeAt(i);
+      // 32-bit FNV-1a multiply
+      hash = (hash >>> 0) * 0x01000193 >>> 0;
+    }
+    // Convert to 8-digit hex
+    return ('00000000' + (hash >>> 0).toString(16)).slice(-8);
   }
 
   /**

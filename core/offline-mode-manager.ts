@@ -612,8 +612,10 @@ export class OfflineModeManager {
 
   /**
    * Insert cite-first metadata block (and ensure H1 title) at the top of markdown
+   * Made public so orchestrators (e.g. background) can enforce canonical citation
+   * at final delivery time for all pipeline paths.
    */
-  private static insertCiteFirstBlock(markdown: string, metadata: ExportMetadata): string {
+  static insertCiteFirstBlock(markdown: string, metadata: ExportMetadata): string {
     let result = markdown || '';
 
     const lines = result.split('\n');

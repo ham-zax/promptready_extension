@@ -292,9 +292,33 @@ class EnhancedContentProcessor {
     try {
       const { exportMd, exportJson, metadata, stats, warnings, originalHtml } = message.payload;
 
+  // BMAD TRACE: log what we received from offscreen before any insertion
+  console.log('[BMAD_TRACE] Background received from offscreen:', (exportMd || '').substring(0, 100));
+
+  // Ensure a canonical citation block exists at the top-level of the final markdown.
+      // Some pipeline paths (bypass from offscreen) may return markdown that never had
+      // the background's canonical citation inserted. Enforce it here so every final
+      // output delivered to tabs/popup contains the standardized cite-first block.
+      let finalMd = exportMd;
+      try {
+        const hasCiteFirst = /^\s*>\s*Source:/m.test(finalMd || '');
+        if (!hasCiteFirst) {
+          console.log('[Background] No cite-first block detected, inserting canonical citation');
+          // OfflineModeManager.insertCiteFirstBlock returns the markdown with the citation
+          finalMd = OfflineModeManager.insertCiteFirstBlock(finalMd || '', metadata || {});
+        }
+      } catch (citeErr) {
+        console.error('[Background] Failed to insert canonical citation block:', citeErr);
+        // Fall back to original exportMd if insertion fails so we don't block delivery
+        finalMd = exportMd;
+      }
+
+  // BMAD TRACE: log the finalized markdown after insertion (or unchanged)
+  console.log('[BMAD_TRACE] Background after cite block insertion:', (finalMd || '').substring(0, 100));
+
       // If we have a selectionHash -> tabId mapping, forward the raw markdown to that tab's content script.
       try {
-        const selectionHash = message.payload?.metadata?.selectionHash || message.payload?.exportJson?.metadata?.selectionHash;
+  const selectionHash = message.payload?.metadata?.selectionHash || message.payload?.exportJson?.metadata?.selectionHash;
         if (selectionHash) {
           const tabId = this.pendingCaptureMap.get(selectionHash);
           if (tabId) {
@@ -303,7 +327,7 @@ class EnhancedContentProcessor {
               // Send the markdown directly to the content script so it can perform the clipboard write
               await browser.tabs.sendMessage(tabId, {
                 type: 'COPY_TO_CLIPBOARD',
-                payload: { content: exportMd },
+    payload: { content: finalMd },
               });
             } catch (sendErr) {
               console.warn('[Background] Failed to send processing result to content script:', sendErr);
@@ -318,14 +342,14 @@ class EnhancedContentProcessor {
 
       // Validate quality of processed content with original HTML for accurate scoring
       const qualityReport = ContentQualityValidator.validate(
-        exportMd,
+        finalMd,
         originalHtml || '', // Use original HTML for accurate content preservation calculation
         stats
       );
 
       // Store export data in session storage to survive service worker termination
       await this.setCurrentExportData({
-        markdown: exportMd,
+        markdown: finalMd,
         json: exportJson,
         metadata,
         qualityReport,
@@ -335,7 +359,7 @@ class EnhancedContentProcessor {
       await this.broadcastMessage({
         type: 'PROCESSING_COMPLETE',
         payload: {
-          exportMd,
+          exportMd: finalMd,
           exportJson,
           metadata,
           stats,

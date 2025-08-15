@@ -245,7 +245,8 @@ export class EnhancedOffscreenProcessor {
 
               // Notify background via PROCESSING_COMPLETE from offscreen processor
               try {
-                this.sendComplete(bypassResult.markdown, exportJson, bypassResult.metadata, bypassResult.processingStats, bypassResult.warnings, cleanedHtml);
+                        console.log('[BMAD_TRACE] Offscreen returning markdown (bypass):', (bypassResult.markdown || '').substring(0, 100));
+                        this.sendComplete(bypassResult.markdown, exportJson, bypassResult.metadata, bypassResult.processingStats, bypassResult.warnings, cleanedHtml);
               } catch (e) {
                 console.warn('[EnhancedOffscreenProcessor] sendComplete failed:', e);
               }
@@ -300,7 +301,8 @@ export class EnhancedOffscreenProcessor {
 
               // Notify background via PROCESSING_COMPLETE from offscreen processor
               try {
-                this.sendComplete(bypassResult.markdown, exportJson, bypassResult.metadata, bypassResult.processingStats, bypassResult.warnings, cleanedHtml);
+                  console.log('[BMAD_TRACE] Offscreen returning markdown (bypass fallback):', (bypassResult.markdown || '').substring(0, 100));
+                  this.sendComplete(bypassResult.markdown, exportJson, bypassResult.metadata, bypassResult.processingStats, bypassResult.warnings, cleanedHtml);
               } catch (e) {
                 console.warn('[EnhancedOffscreenProcessor] sendComplete failed:', e);
               }
@@ -354,7 +356,8 @@ export class EnhancedOffscreenProcessor {
             const exportJson = this.generateStructuredExport(bypassResult, url, title);
             // Notify background via PROCESSING_COMPLETE from offscreen processor
             try {
-              this.sendComplete(bypassResult.markdown, exportJson, bypassResult.metadata, bypassResult.processingStats, bypassResult.warnings, cleanedHtml);
+                console.log('[BMAD_TRACE] Offscreen returning markdown (scoring fallback):', (bypassResult.markdown || '').substring(0, 100));
+                this.sendComplete(bypassResult.markdown, exportJson, bypassResult.metadata, bypassResult.processingStats, bypassResult.warnings, cleanedHtml);
             } catch (e) {
               console.warn('[EnhancedOffscreenProcessor] sendComplete failed:', e);
             }
@@ -403,7 +406,8 @@ export class EnhancedOffscreenProcessor {
       // Return the result instead of sending it
       // Notify background via PROCESSING_COMPLETE message
       try {
-        this.sendComplete(enhancedResult.markdown, exportJson, enhancedResult.metadata, enhancedResult.processingStats, enhancedResult.warnings, html);
+    console.log('[BMAD_TRACE] Offscreen returning markdown (standard path):', (enhancedResult.markdown || '').substring(0, 100));
+    this.sendComplete(enhancedResult.markdown, exportJson, enhancedResult.metadata, enhancedResult.processingStats, enhancedResult.warnings, html);
       } catch (e) {
         console.warn('[EnhancedOffscreenProcessor] sendComplete failed:', e);
       }
