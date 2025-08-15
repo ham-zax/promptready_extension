@@ -40,9 +40,9 @@ export default function SimplifiedPopup() {
   };
 
   const getAiLabel = () => {
-    if (state.isPro) return 'AI ✨';
-    if (state.trial && !state.trial.hasExhausted) return 'AI (Trial)';
-    return 'AI (Pro)';
+    if (state.hasApiKey) return 'AI (BYOK)'; // If user has their own key
+    if (state.trial && !state.trial.hasExhausted) return 'AI (Trial)'; // If user is on free trial
+    return 'AI'; // Default label if neither BYOK nor Trial (e.g., after trial exhausted)
   };
 
   return (

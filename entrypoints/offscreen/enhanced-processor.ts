@@ -104,18 +104,36 @@ export class EnhancedOffscreenProcessor {
     }
     this.isProcessing = true;
     try {
-      const { html, url, title, mode, customConfig, settings } = message.payload;
+      const { html, url, title, mode, customConfig, settings, selectionHash } = message.payload;
       this.sendProgress('Processing content...', 10, 'initialization');
       if (!html || html.trim().length === 0) throw new Error('No HTML content provided');
       
       const optimalConfig = await OfflineModeManager.getOptimalConfig(url, settings);
       const finalConfig = { ...optimalConfig, ...customConfig };
 
+      let processingResult;
       if (mode === 'offline') {
-        return await this.processOfflineMode(html, url, title, finalConfig);
+        processingResult = await this.processOfflineMode(html, url, title, finalConfig);
       } else {
-        return await this.processAIMode(html, url, title, finalConfig, settings); // Pass settings here
+        processingResult = await this.processAIMode(html, url, title, finalConfig, settings); // Pass settings here
       }
+
+      // Propagate selectionHash back to the background so it can map results to originating tab
+      try {
+        if (selectionHash) {
+          if (!processingResult.metadata) processingResult.metadata = {};
+          processingResult.metadata.selectionHash = selectionHash;
+
+          if (processingResult.exportJson && typeof processingResult.exportJson === 'object') {
+            if (!processingResult.exportJson.metadata) processingResult.exportJson.metadata = {};
+            processingResult.exportJson.metadata.selectionHash = selectionHash;
+          }
+        }
+      } catch (attachErr) {
+        console.warn('[EnhancedOffscreenProcessor] Failed to attach selectionHash to result:', attachErr);
+      }
+
+      return processingResult;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown processing error';
       throw new Error(errorMessage);

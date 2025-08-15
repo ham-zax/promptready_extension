@@ -397,7 +397,7 @@ export function usePopupController() {
       }
       const result = await BYOKClient.makeRequest(
         { prompt: 'ping', maxTokens: 4, temperature: 0 },
-        { apiBase: settings.byok.apiBase, apiKey: key, model: settings.byok.model },
+        { apiBase: settings.byok.apiBase, apiKey: key, model: settings.byok.selectedByokModel || settings.byok.model }, // Use selected model or fallback to default
         { requireExplicitConsent: false }
       );
       if (result.content) {
