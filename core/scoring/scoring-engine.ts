@@ -116,7 +116,9 @@ export class ScoringEngine {
   public static pruneNode(el: HTMLElement): HTMLElement {
     try {
       const workingCopy = el.cloneNode(true) as HTMLElement;
-      const NEGATIVE_SCORE_THRESHOLD = -5; // Tune this value based on testing
+  // Tuned threshold: be more aggressive removing low-scoring children.
+  // Setting to 0 removes any child with a non-positive score.
+  const NEGATIVE_SCORE_THRESHOLD = 0; // Changed from -5
 
       for (const child of Array.from(workingCopy.children)) {
         const childEl = child as HTMLElement;

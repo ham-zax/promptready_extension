@@ -342,7 +342,7 @@ export class BoilerplateFilter {
 
       // 3) internal heading checks (existing behavior)
       const headingSelector = 'h1,h2,h3,h4,h5,h6, [role="heading"], [class*="title"], [class*="heading"]';
-      const pattern = /technical|specification|specifications|cad|compatible|compatible products|technical specification|datasheet|more information|overview/i;
+      const pattern = /technical|specification|specifications|cad|compatible|compatible products|technical specification|datasheet|more information|overview|error|status|troubleshooting|report/i;
 
       // The ONLY check: Do any title-like elements INSIDE this element match our pattern?
       const internalHeadings = Array.from(el.querySelectorAll(headingSelector));

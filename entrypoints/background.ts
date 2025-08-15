@@ -35,6 +35,8 @@ class EnhancedContentProcessor {
   private readonly offscreenPath: '/offscreen.html' = '/offscreen.html';
   private readonly EXPORT_DATA_KEY = 'currentExportData';
   private offscreenCreationPromise: Promise<void> | null = null;
+  // Simple dedupe cache for COPY_TO_CLIPBOARD forwarding to avoid message storms
+  private recentCopyFingerprints: Map<string, number> = new Map(); // fingerprint -> timestamp
 
   // Map selectionHash -> tabId so we can forward processing results back to the originating tab
   private pendingCaptureMap: Map<string, number> = new Map();
@@ -530,11 +532,33 @@ class EnhancedContentProcessor {
       }
 
       try {
+        // Compute a lightweight fingerprint to detect repeated identical forwards
+        const fingerprint = `${content.length}:${content.slice(0, 100)}::${content.slice(-100)}`;
+        const now = Date.now();
+        const lastTs = this.recentCopyFingerprints.get(fingerprint) || 0;
+        const SUPPRESSION_WINDOW_MS = 3000; // 3 seconds
+
+        if (now - lastTs < SUPPRESSION_WINDOW_MS) {
+          console.log('[Background] Suppressing duplicate copy forward (within window) for tab', targetTabId);
+          return; // Skip forwarding duplicate within suppression window
+        }
+
+        // Record fingerprint timestamp before sending to avoid races
+        this.recentCopyFingerprints.set(fingerprint, now);
+
         await browser.tabs.sendMessage(targetTabId, {
           type: 'COPY_TO_CLIPBOARD',
           payload: { content },
         });
+
         console.log('[Background] ✅ Forwarded copy request to content script for tab', targetTabId);
+
+        // Prune old fingerprints to avoid unbounded growth
+        for (const [fp, ts] of Array.from(this.recentCopyFingerprints.entries())) {
+          if (now - ts > 60 * 1000) { // keep entries for 1 minute
+            this.recentCopyFingerprints.delete(fp);
+          }
+        }
       } catch (sendErr) {
         console.error('[Background] Failed to forward copy request to content script:', sendErr);
         throw sendErr;

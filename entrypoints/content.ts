@@ -15,8 +15,15 @@ export default defineContentScript({
       console.log('Failed to send ready signal (background may not be ready yet):', err);
     });
 
-    // Listen for capture requests from background or popup
-    browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+    // Attach the message listener exactly once. Content scripts can be injected/reloaded
+    // in ways that would otherwise register duplicate listeners. Use a global guard
+    // so repeated initializations don't add multiple handlers.
+    if (!(globalThis as any).__PROMPTREADY_MESSAGE_LISTENER_ATTACHED) {
+      (globalThis as any).__PROMPTREADY_MESSAGE_LISTENER_ATTACHED = true;
+      console.log('Attaching single runtime.onMessage listener for PromptReady content script');
+
+      // Listen for capture requests from background or popup
+      browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         try {
           console.log('Content script received message:', message.type);
 
@@ -37,6 +44,18 @@ export default defineContentScript({
 
             try {
               console.log('Attempting navigator.clipboard.writeText from content script for processed markdown...');
+              try {
+                // Ensure the document has focus before calling clipboard APIs. This
+                // helps avoid NotAllowedError when the user interacted with the
+                // extension popup which moved focus away from the page.
+                // A short timeout gives the browser time to apply the focus change.
+                // If focus() is not permitted in this context it will throw; swallow errors.
+                window.focus();
+                await new Promise((r) => setTimeout(r, 50));
+              } catch (focusErr) {
+                console.warn('window.focus() failed or was blocked:', focusErr);
+              }
+
               await navigator.clipboard.writeText(exportMd);
               console.log('navigator.clipboard.writeText succeeded in content script for processed markdown');
               // Optionally notify background/popup that copy succeeded
@@ -141,6 +160,13 @@ export default defineContentScript({
             try {
               // Try navigator.clipboard first
               console.log('Attempting navigator.clipboard.writeText from content script...');
+              try {
+                window.focus();
+                await new Promise((r) => setTimeout(r, 50));
+              } catch (focusErr) {
+                console.warn('window.focus() failed or was blocked:', focusErr);
+              }
+
               await navigator.clipboard.writeText(message.payload.content);
               console.log('navigator.clipboard.writeText succeeded in content script!');
               return true;
@@ -226,15 +252,20 @@ export default defineContentScript({
         } catch (error) {
           console.error('Content script operation failed:', error);
 
-          // Send error to background
+          // Send error to background (best-effort)
           await browser.runtime.sendMessage({
             type: 'ERROR',
             payload: {
               message: error instanceof Error ? error.message : 'Content script operation failed',
             },
-          });
+          }).catch(() => {});
+
+          return true;
         }
       });
+    } else {
+      console.log('PromptReady content script message listener already attached; skipping re-attach');
+    }
 
     console.log('PromptReady content script loaded');
   },
