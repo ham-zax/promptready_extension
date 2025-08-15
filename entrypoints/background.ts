@@ -298,9 +298,10 @@ class EnhancedContentProcessor {
           if (tabId) {
             console.log(`[Background] Forwarding PROCESSING_COMPLETE exportMd to originating tab ${tabId} for selection ${selectionHash}`);
             try {
+              // Send the markdown directly to the content script so it can perform the clipboard write
               await browser.tabs.sendMessage(tabId, {
-                type: 'PROCESSING_COMPLETE_FOR_TAB',
-                payload: { exportMd },
+                type: 'COPY_TO_CLIPBOARD',
+                payload: { content: exportMd },
               });
             } catch (sendErr) {
               console.warn('[Background] Failed to send processing result to content script:', sendErr);
@@ -507,22 +508,37 @@ class EnhancedContentProcessor {
    */
   async copyToClipboardEnhanced(content: string): Promise<void> {
     try {
-      console.log('[Background] Starting enhanced clipboard copy...');
-      await this.ensureOffscreenDocument();
+      console.log('[Background] Forwarding copy request to an active tab content script...');
 
-      console.log('[Background] Sending OFFSCREEN_COPY message to offscreen document...');
-      const response = await browser.runtime.sendMessage({
-        type: 'OFFSCREEN_COPY',
-        payload: { content },
-      });
-
-      if (!response || !response.success) {
-        const errorMsg = response?.error || 'Offscreen copy failed';
-        console.error('[Background] Offscreen copy failed:', errorMsg);
-        throw new Error(errorMsg);
+      // Prefer to use the tab that most recently initiated a capture if available
+      let targetTabId: number | undefined;
+      // If there's a recently pending capture map entry, use its value (last one)
+      if (this.pendingCaptureMap.size > 0) {
+        // use the last inserted mapping
+        const lastEntry = Array.from(this.pendingCaptureMap.values()).pop();
+        targetTabId = lastEntry;
       }
 
-      console.log('[Background] ✅ Content copied to clipboard successfully via offscreen');
+      // Fallback to active tab in current window
+      if (!targetTabId) {
+        const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
+        targetTabId = activeTab?.id;
+      }
+
+      if (!targetTabId) {
+        throw new Error('No target tab available to perform clipboard operation');
+      }
+
+      try {
+        await browser.tabs.sendMessage(targetTabId, {
+          type: 'COPY_TO_CLIPBOARD',
+          payload: { content },
+        });
+        console.log('[Background] ✅ Forwarded copy request to content script for tab', targetTabId);
+      } catch (sendErr) {
+        console.error('[Background] Failed to forward copy request to content script:', sendErr);
+        throw sendErr;
+      }
     } catch (error) {
       console.error('[Background] ❌ Enhanced clipboard copy failed:', error);
       throw error;
