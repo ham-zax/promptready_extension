@@ -114,22 +114,34 @@ export function ByokSettings({
                 </button>
               </div>
             </div>
-
-            {hasApiKey && (
+ 
+            {hasApiKey && settings.byok?.provider === 'openrouter' && (
               <div className="space-y-2">
                 <label htmlFor="model-select" className="block text-sm font-medium text-gray-700">
                   Model
                 </label>
+                <ModelSelect
+                  value={settings.byok.selectedByokModel || settings.byok.model}
+                  onChange={(v: string) => onSettingsChange({ byok: { ...settings.byok, selectedByokModel: v } })}
+                  apiBase={settings.byok.apiBase}
+                />
+              </div>
+            )}
++
+            {hasApiKey && settings.byok?.provider !== 'openrouter' && (
+              <div className="space-y-2">
+                <label htmlFor="model-select-manual" className="block text-sm font-medium text-gray-700">
+                  Model
+                </label>
                 <select
-                  id="model-select"
-                  value={settings.byok.model}
+                  id="model-select-manual"
+                  value={settings.byok.selectedByokModel || settings.byok.model}
                   onChange={(e) => onSettingsChange({ byok: { ...settings.byok, selectedByokModel: e.target.value } })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  {/* Hardcoded models */}
+                  {/* Hardcoded models for Manual provider fallback */}
                   <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant</option>
                   <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-                  {/* Add other models as needed */}
                 </select>
               </div>
             )}

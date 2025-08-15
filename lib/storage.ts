@@ -93,6 +93,15 @@ export class Storage {
 
       const settings = { ...DEFAULT_SETTINGS, ...stored, mode: migratedMode };
 
+      // Ensure selectedByokModel exists for backward compatibility (may previously have been 'model')
+      settings.byok = {
+        ...DEFAULT_SETTINGS.byok,
+        ...(settings.byok || {}),
+        selectedByokModel:
+          (settings.byok && (settings.byok.selectedByokModel || settings.byok.model)) ||
+          DEFAULT_SETTINGS.byok.selectedByokModel,
+      };
+
       // Save migrated settings if mode was changed
       if (stored.mode !== migratedMode) {
         await browser.storage.local.set({
@@ -153,7 +162,12 @@ export class Storage {
   static async setApiKey(apiKey: string): Promise<void> {
     try {
       const current = await this.getSettings();
-      const byok = { ...current.byok, apiKey: apiKey || '' } as Settings['byok'];
+      const byok = {
+        ...current.byok,
+        apiKey: apiKey || '',
+        selectedByokModel:
+          current.byok?.selectedByokModel || current.byok?.model || DEFAULT_SETTINGS.byok.selectedByokModel,
+      } as Settings['byok'];
       // A user with a BYOK key is considered "Pro"
       const trial = { ...(current.trial || {}), hasExhausted: false, showUpgradePrompt: false };
       await browser.storage.local.set(
@@ -184,7 +198,12 @@ export class Storage {
   static async clearApiKey(): Promise<void> {
     try {
       const current = await this.getSettings();
-      const byok = { ...current.byok, apiKey: '' } as Settings['byok']; 
+      const byok = {
+        ...current.byok,
+        apiKey: '',
+        selectedByokModel:
+          current.byok?.selectedByokModel || current.byok?.model || DEFAULT_SETTINGS.byok.selectedByokModel,
+      } as Settings['byok'];
       await browser.storage.local.set(
         {
           [STORAGE_KEYS.SETTINGS]: { ...current, byok },
