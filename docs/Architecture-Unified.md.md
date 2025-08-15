@@ -11,7 +11,7 @@ This architecture supports a "Metered Freemium to BYOK" model for the PromptRead
 *   **Design Principles:**
     *   **Local-First & Private:** The Offline Mode is the foundation. User data remains on the client. AI Mode requests are proxied securely, and no user content is stored on our servers.
     *   **Stateless Backend:** The serverless backend is limited to credit tracking and AI proxying. All user settings are stored client-side in `chrome.storage.local`.
-    *   **Financially Resilient:** A non-negotiable **Global Budget Circuit Breaker** caps all financial risk from the free trial.
+    *   **Financially Resilient:** A non-negotiable **Weekly Spend Cap** caps all financial risk from the free trial.
     *   **Built for Validation:** The architecture natively supports A/B/C testing to validate our chosen AI models.
 
 #### **2. Component Architecture**
@@ -25,7 +25,7 @@ The system integrates the WXT extension with a new serverless backend.
 
 *   **Server-Side (Serverless Functions):**
     *   `/api/check-credits`: Checks a user's credit balance and assigns them to an A/B/C cohort on their first request.
-    *   `/api/process-ai`: The main AI proxy. It first validates the Global Budget, then routes the request to the correct AI model based on the user's cohort, and finally decrements the user's credit upon a successful response.
+    *   `/api/process-ai`: The main AI proxy. It first validates the Weekly Spend Cap, then routes the request to the correct AI model based on the user's cohort, and finally decrements the user's credit upon a successful response.
 
 ```mermaid
 flowchart TD
@@ -64,7 +64,7 @@ flowchart TD
 2.  `Content Script` returns `CAPTURE_COMPLETE { html, ... }` → `Service Worker`
 3.  `Service Worker` calls **`POST /api/check-credits`** with the user's anonymous ID.
 4.  *If credits are available*, `Service Worker` calls **`POST /api/process-ai`**.
-5.  *Backend* checks the **Circuit Breaker**, routes to the correct AI provider, and returns the processed content.
+5.  *Backend* checks the **Weekly Spend Cap**, routes to the correct AI provider, and returns the processed content.
 6.  `Service Worker` receives the processed content and emits `PROCESSING_COMPLETE` → `Popup UI`.
 
 #### **4. Pipeline Path 1: The Standard Readability Pipeline (for Articles)**
@@ -175,7 +175,7 @@ type MessageType =
 
 *   The Offline Mode runs with zero network access.
 *   The AI Mode free trial correctly checks and decrements credits via the backend.
-*   The Global Budget Circuit Breaker is implemented and prevents financial overruns.
+*   The Weekly Spend Cap is implemented and prevents financial overruns.
 *   The A/B/C model assignment logic is implemented on the backend.
 *   All sensitive keys (ours on the backend, user's on the client) are stored securely.
 

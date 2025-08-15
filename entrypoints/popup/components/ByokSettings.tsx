@@ -60,7 +60,7 @@ export function ByokSettings({
       <div className="flex items-center space-x-2">
         <span className="text-sm">🤖</span>
         <h4 className="font-medium text-gray-800">AI Configuration</h4>
-        {!settings.isPro && (
+        {settings.isPro && (
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-purple-500 to-pink-500 text-white">
             Pro
           </span>
@@ -140,7 +140,7 @@ export function ByokSettings({
                 Provider
               </label>
               <div className="px-3 py-2 bg-gray-100 rounded-md text-sm text-gray-600">
-                {settings.byok.provider === 'openrouter' ? 'OpenRouter' : 'Custom'}
+                {settings.byok.provider === 'openrouter' ? 'OpenRouter' : 'Manual'}
               </div>
             </div>
 

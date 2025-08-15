@@ -100,13 +100,13 @@ Responsible for managing user credit balances.
 - **Notes:**
   - This endpoint will act as a proxy between the client and the external AI provider (e.g., OpenAI, OpenRouter).
   - It will perform initial checks:
-    1.  **Global Budget Circuit Breaker:** Check if the circuit breaker is "tripped." If so, reject requests.
+    1.  **Weekly Spend Cap:** Check if the circuit breaker is "tripped." If so, reject requests.
     2.  **Credit Check:** Verify `userId` has sufficient credits before forwarding. If not, reject.
   - After a successful AI response, it will call `/credits/decrement`.
   - No user content or API keys should be logged or stored by this service.
   - Timeouts and retries for external AI calls should be handled.
 
-## 4. Global Budget Circuit Breaker
+## 4. Weekly Spend Cap
 - **Mechanism:** A simple state machine (OPEN/HALF-OPEN/CLOSED) triggered by cost thresholds or manual kill switch.
 - **Configuration:** Thresholds for `dailySpend`, `monthlySpend` (configurable via admin interface or environment variables).
 - **Kill Switch:** A manual override to immediately trip the circuit breaker, stopping all AI processing.

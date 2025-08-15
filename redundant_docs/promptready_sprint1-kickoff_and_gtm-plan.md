@@ -20,7 +20,7 @@ Here is the prepared kickoff document for the development team. This document tr
         *   The system returns an error if the user has zero credits.
         *   A new user record with 150 credits is created on their first request.
 
-*   **BKD-2: Backend Global Budget Circuit Breaker**
+*   **BKD-2: Backend Weekly Spend Cap**
     *   **Description:** Implement the non-negotiable cost-control mechanism. This is the highest priority task and must be completed first.
     *   **Acceptance Criteria:**
         *   A global budget (e.g., weekly dollar amount) is stored and tracked.
