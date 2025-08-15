@@ -32,6 +32,7 @@ interface PopupState {
     json: any;
     metadata: any;
     qualityReport?: any;
+    pipelineUsed?: 'standard' | 'intelligent-bypass';
   } | null;
   toast: {
     message: string;
@@ -50,7 +51,7 @@ type PopupAction =
   | { type: 'MODE_CHANGED'; payload: { mode: 'offline' | 'ai' } }
   | { type: 'CAPTURE_START' }
   | { type: 'PROCESSING_PROGRESS'; payload: { status: string; message?: string; progress?: number } }
-  | { type: 'PROCESSING_COMPLETE'; payload: { markdown: string; json: any; metadata: any; qualityReport?: any } }
+  | { type: 'PROCESSING_COMPLETE'; payload: { markdown: string; json: any; metadata: any; qualityReport?: any; stats?: any } }
   | { type: 'PROCESSING_ERROR'; payload: { error: string } }
   | { type: 'SHOW_TOAST'; payload: { message: string; type: 'success' | 'error' | 'info' } }
   | { type: 'HIDE_TOAST' }
@@ -152,10 +153,13 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
 
       const hasExhausted = newCredits ? newCredits.remaining <= 0 : true;
 
+      // Preserve pipelineUsed from payload.stats if present
+      const pipelineUsed = (action.payload as any)?.stats?.pipelineUsed;
+
       return {
         ...state,
         processing: { status: 'complete' },
-        exportData: action.payload,
+        exportData: { ...action.payload, pipelineUsed },
         credits: newCredits,
         trial: {
           ...state.trial,
@@ -296,7 +300,12 @@ export function usePopupController() {
             type: 'PROCESSING_COMPLETE',
             payload: message.payload,
           });
-          showToast(UI_MESSAGES.contentProcessed, 'success');
+          // Show a dynamic success message when intelligent-bypass pipeline was used
+          const pipeline = (message?.payload as any)?.stats?.pipelineUsed;
+          const successMessage = pipeline === 'intelligent-bypass'
+            ? UI_MESSAGES.intelligentBypassSuccess
+            : UI_MESSAGES.contentProcessed;
+          showToast(successMessage, 'success');
 
           // Auto-copy Markdown after processing completes (like working version)
           (async () => {

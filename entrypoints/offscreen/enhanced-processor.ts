@@ -186,13 +186,16 @@ export class EnhancedOffscreenProcessor {
     this.sendProgress('Post-processing markdown...', 80, 'postprocessing');
     const enhancedResult = await this.enhanceProcessingResult(result, config);
     const exportJson = this.generateStructuredExport(enhancedResult, url, title);
+    
+    // Attach pipeline identifier to stats so the UI can surface which pipeline ran
+    const statsWithPipeline = { ...(enhancedResult.processingStats || {}), pipelineUsed: 'standard' };
 
-    this.sendComplete(enhancedResult.markdown, exportJson, enhancedResult.metadata, enhancedResult.processingStats, enhancedResult.warnings, html);
+    this.sendComplete(enhancedResult.markdown, exportJson, enhancedResult.metadata, statsWithPipeline, enhancedResult.warnings, html);
     return {
       exportMd: enhancedResult.markdown,
       exportJson,
       metadata: enhancedResult.metadata,
-      stats: enhancedResult.processingStats,
+      stats: statsWithPipeline,
       warnings: enhancedResult.warnings,
       originalHtml: html,
     };
@@ -238,13 +241,16 @@ export class EnhancedOffscreenProcessor {
     };
 
     const exportJson = this.generateStructuredExport(resultPayload, url, title);
-    this.sendComplete(resultPayload.markdown, exportJson, resultPayload.metadata, resultPayload.processingStats, resultPayload.warnings, cleanedHtml);
+    // Annotate stats with pipeline identifier
+    const bypassStats = { ...(resultPayload.processingStats || {}), pipelineUsed: 'intelligent-bypass' };
+
+    this.sendComplete(resultPayload.markdown, exportJson, resultPayload.metadata, bypassStats, resultPayload.warnings, cleanedHtml);
     
     return {
       exportMd: resultPayload.markdown,
       exportJson,
       metadata: resultPayload.metadata,
-      stats: resultPayload.processingStats,
+      stats: bypassStats,
       warnings: resultPayload.warnings,
       originalHtml: cleanedHtml,
     };

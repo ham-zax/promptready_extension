@@ -34,6 +34,7 @@ export const UI_MESSAGES = {
   modelFetchFailed: "Could Not Fetch Models: Your API key is valid, but we couldn't fetch your available models. Please check your OpenRouter settings or try again.",
   connectionError: 'Connection Error: Could not connect to the service. Please check your internet connection and try again.',
   serviceTemporarilyUnavailable: 'Service Temporarily Unavailable: Our free trial is experiencing high demand. Please try again in a little while, or use the free Offline Mode.',
+  intelligentBypassSuccess: 'Copied with Intelligent Analysis!',
   byokTestFailedGeneric: (msg: string) => `BYOK test failed: ${msg}`,
 
   // Misc
