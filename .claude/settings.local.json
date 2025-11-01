@@ -6,7 +6,19 @@
       "Bash(sessions/bin/sessions:*)",
       "Bash(rm:*)",
       "Bash(git add:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(gemini:*)",
+      "Bash(npx wrangler:*)",
+      "Bash(curl:*)",
+      "Bash(npm run build:*)",
+      "Read(*)",
+      "Search(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Bash(*)",
+      "Bash(npm test)",
+      "Bash(git commit -m:*)",
+      "Bash(node:*)"
     ],
     "deny": []
   }

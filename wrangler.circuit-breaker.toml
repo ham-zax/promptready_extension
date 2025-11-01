@@ -1,0 +1,10 @@
+name = "circuit-breaker"
+main = "functions/circuit-breaker/index.ts"
+compatibility_date = "2024-03-20"
+
+[[kv_namespaces]]
+binding = "BUDGET_KV"
+id = "placeholder_for_local_dev_3"
+
+[vars]
+weekly_cap_usd = "100"

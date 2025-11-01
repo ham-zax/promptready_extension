@@ -60,16 +60,17 @@ export default {
         return new Response('Insufficient credits', { status: 402 });
       }
 
-      // 2. Call the external AI API (existing logic)
-      const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      // 2. Call the external AI API (using Z.AI for testing)
+      const aiResponse = await fetch('https://api.z.ai/api/paas/v4/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${env.AI_API_KEY || 'not-set'}`, // Use env secret
         },
         body: JSON.stringify({
-          model: 'llama3-70b-8192', // GPT OSS 20B equivalent on Groq
-          messages: [{ role: 'user', content: `Clean this content: ${content}` }],
+          model: 'glm-4.6',
+          messages: [{ role: 'user', content: `Clean and structure this content for better readability: ${content}` }],
+          temperature: 0.7,
         }),
       });
 

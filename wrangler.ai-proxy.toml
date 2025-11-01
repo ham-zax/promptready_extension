@@ -12,3 +12,4 @@ id = "placeholder_for_local_dev_2"
 
 [vars]
 SERVICE_SECRET = "local-secret-string"
+AI_API_KEY = "cead729df8374268918c14db2bddb43e.bObIHNe6TwmTefrR"
