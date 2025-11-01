@@ -5,7 +5,8 @@
       "Bash(cp:*)",
       "Bash(sessions/bin/sessions:*)",
       "Bash(rm:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(npm install:*)"
     ],
     "deny": []
   }

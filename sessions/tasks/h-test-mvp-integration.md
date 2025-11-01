@@ -60,7 +60,7 @@ Based on systematic code audit:
 - Chrome extension manifest permissions (activeTab, storage, identity, etc.)
 - Cloudflare Workers with KV bindings (CREDITS_KV, BUDGET_KV)
 - Environment variables (AI_API_KEY, SERVICE_SECRET)
-- Groq API access for trial model ("llama3-8b-8192" in current code)
+- Groq API access for trial model ("llama3-70b-8192" for GPT OSS 20B equivalent)
 
 ## Implementation Plan
 1. **Backend Deployment Testing**

@@ -68,7 +68,7 @@ export default {
           'Authorization': `Bearer ${env.AI_API_KEY || 'not-set'}`, // Use env secret
         },
         body: JSON.stringify({
-          model: 'llama3-8b-8192', // A valid model for testing
+          model: 'llama3-70b-8192', // GPT OSS 20B equivalent on Groq
           messages: [{ role: 'user', content: `Clean this content: ${content}` }],
         }),
       });
