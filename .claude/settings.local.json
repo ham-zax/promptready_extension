@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./sessions/bin/sessions:*)",
+      "Bash(cp:*)",
+      "Bash(sessions/bin/sessions:*)",
+      "Bash(rm:*)"
+    ],
+    "deny": []
+  }
+}
