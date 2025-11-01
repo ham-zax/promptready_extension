@@ -4,7 +4,8 @@
       "Bash(./sessions/bin/sessions:*)",
       "Bash(cp:*)",
       "Bash(sessions/bin/sessions:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }
