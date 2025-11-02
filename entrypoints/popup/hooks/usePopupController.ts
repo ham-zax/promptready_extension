@@ -23,7 +23,7 @@ interface PopupState {
   hasApiKey: boolean;
   apiKeyInput: string;
   processing: {
-    status: 'idle' | 'capturing' | 'cleaning' | 'structuring' | 'exporting' | 'complete' | 'error';
+    status: 'idle' | 'capturing' | 'cleaning' | 'processing' | 'structuring' | 'exporting' | 'complete' | 'error';
     message?: string;
     progress?: number;
   };
@@ -579,7 +579,12 @@ export function usePopupController() {
   }, []);
 
   // Computed properties
-  const isProcessing = state.processing.status === 'capturing' || state.processing.status === 'cleaning';
+  const isProcessing =
+    state.processing.status === 'capturing' ||
+    state.processing.status === 'cleaning' ||
+    state.processing.status === 'structuring' ||
+    state.processing.status === 'exporting' ||
+    state.processing.status === 'processing';
   const hasContent = !!state.exportData?.markdown;
 
   return {

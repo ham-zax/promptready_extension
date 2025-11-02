@@ -16,6 +16,7 @@ import { PrimaryButton } from './components/PrimaryButton';
 import { ProUpgradePrompt } from './components/ProUpgradePrompt';
 import { CreditExhaustedPrompt } from './components/CreditExhaustedPrompt';
 import { Storage } from '@/lib/storage';
+import { LoadingOverlay } from './components/LoadingOverlay';
 
 // Developer mode activation state
 let devKeySequence = '';
@@ -119,7 +120,7 @@ export default function RefactoredPopup() {
   };
 
   return (
-    <div className="w-96 bg-white">
+    <div className="relative w-96 bg-white">
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4">
         <div className="flex items-center justify-between">
@@ -364,6 +365,9 @@ export default function RefactoredPopup() {
           handleUpgradeClose();
         }}
       />
+      {(state.processing.status === 'capturing' || state.processing.status === 'cleaning' || state.processing.status === 'processing') && (
+        <LoadingOverlay status={state.processing.status as any} message={state.processing.message} progress={state.processing.progress} />
+      )}
     </div>
   );
 }

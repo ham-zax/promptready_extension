@@ -46,7 +46,7 @@ export function ByokSettings({
   const DEFAULTS: Record<Provider, { apiBase: string; model: string }> = {
     openrouter: { apiBase: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-3.5-sonnet' },
     manual: { apiBase: 'https://api.openai.com/v1', model: 'gpt-4' },
-    'z.ai': { apiBase: 'https://api.z.ai/v1', model: 'z.ai-flash' },
+    'z.ai': { apiBase: 'https://api.z.ai/api/coding/paas/v4', model: 'z.ai-flash' },
   };
 
   const chooseProvider = (p: Provider) => {
@@ -115,34 +115,34 @@ export function ByokSettings({
 
       {(settings.isPro || settings.flags?.byokEnabled) ? (
         <div className="space-y-3 pl-6">
-            <label className="block text-sm font-medium text-gray-700">
-              API Key ({pv === 'openrouter' ? 'OpenRouter' : pv === 'z.ai' ? 'Z.AI' : 'Manual'})
-            </label>
-            <div className="flex space-x-2">
-              <div className="flex-1 relative">
-                <input
-                  type={showApiKey ? 'text' : 'password'}
-                  value={apiKeyInput}
-                  onChange={(e) => onApiKeyChange(e.target.value)}
-                  placeholder={hasApiKey ? '••••••••••••••••' : 'Enter your API key'}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <button
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
-                >
-                  {showApiKey ? '🙈' : '👁️'}
-                </button>
-              </div>
+          <label className="block text-sm font-medium text-gray-700">
+            API Key ({pv === 'openrouter' ? 'OpenRouter' : pv === 'z.ai' ? 'Z.AI' : 'Manual'})
+          </label>
+          <div className="flex space-x-2">
+            <div className="flex-1 relative">
+              <input
+                type={showApiKey ? 'text' : 'password'}
+                value={apiKeyInput}
+                onChange={(e) => onApiKeyChange(e.target.value)}
+                placeholder={hasApiKey ? '••••••••••••••••' : 'Enter your API key'}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
               <button
-                onClick={onApiKeySave}
-                disabled={!apiKeyInput.trim()}
-                className="px-3 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
               >
-                Save
+                {showApiKey ? '🙈' : '👁️'}
               </button>
             </div>
+            <button
+              onClick={onApiKeySave}
+              disabled={!apiKeyInput.trim()}
+              className="px-3 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+            >
+              Save
+            </button>
+          </div>
 
           {pv === 'manual' && (
             <div className="space-y-2">
@@ -166,7 +166,7 @@ export function ByokSettings({
               </label>
               <input
                 type="text"
-                value="https://api.z.ai/v1"
+                value="https://api.z.ai/api/coding/paas/v4"
                 readOnly
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-100 cursor-not-allowed"
               />

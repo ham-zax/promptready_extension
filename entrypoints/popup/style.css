@@ -67,3 +67,49 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+/* PromptReady Popup - Loading Overlay Animations */
+
+/* Slow spin for gradient halo */
+@keyframes pr-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: pr-spin 8s linear infinite;
+}
+
+/* Orbiting dot around the center */
+@keyframes pr-orbit {
+  0%   { transform: rotate(0deg) translateY(-44px) rotate(0deg); }
+  100% { transform: rotate(360deg) translateY(-44px) rotate(-360deg); }
+}
+.animate-orbit {
+  animation: pr-orbit 2.6s linear infinite;
+  transform-origin: center;
+}
+
+/* Shimmer overlay for progress bar */
+@keyframes pr-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.pr-shimmer {
+  background-image: linear-gradient(90deg,
+    rgba(255,255,255,0.00) 0%,
+    rgba(255,255,255,0.35) 50%,
+    rgba(255,255,255,0.00) 100%
+  );
+  background-size: 200% 100%;
+  animation: pr-shimmer 1.5s ease-in-out infinite;
+  mix-blend-mode: overlay;
+}
+
+/* Optional subtle fade-in for overlay (unused but available) */
+@keyframes pr-fade-in {
+  0% { opacity: 0; transform: scale(0.98); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.animate-fade-in {
+  animation: pr-fade-in 220ms ease-out both;
+}

@@ -139,7 +139,7 @@ export async function validateOpenAI(apiKey: string, apiBase: string): Promise<V
 export async function validateZAI(apiKey: string): Promise<ValidationResult> {
   try {
     // Since Z.AI is your service, implement proper validation
-    const response = await fetch('https://api.z.ai/v1/models', {
+    const response = await fetch('https://api.z.ai/api/coding/paas/v4/models', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${apiKey}`,

@@ -192,7 +192,7 @@ describe('API Validation Service', () => {
       expect(result.isValid).toBe(true);
       expect(result.message).toBe('✅ Valid Z.AI API key');
       expect(global.fetch).toHaveBeenCalledWith(
-        'https://api.z.ai/v1/models',
+        'https://api.z.ai/api/coding/paas/v4/models',
         {
           method: 'GET',
           headers: {

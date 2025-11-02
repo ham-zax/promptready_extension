@@ -51,7 +51,7 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
       description: 'Fast and affordable AI API',
       icon: '⚡',
       placeholder: 'Enter your Z.AI API key',
-      defaultBase: 'https://api.z.ai/v1',
+      defaultBase: 'https://api.z.ai/api/coding/paas/v4',
       fixedBase: true,
     },
   };
@@ -98,8 +98,8 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
 
     try {
       const selectedModel = provider === 'openrouter' ? 'anthropic/claude-3.5-sonnet' :
-                           provider === 'manual' ? 'gpt-4' : 'z.ai-flash';
-      
+        provider === 'manual' ? 'gpt-4' : 'z.ai-flash';
+
       await Storage.updateSettings({
         byok: {
           provider,
@@ -149,11 +149,10 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
             <button
               key={key}
               onClick={() => setProvider(key as Provider)}
-              className={`p-3 rounded-lg border-2 transition-all text-left ${
-                provider === key
+              className={`p-3 rounded-lg border-2 transition-all text-left ${provider === key
                   ? 'border-blue-500 bg-blue-50'
                   : 'border-gray-200 hover:border-gray-300'
-              }`}
+                }`}
             >
               <div className="flex items-center space-x-3">
                 <span className="text-lg">{providerInfo.icon}</span>
@@ -201,11 +200,10 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
 
         {/* Validation Status */}
         {validationStatus && (
-          <div className={`p-3 rounded-md text-sm ${
-            validationStatus.isValid
+          <div className={`p-3 rounded-md text-sm ${validationStatus.isValid
               ? 'bg-green-50 text-green-700 border border-green-200'
               : 'bg-red-50 text-red-700 border border-red-200'
-          }`}>
+            }`}>
             {validationStatus.message}
           </div>
         )}

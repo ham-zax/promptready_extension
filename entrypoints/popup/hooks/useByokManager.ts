@@ -38,7 +38,7 @@ const DEFAULT_PROVIDERS = {
     defaultModel: 'gpt-4',
   },
   'z.ai': {
-    apiBase: 'https://api.z.ai/v1',
+    apiBase: 'https://api.z.ai/api/coding/paas/v4',
     defaultModel: 'z.ai-flash',
   },
 };

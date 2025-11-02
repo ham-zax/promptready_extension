@@ -901,6 +901,24 @@ await browser.tabs.sendMessage(targetTabId, {
   private async broadcastMessage(message: any, retries: number = 3): Promise<void> {
     const isCriticalMessage = this.isCriticalMessage(message.type);
 
+    // Pre-check for UI-bound messages to avoid noisy errors when no receiver exists
+    if (message?.type === 'EXPORT_COMPLETE' || message?.type === 'PROCESSING_COMPLETE') {
+      try {
+        const hasPopup = await this.hasPopupContext();
+        if (!hasPopup) {
+          // No popup available to receive; persist for polling and skip broadcast
+          if (isCriticalMessage) {
+            await this.handleCriticalMessageFailure(message, new Error('No popup context available'));
+          }
+          console.log(`[Background] No popup available to receive ${message.type}; stored for polling and skipped broadcast`);
+          return;
+        }
+      } catch (ctxErr) {
+        // If context check fails, continue with best-effort broadcast
+        console.warn('[Background] Popup context check failed; attempting broadcast anyway:', ctxErr);
+      }
+    }
+
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         await browser.runtime.sendMessage(message);
@@ -909,7 +927,20 @@ await browser.tabs.sendMessage(targetTabId, {
       } catch (error: any) {
         const isLastAttempt = attempt === retries;
 
+        // Suppress noisy logs for "Receiving end does not exist" when there may be no UI
+        const msg = typeof error?.message === 'string' ? error.message : String(error);
+        const isNoReceiver = msg.includes('Receiving end does not exist') || msg.includes('Could not establish connection');
+
         if (isLastAttempt) {
+          if (isNoReceiver && (message?.type === 'EXPORT_COMPLETE' || message?.type === 'PROCESSING_COMPLETE')) {
+            // Downgrade to warn and persist for polling
+            console.warn(`[Background] No receiver for ${message.type}; stored for polling`);
+            if (isCriticalMessage) {
+              await this.handleCriticalMessageFailure(message, error);
+            }
+            return;
+          }
+
           console.error(`[Background] Failed to broadcast message after ${retries} attempts:`, error);
 
           // For critical messages, try alternative notification methods
@@ -917,11 +948,32 @@ await browser.tabs.sendMessage(targetTabId, {
             await this.handleCriticalMessageFailure(message, error);
           }
         } else {
+          if (isNoReceiver && (message?.type === 'EXPORT_COMPLETE' || message?.type === 'PROCESSING_COMPLETE')) {
+            // No point retrying if no receiver exists; break early after persisting
+            if (isCriticalMessage) {
+              await this.handleCriticalMessageFailure(message, error);
+            }
+            console.warn(`[Background] No receiver for ${message.type}; skipping retries`);
+            return;
+          }
           console.warn(`[Background] Broadcast attempt ${attempt} failed, retrying...`, error);
           // Wait before retry with exponential backoff
           await this.delay(Math.pow(2, attempt - 1) * 100);
         }
       }
+    }
+  }
+
+  // Check if popup UI context exists (so it can receive broadcasts)
+  private async hasPopupContext(): Promise<boolean> {
+    try {
+      const contexts = await browser.runtime.getContexts({
+        contextTypes: [browser.runtime.ContextType.POPUP],
+      });
+      return Array.isArray(contexts) && contexts.length > 0;
+    } catch (e) {
+      console.warn('[Background] getContexts(POPUP) failed:', e);
+      return false;
     }
   }
 
