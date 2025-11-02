@@ -3,7 +3,7 @@
 
 import { browser } from 'wxt/browser';
 import { Storage } from '../lib/storage.js';
-import { OfflineModeManager } from '../core/offline-mode-manager.js';
+
 import { ErrorHandler } from '../core/error-handler.js';
 import { ContentQualityValidator } from '../core/content-quality-validator.js';
 
@@ -329,18 +329,6 @@ class EnhancedContentProcessor {
       // the background's canonical citation inserted. Enforce it here so every final
       // output delivered to tabs/popup contains the standardized cite-first block.
       let finalMd = exportMd;
-      try {
-        const hasCiteFirst = /^\s*>\s*Source:/m.test(finalMd || '');
-        if (!hasCiteFirst) {
-          console.log('[Background] No cite-first block detected, inserting canonical citation');
-          // OfflineModeManager.insertCiteFirstBlock returns the markdown with the citation
-          finalMd = OfflineModeManager.insertCiteFirstBlock(finalMd || '', metadata || {});
-        }
-      } catch (citeErr) {
-        console.error('[Background] Failed to insert canonical citation block:', citeErr);
-        // Fall back to original exportMd if insertion fails so we don't block delivery
-        finalMd = exportMd;
-      }
 
   // BMAD TRACE: log the finalized markdown after insertion (or unchanged)
   console.log('[BMAD_TRACE] Background after cite block insertion:', (finalMd || '').substring(0, 100));
@@ -690,8 +678,8 @@ class EnhancedContentProcessor {
    */
   async getProcessingStats(): Promise<any> {
     try {
-      // Get cache stats from offline mode manager
-      const cacheStats = await OfflineModeManager.getCacheStats();
+      // Cache stats not available in service worker context
+      const cacheStats = { message: 'Cache stats not available in service worker' };
 
       // Get error stats from error handler
       const errorStats = ErrorHandler.getErrorStats();
@@ -723,7 +711,8 @@ class EnhancedContentProcessor {
    */
   async clearProcessingCache(): Promise<void> {
     try {
-      await OfflineModeManager.clearCache();
+      // Cache clearing not available in service worker context
+      console.log('Cache clearing not available in service worker context');
       ErrorHandler.clearErrorLog();
       await this.setCurrentExportData(null);
       console.log('Processing cache cleared');

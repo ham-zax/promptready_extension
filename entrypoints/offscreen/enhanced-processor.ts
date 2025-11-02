@@ -4,12 +4,7 @@
 import { browser } from 'wxt/browser';
 import { getUserId } from '../../lib/user';
 import { OfflineModeManager, OfflineModeConfig } from '../../core/offline-mode-manager.js';
-import { ReadabilityConfigManager } from '../../core/readability-config.js';
-import { TurndownConfigManager } from '../../core/turndown-config.js';
-import { MarkdownPostProcessor } from '../../core/post-processor.js';
-import { BoilerplateFilter, AGGRESSIVE_FILTER_RULES } from '../../core/filters/boilerplate-filters';
-import { ScoringEngine } from '../../core/scoring/scoring-engine';
-import DOMPurify from 'dompurify';
+
 import { Storage } from '../../lib/storage';
 import { BYOKClient } from '../../pro/byok-client';
 import { Settings } from '../../lib/types';
@@ -150,109 +145,21 @@ export class EnhancedOffscreenProcessor {
   ): Promise<ProcessingCompleteMessage['payload']> {
     this.sendProgress('Cleaning and preparing content...', 20, 'preprocessing');
     
-    const sanitizedHtml = DOMPurify.sanitize(html);
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(sanitizedHtml, 'text/html');
-    
-    // 1. Apply the "safe" boilerplate filter first.
-    BoilerplateFilter.applyRules(doc.body);
-    console.warn('[BMAD_DBG] Safe BoilerplateFilter applied in offscreen.');
-
-    // 2. HYBRID PIPELINE ORCHESTRATOR: Decide which path to take.
-    if (BoilerplateFilter.shouldBypassReadability(doc.body)) {
-      console.warn('[BMAD_BYPASS] Technical content detected. Engaging Intelligent Bypass Pipeline.');
-      return this.runIntelligentBypassPipeline(doc, url, title, config);
-    } else {
-      console.warn('[BMAD_BYPASS] No technical signal — using Standard Readability Pipeline.');
-      const preProcessedHtml = doc.body.innerHTML;
-      return this.runStandardPipeline(preProcessedHtml, url, title, config);
-    }
-  }
-
-  private async runStandardPipeline(
-    html: string,
-    url: string,
-    title: string,
-    config: OfflineModeConfig
-  ): Promise<ProcessingCompleteMessage['payload']> {
-    this.sendProgress('Extracting main article...', 40, 'extraction');
-    
-    // This path uses the standard Readability.js engine.
     const result = await OfflineModeManager.processContent(html, url, title, config);
     if (!result.success) {
-      throw new Error(`Readability processing failed: ${result.errors.join(', ')}`);
+      throw new Error(`Offline processing failed: ${result.errors.join(', ')}`);
     }
 
-    this.sendProgress('Post-processing markdown...', 80, 'postprocessing');
-    const enhancedResult = await this.enhanceProcessingResult(result, config);
-    const exportJson = this.generateStructuredExport(enhancedResult, url, title);
-    
-    // Attach pipeline identifier to stats so the UI can surface which pipeline ran
-    const statsWithPipeline = { ...(enhancedResult.processingStats || {}), pipelineUsed: 'standard' };
+    const exportJson = this.generateStructuredExport(result, url, title);
 
-    this.sendComplete(enhancedResult.markdown, exportJson, enhancedResult.metadata, statsWithPipeline, enhancedResult.warnings, html);
+    this.sendComplete(result.markdown, exportJson, result.metadata, result.processingStats, result.warnings, html);
     return {
-      exportMd: enhancedResult.markdown,
+      exportMd: result.markdown,
       exportJson,
-      metadata: enhancedResult.metadata,
-      stats: statsWithPipeline,
-      warnings: enhancedResult.warnings,
+      metadata: result.metadata,
+      stats: result.processingStats,
+      warnings: result.warnings,
       originalHtml: html,
-    };
-  }
-
-  private async runIntelligentBypassPipeline(
-    doc: Document,
-    url: string,
-    title: string,
-    config: OfflineModeConfig
-  ): Promise<ProcessingCompleteMessage['payload']> {
-    // This path uses our custom scoring and pruning engine.
-    this.sendProgress('Applying aggressive filters...', 40, 'filtering');
-    BoilerplateFilter.applyRules(doc.body, AGGRESSIVE_FILTER_RULES);
-    console.warn('[BMAD_BYPASS] Aggressive second-stage filtering applied.');
-
-    this.sendProgress('Scoring content candidates...', 60, 'scoring');
-    const { bestCandidate } = ScoringEngine.findBestCandidate(doc.body);
-
-    let cleanedHtml: string;
-    if (bestCandidate) {
-      console.log(`[BMAD_WINNER] Selected candidate with score ${bestCandidate.score}:`, bestCandidate.element);
-      this.sendProgress('Pruning final content...', 75, 'pruning');
-      const prunedCandidate = ScoringEngine.pruneNode(bestCandidate.element);
-      cleanedHtml = prunedCandidate.outerHTML;
-    } else {
-      console.warn('[BMAD_BYPASS] ScoringEngine failed to find a confident candidate. Falling back to body conversion.');
-      cleanedHtml = doc.body.innerHTML;
-    }
-
-    this.sendProgress('Converting to markdown...', 85, 'conversion');
-    const turndownPreset = (config as any).turndownPreset || 'standard';
-    const markdown = await TurndownConfigManager.convert(cleanedHtml, turndownPreset);
-    
-    const postOptions = { /* ... your post-processing options ... */ };
-    const postResult = MarkdownPostProcessor.process(markdown, postOptions);
-
-    const resultPayload = {
-      markdown: postResult.markdown,
-      metadata: { title: title || 'Untitled', url, capturedAt: new Date().toISOString() },
-      processingStats: { qualityScore: bestCandidate ? bestCandidate.score : 80 },
-      warnings: postResult.warnings || [],
-    };
-
-    const exportJson = this.generateStructuredExport(resultPayload, url, title);
-    // Annotate stats with pipeline identifier
-    const bypassStats = { ...(resultPayload.processingStats || {}), pipelineUsed: 'intelligent-bypass' };
-
-    this.sendComplete(resultPayload.markdown, exportJson, resultPayload.metadata, bypassStats, resultPayload.warnings, cleanedHtml);
-    
-    return {
-      exportMd: resultPayload.markdown,
-      exportJson,
-      metadata: resultPayload.metadata,
-      stats: bypassStats,
-      warnings: resultPayload.warnings,
-      originalHtml: cleanedHtml,
     };
   }
 
@@ -328,21 +235,7 @@ export class EnhancedOffscreenProcessor {
     }
   }
 
-  private async enhanceProcessingResult(
-    result: any,
-    config: OfflineModeConfig
-  ): Promise<any> {
-    // ... (existing implementation)
-    return result;
-  }
 
-  private getPlatformOptimizations(platform: string) {
-    // ... (existing implementation)
-  }
-
-  private generateStructuredExport(result: any, url: string, title: string): any {
-    // ... (existing implementation)
-  }
 
   private lastProgressTime = 0;
   private readonly PROGRESS_THROTTLE_MS = 200;

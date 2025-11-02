@@ -299,9 +299,9 @@ export class ErrorHandler {
         context.originalError.message.includes('Maximum call stack'),
       execute: async (context) => {
         try {
-          // Force garbage collection if available
-          if (typeof window !== 'undefined' && (window as any).gc) {
-            (window as any).gc();
+          // Force garbage collection if available (not in service worker)
+          if (typeof globalThis !== 'undefined' && (globalThis as any).gc) {
+            (globalThis as any).gc();
           }
 
           // Clear any caches

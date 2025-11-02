@@ -3,15 +3,15 @@
 // Perfect separation of concerns using custom hook
 
 import React, { useState } from 'react';
-import { usePopupController } from '../hooks/usePopupController';
-import { SettingsPanel } from './SettingsPanel';
-import { Toast } from './Toast';
+import { usePopupController } from './hooks/usePopupController';
+import { SettingsPanel } from './components/SettingsPanel';
+import { Toast } from './components/Toast';
 import type { Settings } from '@/lib/types';
-import { ProBadge } from './ProBadge';
-import { ModeToggle } from './ModeToggle';
-import { PrimaryButton } from './PrimaryButton';
-import { ProUpgradePrompt } from './ProUpgradePrompt';
-import { CreditExhaustedPrompt } from './CreditExhaustedPrompt';
+import { ProBadge } from './components/ProBadge';
+import { ModeToggle } from './components/ModeToggle';
+import { PrimaryButton } from './components/PrimaryButton';
+import { ProUpgradePrompt } from './components/ProUpgradePrompt';
+import { CreditExhaustedPrompt } from './components/CreditExhaustedPrompt';
 
 // Main popup component - now purely presentational
 export default function SimplifiedPopup() {

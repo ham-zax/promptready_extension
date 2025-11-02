@@ -71,49 +71,31 @@ export class BYOKClient {
   ): Promise<BYOKResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT_MS);
-    
+
     try {
-      const base = settings.apiBase.replace(/\/$/, '');
-      const url = `${base}/chat/completions`;
+      // The AI proxy worker will handle the actual API call
+      const url = `/api/proxy`;
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${settings.apiKey}`,
-          'X-Title': 'PromptReady Extension',
         },
         body: JSON.stringify({
-          model: (await browser.storage.local.get('selectedByokModel')).selectedByokModel || settings.model,
-          messages: [
-            {
-              role: 'user',
-              content: request.prompt
-            }
-          ],
-          temperature: request.temperature ?? this.DEFAULT_TEMPERATURE,
-          max_tokens: request.maxTokens ?? this.MAX_TOKENS,
+          ...request,
+          settings,
         }),
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (!response.ok) {
         const text = await response.text();
         throw new Error(`BYOK request failed: ${response.status} ${text.slice(0, 300)}`);
       }
-      
-      const data = await response.json() as OpenAICompletionResponse;
-      const content = data?.choices?.[0]?.message?.content ?? '';
-      
-      return {
-        content,
-        usage: data.usage ? {
-          promptTokens: data.usage.prompt_tokens || 0,
-          completionTokens: data.usage.completion_tokens || 0,
-          totalTokens: data.usage.total_tokens || 0,
-        } : undefined,
-      };
+
+      const data = await response.json();
+      return data;
     } catch (error) {
       clearTimeout(timeoutId);
       if (error instanceof Error && error.name === 'AbortError') {
