@@ -30,7 +30,7 @@ export default defineConfig({
       default_popup: "popup.html"
     },
     host_permissions: [
-      "https://openrouter.ai/*"
+      "<all_urls>"
     ]
   },
   vite: () => ({

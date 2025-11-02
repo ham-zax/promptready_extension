@@ -2,7 +2,7 @@
 // Replaces scattered isPro checks and inconsistent Pro/Free messaging
 
 import { Storage } from './storage';
-import type { Settings } from './types';
+import type { Settings, FeatureFlags } from './types';
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -27,9 +27,9 @@ export class AuthService {
   async getAuthState(): Promise<AuthState> {
     try {
       const settings = await Storage.getSettings();
-      const flags = settings.flags || {};
+      const flags: Partial<FeatureFlags> = settings.flags || {};
       
-      const isDeveloperMode = Boolean(flags.developerMode);
+      const isDeveloperMode = Boolean((flags as any).developerMode);
       const hasApiKey = Boolean(settings.byok?.apiKey);
       const remainingCredits = settings.credits?.remaining || 0;
       

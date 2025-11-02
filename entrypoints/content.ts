@@ -38,7 +38,19 @@ export default defineContentScript({
           return { success: true, method: 'navigator.clipboard' };
         }
       } catch (err) {
-        console.warn('[BMAD_CLIPBOARD] navigator.clipboard failed, proceeding to fallback.', err);
+        const toMsg = (e: any) => {
+          try {
+            if (e && typeof e === 'object') {
+              const n = (e as any).name || 'Error';
+              const m = (e as any).message || String(e);
+              return `${n}: ${m}`;
+            }
+            return String(e);
+          } catch {
+            return String(e);
+          }
+        };
+        console.warn('[BMAD_CLIPBOARD] navigator.clipboard failed; proceeding to fallback.', toMsg(err));
       }
 
       // Tier 2: execCommand fallback

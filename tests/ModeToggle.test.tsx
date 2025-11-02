@@ -21,7 +21,6 @@ describe('ModeToggle', () => {
     render(
       <ModeToggle
         mode="ai"
-        isPro={true}
         onChange={() => {}}
         onUpgradePrompt={() => {}}
       />
@@ -35,7 +34,6 @@ describe('ModeToggle', () => {
     render(
       <ModeToggle
         mode="ai"
-        isPro={true}
         onChange={handleChange}
         onUpgradePrompt={() => {}}
       />
@@ -55,7 +53,6 @@ describe('ModeToggle', () => {
     render(
       <ModeToggle
         mode="offline"
-        isPro={false}
         onChange={handleChange}
         onUpgradePrompt={handleUpgradePrompt}
       />

@@ -11,6 +11,16 @@ interface SimplifiedByokSetupProps {
 
 type Provider = 'openrouter' | 'manual' | 'z.ai';
 
+type ProviderInfo = {
+  name: string;
+  description: string;
+  icon: string;
+  placeholder: string;
+  defaultBase: string;
+  fixedBase?: boolean;
+};
+
+
 export function SimplifiedByokSetup({ settings, onComplete, onCancel }: SimplifiedByokSetupProps) {
   const [provider, setProvider] = useState<Provider>('openrouter');
   const [apiKey, setApiKey] = useState('');
@@ -21,7 +31,7 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
     message: string;
   } | null>(null);
 
-  const providers = {
+  const providers: Record<Provider, ProviderInfo> = {
     openrouter: {
       name: 'OpenRouter',
       description: 'Access multiple AI models through one API',
@@ -87,13 +97,16 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
     }
 
     try {
+      const selectedModel = provider === 'openrouter' ? 'anthropic/claude-3.5-sonnet' :
+                           provider === 'manual' ? 'gpt-4' : 'z.ai-flash';
+      
       await Storage.updateSettings({
         byok: {
           provider,
           apiKey,
           apiBase: provider === 'z.ai' ? providers['z.ai'].defaultBase : apiBase,
-          selectedByokModel: provider === 'openrouter' ? 'anthropic/claude-3.5-sonnet' :
-                           provider === 'manual' ? 'gpt-4' : 'z.ai-flash',
+          model: selectedModel,
+          selectedByokModel: selectedModel,
         },
         isPro: true,
         trial: { ...settings.trial, hasExhausted: false, showUpgradePrompt: false },

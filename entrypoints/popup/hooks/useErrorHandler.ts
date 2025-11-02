@@ -28,6 +28,7 @@ export interface ErrorActions {
   clearHistory: () => void;
   retryLastAction: () => void;
   reportError: (error: Error, context?: string) => void;
+  setLastActionForRetry: (action: () => void, description: string) => void;
 }
 
 const ERROR_CODES = {

@@ -112,8 +112,11 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
       const hasApiKey = Boolean(settings.byok?.apiKey);
       // Developer mode or BYOK or credits makes user "Pro"
       const isPro = flags.developerMode || hasApiKey || (settings.credits?.remaining || 0) > 0;
+      // Keep UI selection in sync when settings.mode changes (and gate AI when disabled)
+      const effectiveMode = (flags.aiModeEnabled || flags.developerMode) ? settings.mode : 'offline';
       return {
         ...state,
+        mode: effectiveMode,
         settings,
         isPro,
         credits: settings.credits,
@@ -348,7 +351,21 @@ export function usePopupController() {
           if (message.payload.success) {
             showToast(UI_MESSAGES.copiedToClipboard, 'success');
           } else {
-            showToast(UI_MESSAGES.copyFailed(message.payload.error || 'Unknown error'), 'error');
+            // Popup-side fallback: attempt to write to clipboard directly from the popup
+            (async () => {
+              try {
+                const data = state.exportData?.markdown || '';
+                if (data && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                  await navigator.clipboard.writeText(data);
+                  showToast(UI_MESSAGES.copiedToClipboard, 'success');
+                } else {
+                  showToast(UI_MESSAGES.copyFailed(message.payload.error || 'Unknown error'), 'error');
+                }
+              } catch (e: any) {
+                const errMsg = e?.message || String(e) || 'Unknown error';
+                showToast(UI_MESSAGES.copyFailed(errMsg), 'error');
+              }
+            })();
           }
           break;
 
@@ -510,6 +527,12 @@ export function usePopupController() {
 
       console.log('Copy request sent to background successfully');
       // Success toast will be shown via EXPORT_COMPLETE message
+      // Close the popup to return focus to the page (improves navigator.clipboard success rate on strict sites)
+      try {
+        setTimeout(() => {
+          try { window.close(); } catch {}
+        }, 120);
+      } catch {}
 
     } catch (error) {
       console.error('Copy request failed:', error);
@@ -586,3 +609,4 @@ export function usePopupController() {
     showToast,
   };
 }
+

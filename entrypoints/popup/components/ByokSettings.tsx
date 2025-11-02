@@ -3,7 +3,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { Settings } from '@/lib/types';
-import ByokChoice, { ByokProvider } from './ByokChoice';
 import { ModelSelect } from './ModelSelect';
 import {
   Dialog,
@@ -15,6 +14,7 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 
+type Provider = 'openrouter' | 'manual' | 'z.ai';
 
 interface ByokSettingsProps {
   settings: Settings;
@@ -24,8 +24,9 @@ interface ByokSettingsProps {
   onApiKeyTest: () => void;
   hasApiKey: boolean;
   apiKeyInput: string;
-  provider: 'openrouter' | 'manual' | 'z.ai';
+  provider?: Provider;
 }
+
 
 export function ByokSettings({
   settings,
@@ -38,23 +39,84 @@ export function ByokSettings({
   provider,
 }: ByokSettingsProps) {
   const [showApiKey, setShowApiKey] = useState(false);
+  const [localProvider, setLocalProvider] = useState<Provider | null>(
+    provider ?? (settings.byok?.provider as Provider) ?? null
+  );
+
+  const DEFAULTS: Record<Provider, { apiBase: string; model: string }> = {
+    openrouter: { apiBase: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-3.5-sonnet' },
+    manual: { apiBase: 'https://api.openai.com/v1', model: 'gpt-4' },
+    'z.ai': { apiBase: 'https://api.z.ai/v1', model: 'z.ai-flash' },
+  };
+
+  const chooseProvider = (p: Provider) => {
+    setLocalProvider(p);
+    const d = DEFAULTS[p];
+    onSettingsChange({
+      byok: {
+        ...settings.byok,
+        provider: p,
+        apiBase: d.apiBase,
+        selectedByokModel: d.model,
+      },
+    });
+  };
+
+  const pv = localProvider ?? provider ?? (settings.byok?.provider as Provider) ?? null;
+
+  // Header
+  const header = (
+    <div className="flex items-center space-x-2">
+      <span className="text-sm">🤖</span>
+      <h4 className="font-medium text-gray-800">AI Configuration</h4>
+      {settings.isPro && (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-purple-500 to-pink-500 text-white">
+          Pro
+        </span>
+      )}
+    </div>
+  );
+
+  // Provider choice view (shown when provider not set)
+  if (!pv) {
+    return (
+      <div className="space-y-3">
+        {header}
+        <div className="text-center">
+          <h3 className="font-semibold text-gray-900 mb-4">Connect your AI Provider</h3>
+          <div className="grid grid-cols-3 gap-4">
+            <button
+              onClick={() => chooseProvider('openrouter')}
+              className="w-full py-2 px-4 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors"
+            >
+              OpenRouter
+            </button>
+            <button
+              onClick={() => chooseProvider('manual')}
+              className="w-full py-2 px-4 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors"
+            >
+              Manual
+            </button>
+            <button
+              onClick={() => chooseProvider('z.ai')}
+              className="w-full py-2 px-4 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors"
+            >
+              Z.AI
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center space-x-2">
-        <span className="text-sm">🤖</span>
-        <h4 className="font-medium text-gray-800">AI Configuration</h4>
-        {settings.isPro && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-purple-500 to-pink-500 text-white">
-            Pro
-          </span>
-        )}
-      </div>
+      {header}
 
       {(settings.isPro || settings.flags?.byokEnabled) ? (
         <div className="space-y-3 pl-6">
             <label className="block text-sm font-medium text-gray-700">
-              API Key ({provider === 'openrouter' ? 'OpenRouter' : provider === 'z.ai' ? 'Z.AI' : 'Manual'})
+              API Key ({pv === 'openrouter' ? 'OpenRouter' : pv === 'z.ai' ? 'Z.AI' : 'Manual'})
             </label>
             <div className="flex space-x-2">
               <div className="flex-1 relative">
@@ -82,7 +144,7 @@ export function ByokSettings({
               </button>
             </div>
 
-          {provider === 'manual' && (
+          {pv === 'manual' && (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">
                 API Base URL
@@ -97,7 +159,7 @@ export function ByokSettings({
             </div>
           )}
 
-          {provider === 'z.ai' && (
+          {pv === 'z.ai' && (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">
                 API Base URL
@@ -111,20 +173,20 @@ export function ByokSettings({
             </div>
           )}
 
-          {hasApiKey && provider === 'openrouter' && (
+          {hasApiKey && pv === 'openrouter' && (
             <div className="space-y-2">
               <label htmlFor="model-select" className="block text-sm font-medium text-gray-700">
                 Model
               </label>
               <ModelSelect
-                value={settings.byok.selectedByokModel || settings.byok.model}
+                value={settings.byok.selectedByokModel || settings.byok.model || ''}
                 onChange={(v: string) => onSettingsChange({ byok: { ...settings.byok, selectedByokModel: v } })}
                 apiBase={settings.byok.apiBase}
               />
             </div>
           )}
 
-          {hasApiKey && provider === 'manual' && (
+          {hasApiKey && pv === 'manual' && (
             <div className="space-y-2">
               <label htmlFor="model-select-manual" className="block text-sm font-medium text-gray-700">
                 Model
@@ -142,7 +204,7 @@ export function ByokSettings({
             </div>
           )}
 
-          {hasApiKey && provider === 'z.ai' && (
+          {hasApiKey && pv === 'z.ai' && (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">
                 Model

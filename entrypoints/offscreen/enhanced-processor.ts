@@ -89,6 +89,19 @@ export class EnhancedOffscreenProcessor {
           }));
         return true; // Keep message channel open for async response
       }
+
+      // New: handle clipboard writes via offscreen document as a fallback path
+      if (message.type === 'OFFSCREEN_COPY') {
+        const text = (message.payload && (message.payload as any).content) || '';
+        this.performOffscreenCopy(text)
+          .then(res => sendResponse(res))
+          .catch(err => sendResponse({
+            success: false,
+            error: err instanceof Error ? err.message : String(err)
+          }));
+        return true; // async response
+      }
+
       return false;
     });
   }
@@ -184,7 +197,7 @@ export class EnhancedOffscreenProcessor {
         this.sendProgress('Using BYOK for AI processing...', 40, 'byok-processing');
         const byokResult = await BYOKClient.makeRequest(
           { prompt: html, maxTokens: 4000, temperature: 0.7 }, // Use html as prompt
-          { apiBase: settings.byok.apiBase, apiKey: apiKey, model: settings.byok.model }
+          { apiBase: settings.byok.apiBase, apiKey: apiKey, model: settings.byok.model || settings.byok.selectedByokModel || 'anthropic/claude-3.5-sonnet' }
         );
         processedMarkdown = byokResult.content;
         // BYOK does not return remaining credits, so it will be undefined
@@ -237,6 +250,53 @@ export class EnhancedOffscreenProcessor {
   }
 
 
+
+  private async performOffscreenCopy(text: string): Promise<{ success: boolean; method?: string; error?: string }> {
+    try {
+      // Tier 1: navigator.clipboard
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        try {
+          await navigator.clipboard.writeText(text);
+          return { success: true, method: 'offscreen:navigator.clipboard' };
+        } catch (err: any) {
+          // fall through to execCommand
+          console.warn('[Offscreen] navigator.clipboard.writeText failed:', err);
+        }
+      }
+
+      // Tier 2: execCommand fallback
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.setAttribute('readonly', '');
+        document.body.appendChild(ta);
+        ta.select();
+
+        let ok = false;
+        try {
+          ok = document.execCommand('copy');
+        } catch (e: any) {
+          console.warn('[Offscreen] document.execCommand("copy") failed:', e);
+        }
+
+        try {
+          document.body.removeChild(ta);
+        } catch {}
+
+        if (ok) {
+          return { success: true, method: 'offscreen:execCommand' };
+        }
+      } catch (fallbackErr: any) {
+        console.warn('[Offscreen] execCommand fallback threw:', fallbackErr);
+      }
+
+      return { success: false, error: 'Offscreen copy failed' };
+    } catch (outerErr: any) {
+      return { success: false, error: outerErr instanceof Error ? outerErr.message : String(outerErr) };
+    }
+  }
 
   private lastProgressTime = 0;
   private readonly PROGRESS_THROTTLE_MS = 200;

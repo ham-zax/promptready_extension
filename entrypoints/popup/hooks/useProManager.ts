@@ -18,8 +18,8 @@ export interface ProState {
 }
 
 export interface ProActions {
-  startTrial: (email: string) => Promise<void>;
-  upgradeToPro: (email: string) => Promise<void>;
+  startTrial: (email: string) => Promise<any>;
+  upgradeToPro: (email: string) => Promise<any>;
   checkTrialStatus: () => Promise<void>;
   cancelTrial: () => Promise<void>;
   hideUpgradePrompt: () => Promise<void>;
@@ -41,11 +41,11 @@ export function useProManager(): ProState & ProActions {
     const loadAndCheck = async () => {
       try {
         const settings = await Storage.getSettings();
-        const trial = settings.trial || {};
+        const trial = settings.trial || {} as any;
         const isPro = settings.isPro || false;
         const isInTrial = Boolean(trial.startedAt && trial.expiresAt);
-        const daysRemaining = isInTrial
-          ? Math.max(0, Math.ceil((new Date(trial.expiresAt!).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+        const daysRemaining = isInTrial && trial.expiresAt
+          ? Math.max(0, Math.ceil((new Date(trial.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
           : 0;
 
         setState(prev => ({
@@ -125,7 +125,10 @@ export function useProManager(): ProState & ProActions {
       await Storage.updateSettings({
         isPro: true,
         trial: trialData,
-        user: { email },
+        user: { 
+          id: `trial_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
+          email 
+        },
       });
 
       setState(prev => ({
@@ -173,7 +176,10 @@ export function useProManager(): ProState & ProActions {
       await Storage.updateSettings({
         isPro: true,
         trial: { hasExhausted: false, showUpgradePrompt: false },
-        user: { email },
+        user: { 
+          id: `pro_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
+          email 
+        },
       });
 
       setState(prev => ({
@@ -200,7 +206,7 @@ export function useProManager(): ProState & ProActions {
   const checkTrialStatus = useCallback(async () => {
     try {
       const settings = await Storage.getSettings();
-      const trial = settings.trial || {};
+      const trial = settings.trial || {} as any;
 
       if (trial.expiresAt) {
         const daysRemaining = Math.max(0, Math.ceil((new Date(trial.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
@@ -243,7 +249,7 @@ export function useProManager(): ProState & ProActions {
   const hideUpgradePrompt = useCallback(async () => {
     try {
       await Storage.updateSettings({
-        trial: { ...state, showUpgradePrompt: false },
+        trial: { hasExhausted: false, showUpgradePrompt: false },
       });
 
       setState(prev => ({
@@ -259,7 +265,7 @@ export function useProManager(): ProState & ProActions {
   const showUpgradePromptAction = useCallback(async () => {
     try {
       await Storage.updateSettings({
-        trial: { ...state, showUpgradePrompt: true },
+        trial: { hasExhausted: false, showUpgradePrompt: true },
       });
 
       setState(prev => ({

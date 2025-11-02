@@ -33,6 +33,7 @@ export default function RefactoredPopup() {
     handleCopy,
     handleExport,
     handleUpgradeClose,
+    onSettingsChange,
   } = usePopupController();
 
   // New focused hooks
@@ -64,33 +65,35 @@ export default function RefactoredPopup() {
         devKeySequence = devKeySequence.slice(-10);
       }
     };
+  const toggleDeveloperMode = async () => {
+    try {
+      const settings = await Storage.getSettings();
+      const currentDevMode = settings.flags?.developerMode || false;
 
-    const toggleDeveloperMode = async () => {
-      try {
-        const settings = await Storage.getSettings();
-        const currentDevMode = settings.flags?.developerMode || false;
-        const newFlags = {
-          ...settings.flags,
-          developerMode: !currentDevMode
-        };
-        
-        await Storage.updateSettings({ flags: newFlags });
-        
-        // Show toast notification
-        if (!currentDevMode) {
-          console.log('🔓 Developer mode activated - AI mode unrestricted');
-          // You could add a toast here if needed
-        } else {
-          console.log('🔒 Developer mode deactivated');
-        }
-      } catch (error) {
-        console.error('Failed to toggle developer mode:', error);
+      // Build a complete FeatureFlags object to satisfy required booleans
+      const newFlags = {
+        aiModeEnabled: settings.flags?.aiModeEnabled ?? true,
+        byokEnabled: settings.flags?.byokEnabled ?? true,
+        trialEnabled: settings.flags?.trialEnabled ?? false,
+        developerMode: !currentDevMode,
+      };
+
+      await Storage.updateSettings({ flags: newFlags });
+
+      // Show toast/log notification
+      if (!currentDevMode) {
+        console.log('🔓 Developer mode activated - AI mode unrestricted');
+      } else {
+        console.log('🔒 Developer mode deactivated');
       }
-    };
+    } catch (error) {
+      console.error('Failed to toggle developer mode:', error);
+    }
+  };
 
-    document.addEventListener('keypress', handleKeyPress);
-    return () => document.removeEventListener('keypress', handleKeyPress);
-  }, []);
+  document.addEventListener('keypress', handleKeyPress);
+  return () => document.removeEventListener('keypress', handleKeyPress);
+}, []);
 
   const handleShowSettings = () => {
     setShowSettings(true);
@@ -122,7 +125,10 @@ export default function RefactoredPopup() {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <span className="text-xl">📋</span>
-            <h1 className="text-lg font-semibold">PromptReady</h1>
+            <div className="flex flex-col leading-tight">
+              <h1 className="text-lg font-semibold">PromptReady</h1>
+              <p className="text-[11px] opacity-90">Clean, structure, and cite web content for perfect prompts</p>
+            </div>
             {state.isPro && <ProBadge />}
             {state.settings?.flags?.developerMode && (
               <span className="ml-1 px-1.5 py-0.5 text-xs bg-yellow-500 text-black rounded font-medium">DEV</span>
@@ -137,28 +143,31 @@ export default function RefactoredPopup() {
           </button>
         </div>
 
-        {/* Credits and Mode Toggle */}
-        <div className="mt-3 flex items-center justify-between">
-          <div className="text-xs opacity-90">
-            {state.settings?.flags?.developerMode ? (
-              <span className="text-yellow-300">Developer Mode Active</span>
-            ) : (
-              !state.isPro && state.trial && !state.trial.hasExhausted ? `You have ${state.credits?.remaining} credits left.` : ' '
-            )}
+        {/* Status + Mode Toggle */}
+        <div className="mt-3 grid grid-cols-1 gap-2">
+          <div className="flex items-center justify-between text-xs">
+            <div>
+              {state.settings?.flags?.developerMode ? (
+                <span className="text-yellow-300">Developer Mode Active</span>
+              ) : (
+                !state.isPro && state.trial && !state.trial.hasExhausted ? `You have ${state.credits?.remaining} credits left.` : ' '
+              )}
+            </div>
+            <div className="flex items-center">
+              <ModeToggle
+                mode={state.mode}
+                onChange={(m: Settings['mode']) => onSettingsChange({ mode: m })}
+                onUpgradePrompt={handleModeToggle}
+              />
+            </div>
           </div>
-          <div className="flex items-center">
-            <ModeToggle
-              mode={state.mode}
-              onChange={(m: Settings['mode']) => onSettingsChange({ mode: m })}
-              onUpgradePrompt={handleModeToggle}
-            />
+
+          <div className="flex justify-between text-[11px] opacity-80">
+            <span className={state.mode === 'offline' ? 'font-semibold' : ''}>Offline</span>
+            <span className={state.mode === 'ai' ? 'font-semibold' : ''}>
+              {getAiLabel()}
+            </span>
           </div>
-        </div>
-        <div className="flex justify-between text-xs mt-1 opacity-75">
-          <span className={state.mode === 'offline' ? 'font-medium' : ''}>Offline</span>
-          <span className={state.mode === 'ai' ? 'font-medium' : ''}>
-            {getAiLabel()}
-          </span>
         </div>
       </div>
 
@@ -217,27 +226,49 @@ export default function RefactoredPopup() {
           <div className="mt-4 space-y-3">
             <div className="border-t pt-3">
               <h3 className="text-sm font-medium text-gray-700 mb-2">Export Options</h3>
+
               <div className="grid grid-cols-2 gap-2">
+                {/* Copy Markdown (Card) */}
                 <button
                   onClick={() => handleCopy(state.exportData!.markdown)}
-                  className="flex items-center justify-center space-x-1 py-2 px-3 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm"
+                  className="group w-full rounded-lg border border-gray-200 hover:border-blue-500 hover:shadow-sm p-3 text-left transition"
                 >
-                  <span>📋</span>
-                  <span>Copy MD</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-lg">📋</span>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium">Copy Markdown</span>
+                      <span className="text-[11px] text-gray-500">Copy cleaned markdown to your clipboard</span>
+                    </div>
+                  </div>
                 </button>
+
+                {/* Save Markdown (Card) */}
                 <button
                   onClick={() => handleExport('md')}
-                  className="flex items-center justify-center space-x-1 py-2 px-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
+                  className="group w-full rounded-lg border border-gray-200 hover:border-blue-500 hover:shadow-sm p-3 text-left transition"
                 >
-                  <span>💾</span>
-                  <span>Save MD</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-lg">💾</span>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium">Save Markdown</span>
+                      <span className="text-[11px] text-gray-500">Download as a .md file</span>
+                    </div>
+                  </div>
                 </button>
               </div>
+
+              {/* Copy JSON (Full-width Card) */}
               <button
                 onClick={() => handleCopy(JSON.stringify(state.exportData!.json, null, 2))}
-                className="w-full mt-2 py-2 px-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm"
+                className="w-full mt-2 rounded-lg border border-gray-200 hover:border-purple-500 hover:shadow-sm p-3 text-left transition"
               >
-                📄 Copy JSON
+                <div className="flex items-center space-x-2">
+                  <span className="text-lg">📄</span>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">Copy JSON</span>
+                    <span className="text-[11px] text-gray-500">Copy the structured export (for tools and automation)</span>
+                  </div>
+                </div>
               </button>
             </div>
 

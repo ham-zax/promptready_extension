@@ -16,4 +16,12 @@ export const MonetizationClient = {
     }
     return Promise.resolve({ success: false, newBalance: credits });
   },
+  startTrial: async (email: string): Promise<{ success: boolean; error?: string }> => {
+    console.log('MOCK: startTrial called for email:', email);
+    return Promise.resolve({ success: true });
+  },
+  createSubscription: async (email: string): Promise<{ success: boolean; error?: string }> => {
+    console.log('MOCK: createSubscription called for email:', email);
+    return Promise.resolve({ success: true });
+  },
 };

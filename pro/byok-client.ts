@@ -94,7 +94,7 @@ export class BYOKClient {
         throw new Error(`BYOK request failed: ${response.status} ${text.slice(0, 300)}`);
       }
 
-      const data = await response.json();
+      const data = await response.json() as BYOKResponse;
       return data;
     } catch (error) {
       clearTimeout(timeoutId);

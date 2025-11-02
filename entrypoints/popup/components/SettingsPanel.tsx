@@ -17,8 +17,8 @@ interface SettingsPanelProps {
   apiKeyInput: string;
   settingsView: 'main' | 'byokChoice' | 'byokConfig';
   onSetSettingsView: (view: 'main' | 'byokChoice' | 'byokConfig') => void;
-  byokProvider: 'openrouter' | 'manual';
-  onSetByokProvider: (provider: 'openrouter' | 'manual') => void;
+  byokProvider: 'openrouter' | 'manual' | 'z.ai';
+  onSetByokProvider: (provider: 'openrouter' | 'manual' | 'z.ai') => void;
 }
 
 export function SettingsPanel({

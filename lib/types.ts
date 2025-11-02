@@ -12,10 +12,10 @@ export interface Settings {
     bundles: PromptBundle[];
   };
   byok: {
-    provider: 'openrouter' | 'custom' | 'promptready';
+    provider: 'openrouter' | 'manual' | 'z.ai';
     apiBase: string;
     apiKey: string; // Will be encrypted at rest
-    model: string;
+    model?: string; // Optional for backward compatibility
     selectedByokModel?: string; // New field for selected model
   };
   privacy: {
@@ -56,13 +56,16 @@ export interface CreditsState {
 }
 
 export interface UserState {
-  id: string;            // Anonymous or chrome.identity id
+  id?: string;           // Anonymous or chrome.identity id (optional for backward compatibility)
   cohort?: 'A' | 'B' | 'C';
+  email?: string;
 }
 
 export interface TrialState {
-  hasExhausted: boolean;
+  hasExhausted?: boolean; // Optional for backward compatibility
   showUpgradePrompt?: boolean;
+  startedAt?: string;    // ISO 8601
+  expiresAt?: string;    // ISO 8601
 }
 
 // Extend Settings with optional feature flags and Phase 2 state (interface merging)
@@ -241,6 +244,15 @@ export interface ProcessingState {
 // =============================================================================
 // BYOK Types
 // =============================================================================
+
+export interface ProviderConfig {
+  name: string;
+  description: string;
+  icon: string;
+  placeholder: string;
+  defaultBase: string;
+  fixedBase?: boolean; // Optional property for providers with fixed base URLs
+}
 
 export interface ByokRequest {
   model: string;

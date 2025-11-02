@@ -18,7 +18,7 @@ export interface ValidationResult {
 }
 
 // OpenRouter validation
-async function validateOpenRouter(apiKey: string): Promise<ValidationResult> {
+export async function validateOpenRouter(apiKey: string): Promise<ValidationResult> {
   try {
     const response = await fetch('https://openrouter.ai/api/v1/auth/key', {
       method: 'GET',
@@ -44,7 +44,7 @@ async function validateOpenRouter(apiKey: string): Promise<ValidationResult> {
       throw new Error(`HTTP ${response.status}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     return {
       isValid: true,
       message: `✅ Valid OpenRouter key. Balance: ${data.data?.balance || 'Unknown'}`,
@@ -68,7 +68,7 @@ async function validateOpenRouter(apiKey: string): Promise<ValidationResult> {
 }
 
 // OpenAI/Manual validation
-async function validateOpenAI(apiKey: string, apiBase: string): Promise<ValidationResult> {
+export async function validateOpenAI(apiKey: string, apiBase: string): Promise<ValidationResult> {
   try {
     // Test with models endpoint (lightweight)
     const response = await fetch(`${apiBase}/models`, {
@@ -96,7 +96,7 @@ async function validateOpenAI(apiKey: string, apiBase: string): Promise<Validati
     }
 
     // Try to get a specific model to ensure full access
-    const modelsData = await response.json();
+    const modelsData: any = await response.json();
     const hasGpt4 = modelsData.data?.some((model: any) =>
       model.id.includes('gpt-4') || model.id.includes('gpt-3.5')
     );
@@ -136,7 +136,7 @@ async function validateOpenAI(apiKey: string, apiBase: string): Promise<Validati
 }
 
 // Z.AI validation (mock for now, replace with actual implementation)
-async function validateZAI(apiKey: string): Promise<ValidationResult> {
+export async function validateZAI(apiKey: string): Promise<ValidationResult> {
   try {
     // Since Z.AI is your service, implement proper validation
     const response = await fetch('https://api.z.ai/v1/models', {

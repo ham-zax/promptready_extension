@@ -186,6 +186,7 @@ export function useByokManager(): ByokState & ByokActions {
           provider: state.provider,
           apiKey: state.apiKey,
           apiBase: state.apiBase,
+          model: state.selectedModel,
           selectedByokModel: state.selectedModel,
         },
         isPro: true,

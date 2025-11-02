@@ -59,7 +59,7 @@ class EnhancedContentProcessor {
       } else {
         await browser.storage.session.remove([this.EXPORT_DATA_KEY]);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to store export data:', error);
       throw error;
     }
@@ -77,7 +77,7 @@ class EnhancedContentProcessor {
     try {
       const result = await browser.storage.session.get([this.EXPORT_DATA_KEY]);
       return result[this.EXPORT_DATA_KEY] || null;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to retrieve export data:', error);
       return null;
     }
@@ -120,7 +120,7 @@ class EnhancedContentProcessor {
 
 
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Capture command failed:', error);
       this.broadcastError('Failed to capture content. Please try again.').catch(console.error);
     }
@@ -181,7 +181,7 @@ class EnhancedContentProcessor {
           console.warn('Unknown message type:', message.type);
           break;
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Message handling failed:', error);
       this.broadcastError(`Message handling failed: ${error instanceof Error ? error.message : 'Unknown error'}`).catch(console.error);
     }
@@ -220,7 +220,7 @@ class EnhancedContentProcessor {
       if (selectionHash && originatingTabId) {
         try {
           this.pendingCaptureMap.set(selectionHash, originatingTabId);
-        } catch (e) {
+        } catch (e: any) {
           console.warn('[Background] Failed to record pending capture mapping:', e);
         }
       }
@@ -261,7 +261,7 @@ class EnhancedContentProcessor {
       // Process the successful result
       await this.handleProcessingComplete({ payload: response.data });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Content processing failed:', error);
 
       // Try error recovery
@@ -286,7 +286,7 @@ class EnhancedContentProcessor {
           this.inProgressRequests.delete(selectionHash);
           console.log(`[BMAD_GATE] Cleared in-progress request for hash ${selectionHash}`);
         }
-      } catch (cleanupErr) {
+      } catch (cleanupErr: any) {
         console.warn('[BMAD_GATE] Failed to clear in-progress request:', cleanupErr);
       }
     }
@@ -312,7 +312,7 @@ class EnhancedContentProcessor {
         });
         
         console.log(`[Background] CAPTURE_SELECTION sent successfully to tab ${tabId}`);
-      } catch (messageError) {
+      } catch (messageError: any) {
         console.warn('[Background] Content script not responding, attempting to inject:', messageError.message);
         
         // Try to inject content script dynamically
@@ -334,13 +334,13 @@ class EnhancedContentProcessor {
           });
           
           console.log('[Background] CAPTURE_SELECTION successful after injection');
-        } catch (injectError) {
+        } catch (injectError: any) {
           console.error('[Background] Failed to inject content script:', injectError);
           throw messageError; // Throw original error with better context
         }
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('[Background] Capture request failed:', error);
       console.error('[Background] Error details:', {
         message: error.message,
@@ -392,16 +392,56 @@ class EnhancedContentProcessor {
               // Send the markdown directly to the content script so it can perform the clipboard write
               await browser.tabs.sendMessage(tabId, {
                 type: 'COPY_TO_CLIPBOARD',
-    payload: { content: finalMd },
+                payload: { content: finalMd },
               });
-            } catch (sendErr) {
+            } catch (sendErr: any) {
               console.warn('[Background] Failed to send processing result to content script:', sendErr);
+
+              // Attempt to inject content script and retry once
+              try {
+                await browser.scripting.executeScript({
+                  target: { tabId },
+                  files: ['content-scripts/content.js'],
+                });
+                // Short delay to allow the content script to initialize
+                await new Promise((r) => setTimeout(r, 150));
+
+                await browser.tabs.sendMessage(tabId, {
+                  type: 'COPY_TO_CLIPBOARD',
+                  payload: { content: finalMd },
+                });
+
+                console.log('[Background] ✅ Forwarded processing result after injection for tab', tabId);
+              } catch (injectErr: any) {
+                console.warn('[Background] Injection/retry failed; using offscreen clipboard fallback:', injectErr);
+                try {
+                  // Fallback: use offscreen document to perform clipboard write
+                  await this.ensureOffscreenDocument();
+                  const offRes: any = await browser.runtime.sendMessage({
+                    type: 'OFFSCREEN_COPY',
+                    payload: { content: finalMd },
+                  });
+
+                  if (offRes && offRes.success) {
+                    console.log('[Background] ✅ Offscreen copy succeeded for processing result via', offRes.method || 'offscreen');
+                    // Best-effort notify UI about copy completion
+                    await this.broadcastMessage({
+                      type: 'COPY_COMPLETE',
+                      payload: { success: true, method: offRes.method || 'offscreen' },
+                    }).catch(() => {});
+                  } else {
+                    console.warn('[Background] Offscreen copy reported failure:', offRes?.error || 'unknown');
+                  }
+                } catch (offErr: any) {
+                  console.error('[Background] Offscreen copy fallback failed for processing result:', offErr);
+                }
+              }
             }
             // remove mapping after forwarding to avoid leaks
             this.pendingCaptureMap.delete(selectionHash);
           }
         }
-      } catch (forwardErr) {
+      } catch (forwardErr: any) {
         console.warn('[Background] Forwarding step failed:', forwardErr);
       }
 
@@ -441,7 +481,7 @@ class EnhancedContentProcessor {
         console.warn('Quality warnings:', qualityWarnings.map(w => w.message));
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Processing completion handling failed:', error);
       this.broadcastError('Failed to complete processing').catch(console.error);
     }
@@ -510,7 +550,7 @@ class EnhancedContentProcessor {
         });
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Export failed:', error);
       this.broadcastError(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`).catch(console.error);
     }
@@ -537,7 +577,7 @@ class EnhancedContentProcessor {
         payload: { success: true, method: 'background' },
       });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('[Background] Clipboard copy failed:', error);
       await this.broadcastMessage({
         type: 'COPY_COMPLETE',
@@ -588,7 +628,7 @@ class EnhancedContentProcessor {
         },
       });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Fallback processing failed:', error);
       this.broadcastError('Both primary and fallback processing failed').catch(console.error);
     }
@@ -620,6 +660,19 @@ class EnhancedContentProcessor {
         throw new Error('No target tab available to perform clipboard operation');
       }
 
+      // Ensure target window/tab are focused to improve clipboard success (user activation/focus)
+      try {
+        const targetTab = await browser.tabs.get(targetTabId);
+        if (targetTab?.windowId) {
+          try { await browser.windows.update(targetTab.windowId, { focused: true } as any); } catch (focusWinErr: any) {}
+        }
+        try { await browser.tabs.update(targetTabId, { active: true } as any); } catch (focusTabErr: any) {}
+        // small delay to allow focus to settle
+        await new Promise((r) => setTimeout(r, 200));
+      } catch (focusErr: any) {
+        console.warn('[Background] Could not focus target tab/window before clipboard:', focusErr);
+      }
+
       try {
         // Compute a lightweight fingerprint to detect repeated identical forwards
         const fingerprint = `${content.length}:${content.slice(0, 100)}::${content.slice(-100)}`;
@@ -635,12 +688,25 @@ class EnhancedContentProcessor {
         // Record fingerprint timestamp before sending to avoid races
         this.recentCopyFingerprints.set(fingerprint, now);
 
-        await browser.tabs.sendMessage(targetTabId, {
-          type: 'COPY_TO_CLIPBOARD',
-          payload: { content },
-        });
+        // Ensure content script is ready before attempting copy
+let pingOk = await this.ensureContentScript(targetTabId);
+if (!pingOk) {
+  try {
+    await browser.scripting.executeScript({
+      target: { tabId: targetTabId },
+      files: ['content-scripts/content.js'],
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    pingOk = await this.ensureContentScript(targetTabId);
+  } catch (preInjectErr: any) {
+    console.warn('[Background] Pre-send injection failed:', preInjectErr);
+  }
+}
 
-        console.log('[Background] ✅ Forwarded copy request to content script for tab', targetTabId);
+await browser.tabs.sendMessage(targetTabId, {
+  type: 'COPY_TO_CLIPBOARD',
+  payload: { content, waitForPopupClose: true },
+});console.log('[Background] ✅ Forwarded copy request to content script for tab', targetTabId);
 
         // Prune old fingerprints to avoid unbounded growth
         for (const [fp, ts] of Array.from(this.recentCopyFingerprints.entries())) {
@@ -648,11 +714,70 @@ class EnhancedContentProcessor {
             this.recentCopyFingerprints.delete(fp);
           }
         }
-      } catch (sendErr) {
+      } catch (sendErr: any) {
         console.error('[Background] Failed to forward copy request to content script:', sendErr);
-        throw sendErr;
+
+        // Attempt dynamic injection and retry once if receiving end does not exist
+        try {
+          await browser.scripting.executeScript({
+            target: { tabId: targetTabId },
+            files: ['content-scripts/content.js'],
+          });
+          // Short delay to allow the content script to initialize
+          await new Promise((r) => setTimeout(r, 150));
+
+          // Ensure content script is ready before attempting copy
+let pingOk = await this.ensureContentScript(targetTabId);
+if (!pingOk) {
+  try {
+    await browser.scripting.executeScript({
+      target: { tabId: targetTabId },
+      files: ['content-scripts/content.js'],
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    pingOk = await this.ensureContentScript(targetTabId);
+  } catch (preInjectErr: any) {
+    console.warn('[Background] Pre-send injection failed:', preInjectErr);
+  }
+}
+
+await browser.tabs.sendMessage(targetTabId, {
+  type: 'COPY_TO_CLIPBOARD',
+  payload: { content, waitForPopupClose: true },
+});console.log('[Background] ✅ Forwarded copy request after injection to content script for tab', targetTabId);
+
+          // Successful after injection; stop here
+          return;
+        } catch (injectErr: any) {
+          console.warn('[Background] Injection/retry failed; falling back to offscreen copy:', injectErr);
+          // Fallback: use offscreen document to perform clipboard write
+          try {
+            await this.ensureOffscreenDocument();
+            const offRes: any = await browser.runtime.sendMessage({
+              type: 'OFFSCREEN_COPY',
+              payload: { content },
+            });
+
+            if (offRes && offRes.success) {
+              console.log('[Background] ✅ Offscreen copy succeeded via', offRes.method || 'offscreen');
+              // Optionally notify UI about copy completion
+              await this.broadcastMessage({
+                type: 'COPY_COMPLETE',
+                payload: { success: true, method: offRes.method || 'offscreen' },
+              }).catch(() => {});
+              return;
+            } else {
+              const errMsg = offRes?.error || 'Offscreen copy failed';
+              throw new Error(errMsg);
+            }
+          } catch (offErr: any) {
+            console.error('[Background] Offscreen copy fallback failed:', offErr);
+            // Re-throw the original send error to bubble up
+            throw sendErr;
+          }
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('[Background] ❌ Enhanced clipboard copy failed:', error);
       throw error;
     }
@@ -709,7 +834,7 @@ class EnhancedContentProcessor {
       });
 
       console.log('Offscreen document created successfully');
-    } catch (error) {
+    } catch (error: any) {
       // Handle the case where another context created the document between our check and creation
       if (error instanceof Error && error.message.includes('Only a single offscreen document may be created')) {
         console.log('Offscreen document was created by another context, continuing...');
@@ -748,7 +873,7 @@ class EnhancedContentProcessor {
           qualityScore: currentExportData.qualityReport?.overallScore,
         } : { hasContent: false },
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to get processing stats:', error);
       return { error: 'Failed to get stats' };
     }
@@ -764,7 +889,7 @@ class EnhancedContentProcessor {
       ErrorHandler.clearErrorLog();
       await this.setCurrentExportData(null);
       console.log('Processing cache cleared');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to clear cache:', error);
       throw error;
     }
@@ -781,7 +906,7 @@ class EnhancedContentProcessor {
         await browser.runtime.sendMessage(message);
         console.log(`[Background] Message broadcast successful: ${message.type}`);
         return; // Success, exit retry loop
-      } catch (error) {
+      } catch (error: any) {
         const isLastAttempt = attempt === retries;
 
         if (isLastAttempt) {
@@ -837,7 +962,7 @@ class EnhancedContentProcessor {
       await browser.storage.session.set({ failed_broadcasts: messages });
 
       console.log(`[Background] Critical message stored for polling: ${message.type}`);
-    } catch (storageError) {
+    } catch (storageError: any) {
       console.error('[Background] Failed to store critical message for polling:', storageError);
     }
   }
@@ -879,7 +1004,7 @@ class EnhancedContentProcessor {
       const response = await browser.tabs.sendMessage(tabId, { type: 'PING' });
       console.log('PING response received:', response);
       return Boolean(response && response.ok);
-    } catch (error) {
+    } catch (error: any) {
       console.warn('Content script ping failed (likely not injected yet):', error);
       // Try ping again after a short delay
       try {
@@ -888,7 +1013,7 @@ class EnhancedContentProcessor {
         const retry = await browser.tabs.sendMessage(tabId, { type: 'PING' });
         console.log('PING retry response:', retry);
         return Boolean(retry && retry.ok);
-      } catch (retryError) {
+      } catch (retryError: any) {
         console.error('PING retry also failed:', retryError);
         return false;
       }

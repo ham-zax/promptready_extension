@@ -8,6 +8,7 @@ interface ModeToggleProps {
   mode: Settings['mode'];
   onChange: (mode: Settings['mode']) => void;
   onUpgradePrompt: () => void;
+  isPro?: boolean;
 }
 
 export function ModeToggle({ mode, onChange, onUpgradePrompt }: ModeToggleProps) {
@@ -39,20 +40,21 @@ export function ModeToggle({ mode, onChange, onUpgradePrompt }: ModeToggleProps)
   return (
     <ToggleGroup
       type="single"
-      defaultValue="ai"
       value={mode}
       onValueChange={handleValueChange}
-      className="flex items-center justify-center space-x-4 py-6 transition-all duration-300 ease-in-out"
+      className="flex items-center justify-center space-x-4 py-3 transition-all duration-300 ease-in-out"
       aria-label="Processing Mode"
     >
       <ToggleGroupItem
         value="offline"
+        title="Free • Instant"
         className="flex items-center space-x-3 px-6 py-4 rounded-xl transition-all duration-300 ease-in-out transform hover:scale-105 data-[state=on]:bg-blue-50 data-[state=on]:border-2 data-[state=on]:border-blue-500 data-[state=on]:text-blue-700 data-[state=on]:scale-105 data-[state=on]:shadow-lg bg-gray-50 border-2 border-gray-200 text-gray-600 hover:bg-gray-100"
         aria-label="Offline Mode"
       >
         <div className="text-left">
-          <div className="font-semibold text-sm">
-            Offline
+          <div className="font-semibold text-sm flex items-center space-x-2">
+            <span>🛰️</span>
+            <span>Offline</span>
           </div>
           <div className="text-xs text-gray-500 data-[state=on]:text-blue-600">
             Free • Instant

@@ -19,29 +19,35 @@ const STORAGE_KEYS = {
 // =============================================================================
 
 const DEFAULT_SETTINGS: Settings = {
-  mode: 'ai',
+  mode: 'offline', // Default to Offline for free users
   theme: 'system',
   templates: {
     bundles: [],
-  }, byok: {
-    provider: 'promptready',
-    apiBase: 'https://promptready-ai-proxy.workers.dev', // Your AI proxy endpoint
-    apiKey: 'promptready-ai-demo', // Demo key for PromptReady AI
-    model: 'glm-4.6',
-    selectedByokModel: 'glm-4.6', // Z.AI model used in your proxy
-  }, privacy: {
+  },
+  byok: {
+    provider: 'openrouter',
+    apiBase: 'https://openrouter.ai/api/v1',
+    apiKey: '', // No demo key by default; users can add BYOK
+    model: 'anthropic/claude-3.5-sonnet',
+    selectedByokModel: 'anthropic/claude-3.5-sonnet',
+  },
+  privacy: {
     telemetryEnabled: false,
-  }, isPro: false, // Default to Free; being phased out for credits system
+  },
+  isPro: false,
   credits: {
-    remaining: 999999, // Unlimited for developer mode
-    total: 999999,
+    remaining: 10, // Small free quota; AI requires credits/BYOK
+    total: 10,
     lastReset: new Date().toISOString(),
-  }, user: {
+  },
+  user: {
     id: '', // Anonymous ID will be generated
-  }, trial: {
+  },
+  trial: {
     hasExhausted: false,
     showUpgradePrompt: false,
-  }, renderer: 'turndown',
+  },
+  renderer: 'turndown',
   useReadability: true,
   processing: {
     profile: 'standard',
@@ -55,10 +61,10 @@ const DEFAULT_SETTINGS: Settings = {
     },
   },
   flags: {
-    aiModeEnabled: true, // Enable AI mode by default for developer experience
+    aiModeEnabled: true,   // AI mode can be enabled when credits/BYOK or DEV
     byokEnabled: true,
-    trialEnabled: false,
-    developerMode: true, // Hidden developer mode for bypassing restrictions - ENABLED BY DEFAULT
+    trialEnabled: true,
+    developerMode: false,  // Developer mode OFF by default
   },
 };
 
