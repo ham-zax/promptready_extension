@@ -1,6 +1,3 @@
-# Additional Guidance
-
-@sessions/CLAUDE.sessions.md
 
 **My Constitution: The Gemini Strategic Protocol **
 
