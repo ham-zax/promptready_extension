@@ -412,6 +412,21 @@ class EnhancedContentProcessor {
       // output delivered to tabs/popup contains the standardized cite-first block.
       let finalMd = exportMd;
 
+      // Insert canonical citation block if missing
+      if (finalMd && !finalMd.startsWith('> Source:')) {
+        const url = message.payload?.metadata?.url || message.payload?.exportJson?.metadata?.url || 'Unknown';
+        const selectionHash = message.payload?.metadata?.selectionHash || message.payload?.exportJson?.metadata?.selectionHash || 'N/A';
+
+        const citationBlock = [
+          `> Source: ${url}`,
+          `> Captured: ${new Date().toISOString()}`,
+          `> Hash: ${selectionHash}`,
+        ].join('\n');
+
+        finalMd = citationBlock + '\n\n' + finalMd;
+        console.log('[BMAD_TRACE] Inserted canonical citation block');
+      }
+
       // BMAD TRACE: log the finalized markdown after insertion (or unchanged)
       console.log('[BMAD_TRACE] Background after cite block insertion:', (finalMd || '').substring(0, 100));
 

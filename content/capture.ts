@@ -41,6 +41,10 @@ export class ContentCapture {
         const frag = r.cloneContents();
         const wrapper = document.createElement('div');
         wrapper.appendChild(frag);
+
+        // Remove unwanted tags from selection (scripts, styles, etc.)
+        this.removeUnwantedTags(wrapper);
+
         tempDiv.appendChild(wrapper);
       }
       
@@ -55,9 +59,9 @@ export class ContentCapture {
       // Fix relative URLs to absolute URLs before sending to service worker
       this.fixRelativeUrls(tempDiv, window.location.href);
       const processedHtml = tempDiv.innerHTML;
-      
-      // Generate selection hash for citation integrity
-      const selectionHash = await FileNamingService.generateSelectionHash(html);
+
+      // Generate selection hash for citation integrity (USE PROCESSED HTML)
+      const selectionHash = await FileNamingService.generateSelectionHash(processedHtml);
       
       // Get page metadata
       const title = this.extractPageTitle();
