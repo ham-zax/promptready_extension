@@ -1,8 +1,8 @@
 {
-  "name": "wxt-react-starter",
-  "description": "manifest.json description",
+  "name": "promptready-extension",
+  "description": "AI-powered Chrome extension that instantly cleans and structures webpage content into prompt-ready formats with metered freemium model",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",

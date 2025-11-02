@@ -1,8 +1,9 @@
 ### **PromptReady MVP - Unified Architecture Blueprint v2.2**
 
-*   **Status:** FINAL - Approved for Development
+*   **Status:** IMPLEMENTED - 95% Complete (See README.md for current status)
 *   **Version:** 2.2 (Supersedes v2.1)
-*   **Purpose:** This document is the single source of truth for PromptReady’s architecture. It translates the `Master PRD v3.0` into a concrete, implementable design for both the client-side extension and the serverless backend.
+*   **Purpose:** This document is the single source of truth for PromptReady's architecture. It translates the `Master PRD v3.0` into a concrete, implementable design for both the client-side extension and the serverless backend.
+*   **Note:** The architecture described herein has been successfully implemented. See the main README.md for the current development status and remaining work items.
 
 #### **1. System Overview & Design Principles**
 
@@ -159,7 +160,7 @@ type MessageType =
 
 #### **9. Technical Strategy & A/B/C Framework**
 
-*   **Primary Technology Choice:** The system is designed to primarily use **`GPT OSS 20B`** for the free trial, selected for its optimal balance of open-source flexibility, speed, and cost.
+*   **Primary Technology Choice:** The system is designed to primarily use **`GPT OSS 20B`** for the free trial via Groq API, selected for its optimal balance of open-source flexibility, speed, and cost.
 *   **A/B/C Validation Plan:** New users will be randomly assigned to a cohort via the backend:
     *   **Cohort A (70%):** `GPT OSS 20B` (Primary)
     *   **Cohort B (20%):** `Llama 3.1 8B Instant` (Speed/Cost Fallback)
