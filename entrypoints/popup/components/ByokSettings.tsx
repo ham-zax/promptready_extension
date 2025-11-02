@@ -24,7 +24,7 @@ interface ByokSettingsProps {
   onApiKeyTest: () => void;
   hasApiKey: boolean;
   apiKeyInput: string;
-  provider: 'openrouter' | 'manual';
+  provider: 'openrouter' | 'manual' | 'z.ai';
 }
 
 export function ByokSettings({
@@ -53,10 +53,8 @@ export function ByokSettings({
 
       {(settings.isPro || settings.flags?.byokEnabled) ? (
         <div className="space-y-3 pl-6">
-          {/* API Key Input */}
-          <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">
-              API Key ({provider === 'openrouter' ? 'OpenRouter' : 'Manual'})
+              API Key ({provider === 'openrouter' ? 'OpenRouter' : provider === 'z.ai' ? 'Z.AI' : 'Manual'})
             </label>
             <div className="flex space-x-2">
               <div className="flex-1 relative">
@@ -84,6 +82,35 @@ export function ByokSettings({
               </button>
             </div>
           </div>
+
+          {provider === 'manual' && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                API Base URL
+              </label>
+              <input
+                type="text"
+                value={settings.byok.apiBase || ''}
+                onChange={(e) => onSettingsChange({ byok: { ...settings.byok, apiBase: e.target.value } })}
+                placeholder="e.g., https://api.openai.com/v1"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+          )}
+
+          {provider === 'z.ai' && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                API Base URL
+              </label>
+              <input
+                type="text"
+                value="https://api.z.ai/v1"
+                readOnly
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-100 cursor-not-allowed"
+              />
+            </div>
+          )}
 
           {hasApiKey && provider === 'openrouter' && (
             <div className="space-y-2">
@@ -113,6 +140,20 @@ export function ByokSettings({
                 <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant</option>
                 <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
               </select>
+            </div>
+          )}
+
+          {hasApiKey && provider === 'z.ai' && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Model
+              </label>
+              <input
+                type="text"
+                value="z.ai-flash"
+                readOnly
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-100 cursor-not-allowed"
+              />
             </div>
           )}
 

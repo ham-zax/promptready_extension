@@ -41,7 +41,7 @@ interface PopupState {
   } | null;
   showUpgrade: boolean;
   settingsView: 'main' | 'byokChoice' | 'byokConfig';
-  byokProvider: 'openrouter' | 'manual';
+  byokProvider: 'openrouter' | 'manual' | 'z.ai';
 }
 
 // Action types
@@ -61,7 +61,7 @@ type PopupAction =
   | { type: 'SHOW_UPGRADE' }
   | { type: 'HIDE_UPGRADE' }
   | { type: 'SET_SETTINGS_VIEW'; payload: { view: 'main' | 'byokChoice' | 'byokConfig' } }
-  | { type: 'SET_BYOK_PROVIDER'; payload: { provider: 'openrouter' | 'manual' } };
+  | { type: 'SET_BYOK_PROVIDER'; payload: { provider: 'openrouter' | 'manual' | 'z.ai' } };
 
  // Reducer function
 function popupReducer(state: PopupState, action: PopupAction): PopupState {
@@ -551,7 +551,7 @@ export function usePopupController() {
     dispatch({ type: 'SET_SETTINGS_VIEW', payload: { view } });
   }, []);
 
-  const handleSetByokProvider = useCallback((provider: 'openrouter' | 'manual') => {
+  const handleSetByokProvider = useCallback((provider: 'openrouter' | 'manual' | 'z.ai') => {
     dispatch({ type: 'SET_BYOK_PROVIDER', payload: { provider } });
   }, []);
 

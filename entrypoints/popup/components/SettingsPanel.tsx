@@ -37,7 +37,7 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   if (!isExpanded) return null;
 
-  const handleByokChoice = (provider: 'openrouter' | 'manual') => {
+  const handleByokChoice = (provider: 'openrouter' | 'manual' | 'z.ai') => {
     onSetByokProvider(provider);
     onSetSettingsView('byokConfig');
   };
@@ -48,7 +48,7 @@ export function SettingsPanel({
         return (
           <div className="text-center">
             <h3 className="font-semibold text-gray-900 mb-4">Connect your AI Provider</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <button
                 onClick={() => handleByokChoice('openrouter')}
                 className="w-full py-2 px-4 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors"
@@ -60,6 +60,12 @@ export function SettingsPanel({
                 className="w-full py-2 px-4 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors"
               >
                 Manual
+              </button>
+              <button
+                onClick={() => handleByokChoice('z.ai')}
+                className="w-full py-2 px-4 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors"
+              >
+                Z.AI
               </button>
             </div>
           </div>
