@@ -12,7 +12,7 @@ export interface Settings {
     bundles: PromptBundle[];
   };
   byok: {
-    provider: 'openrouter' | 'custom';
+    provider: 'openrouter' | 'custom' | 'promptready';
     apiBase: string;
     apiKey: string; // Will be encrypted at rest
     model: string;
@@ -45,6 +45,7 @@ export interface FeatureFlags {
   aiModeEnabled: boolean;   // Gate AI mode availability
   byokEnabled: boolean;     // Gate BYOK settings usage
   trialEnabled: boolean;    // Gate trial/credit experience
+  developerMode?: boolean;  // Hidden developer mode for bypassing restrictions
 }
 
 // Phase 2 state (optional on client; populated when backend is enabled)

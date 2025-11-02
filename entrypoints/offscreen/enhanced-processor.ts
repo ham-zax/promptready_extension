@@ -5,9 +5,9 @@ import { browser } from 'wxt/browser';
 import { getUserId } from '../../lib/user';
 import { OfflineModeManager, OfflineModeConfig } from '../../core/offline-mode-manager.js';
 
-import { Storage } from '../../lib/storage';
 import { BYOKClient } from '../../pro/byok-client';
 import { Settings } from '../../lib/types';
+import { MarkdownPostProcessor } from '../../core/post-processor.js';
 
 interface ProcessingMessage {
   type: 'ENHANCED_OFFSCREEN_PROCESS';
@@ -173,7 +173,8 @@ export class EnhancedOffscreenProcessor {
     this.sendProgress('Sending to AI for processing...', 30, 'ai-processing');
 
     try {
-      const apiKey = await Storage.getApiKey(); // Get API key from storage
+      // Get API key from passed settings instead of storage (offscreen documents have limited API access)
+      const apiKey = settings.byok?.apiKey || '';
 
       let processedMarkdown: string;
       let remainingCredits: number | undefined;
@@ -268,6 +269,31 @@ export class EnhancedOffscreenProcessor {
 
   async clearCache(): Promise<void> {
     await OfflineModeManager.clearCache();
+  }
+
+  private generateStructuredExport(result: any, url: string, title: string): any {
+    return {
+      version: '1.0',
+      timestamp: new Date().toISOString(),
+      source: {
+        url,
+        title: title || 'Untitled',
+        extractedAt: new Date().toISOString()
+      },
+      content: {
+        markdown: result.markdown,
+        html: result.originalHtml || '',
+        wordCount: (result.markdown || '').split(/\s+/).length,
+        characterCount: (result.markdown || '').length
+      },
+      metadata: result.metadata || {},
+      quality: result.qualityReport || {},
+      processing: {
+        pipeline: result.pipelineUsed || 'standard',
+        stats: result.processingStats || {},
+        warnings: result.warnings || []
+      }
+    };
   }
 }
 

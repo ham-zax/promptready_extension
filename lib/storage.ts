@@ -24,18 +24,18 @@ const DEFAULT_SETTINGS: Settings = {
   templates: {
     bundles: [],
   }, byok: {
-    provider: 'openrouter',
-    apiBase: 'https://openrouter.ai/api/v1',
-    apiKey: '', // No default key in defaults
-    model: 'anthropic/claude-3-sonnet',
-    selectedByokModel: 'llama-3.1-8b-instant', // Default selected model for BYOK
+    provider: 'promptready',
+    apiBase: 'https://promptready-ai-proxy.workers.dev', // Your AI proxy endpoint
+    apiKey: 'promptready-ai-demo', // Demo key for PromptReady AI
+    model: 'glm-4.6',
+    selectedByokModel: 'glm-4.6', // Z.AI model used in your proxy
   }, privacy: {
     telemetryEnabled: false,
   }, isPro: false, // Default to Free; being phased out for credits system
   credits: {
-    remaining: 0,
-    total: 0,
-    lastReset: '',
+    remaining: 999999, // Unlimited for developer mode
+    total: 999999,
+    lastReset: new Date().toISOString(),
   }, user: {
     id: '', // Anonymous ID will be generated
   }, trial: {
@@ -55,9 +55,10 @@ const DEFAULT_SETTINGS: Settings = {
     },
   },
   flags: {
-    aiModeEnabled: false,
+    aiModeEnabled: true, // Enable AI mode by default for developer experience
     byokEnabled: true,
     trialEnabled: false,
+    developerMode: true, // Hidden developer mode for bypassing restrictions - ENABLED BY DEFAULT
   },
 };
 
@@ -73,6 +74,12 @@ export class Storage {
   
   static async getSettings(): Promise<Settings> {
     try {
+      // Check if browser APIs are available
+      if (typeof browser === 'undefined' || !browser.storage || !browser.storage.local) {
+        console.warn('[Storage] Browser storage not available, using defaults');
+        return { ...DEFAULT_SETTINGS };
+      }
+      
       const result = await browser.storage.local.get([STORAGE_KEYS.SETTINGS]);
       const stored = result[STORAGE_KEYS.SETTINGS];
 
@@ -118,6 +125,12 @@ export class Storage {
   
   static async updateSettings(updates: Partial<Settings>): Promise<void> {
     try {
+      // Check if browser APIs are available
+      if (typeof browser === 'undefined' || !browser.storage || !browser.storage.local) {
+        console.warn('[Storage] Browser storage not available, ignoring updates');
+        return;
+      }
+      
       const currentSettings = await this.getSettings();
       // Deep-merge for nested objects we manage (byok, privacy, templates)
       const { byok, privacy, templates, credits, user, trial, ...rest } = (updates || {}) as any;

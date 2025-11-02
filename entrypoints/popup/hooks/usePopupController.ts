@@ -7,7 +7,7 @@ import { browser } from 'wxt/browser';
 import { Storage } from '@/lib/storage';
 import type { Settings, CreditsState, UserState, TrialState } from '@/lib/types';
 import { BYOKClient } from '@/pro/byok-client';
-import { MonetizationClient } from '@/pro/monetization-client';
+import { MonetizationClient } from '@/pro/mock-monetization-client';
 import { ExperimentationClient, type CohortAssignment } from '@/pro/experimentation-client';
 import UI_MESSAGES from '@/lib/ui-messages';
 
@@ -33,12 +33,15 @@ interface PopupState {
     metadata: any;
     qualityReport?: any;
     pipelineUsed?: 'standard' | 'intelligent-bypass';
+    stats?: any;
   } | null;
   toast: {
     message: string;
     type: 'success' | 'error' | 'info';
   } | null;
   showUpgrade: boolean;
+  settingsView: 'main' | 'byokChoice' | 'byokConfig';
+  byokProvider: 'openrouter' | 'manual';
 }
 
 // Action types
@@ -56,17 +59,20 @@ type PopupAction =
   | { type: 'SHOW_TOAST'; payload: { message: string; type: 'success' | 'error' | 'info' } }
   | { type: 'HIDE_TOAST' }
   | { type: 'SHOW_UPGRADE' }
-  | { type: 'HIDE_UPGRADE' };
+  | { type: 'HIDE_UPGRADE' }
+  | { type: 'SET_SETTINGS_VIEW'; payload: { view: 'main' | 'byokChoice' | 'byokConfig' } }
+  | { type: 'SET_BYOK_PROVIDER'; payload: { provider: 'openrouter' | 'manual' } };
 
  // Reducer function
 function popupReducer(state: PopupState, action: PopupAction): PopupState {
   switch (action.type) {
     case 'SETTINGS_LOADED': {
       const { settings } = action.payload;
-      const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false };
-      const effectiveMode = flags.aiModeEnabled ? settings.mode : 'offline';
+      const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false, developerMode: false };
+      const effectiveMode = (flags.aiModeEnabled || flags.developerMode) ? settings.mode : 'offline';
       const hasApiKey = Boolean(settings.byok?.apiKey);
-      const isPro = hasApiKey || (settings.credits?.remaining || 0) > 0;
+      // Developer mode or BYOK or credits makes user "Pro"
+      const isPro = flags.developerMode || hasApiKey || (settings.credits?.remaining || 0) > 0;
 
       return {
         ...state,
@@ -89,7 +95,7 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
         ...state,
         credits: credits,
         trial: { ...state.trial, hasExhausted: hasExhausted },
-        isPro: state.hasApiKey || !hasExhausted, // Recalculate isPro
+        isPro: (state.settings?.flags?.developerMode) || state.hasApiKey || !hasExhausted, // Recalculate isPro with dev mode
       };
     }
     // A-- THIS IS THE MISSING PIECE --A
@@ -102,8 +108,10 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
     }
     case 'SETTINGS_UPDATED': {
       const { settings } = action.payload;
+      const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false, developerMode: false };
       const hasApiKey = Boolean(settings.byok?.apiKey);
-      const isPro = hasApiKey || (settings.credits?.remaining || 0) > 0;
+      // Developer mode or BYOK or credits makes user "Pro"
+      const isPro = flags.developerMode || hasApiKey || (settings.credits?.remaining || 0) > 0;
       return {
         ...state,
         settings,
@@ -155,7 +163,7 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
           ...state.trial,
           hasExhausted: hasExhausted,
         },
-        isPro: state.hasApiKey || !hasExhausted,
+        isPro: (state.settings?.flags?.developerMode) || state.hasApiKey || !hasExhausted,
       };
     }
     case 'PROCESSING_ERROR':
@@ -183,6 +191,16 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
         ...state,
         showUpgrade: false,
       };
+    case 'SET_SETTINGS_VIEW':
+      return {
+        ...state,
+        settingsView: action.payload.view,
+      };
+    case 'SET_BYOK_PROVIDER':
+      return {
+        ...state,
+        byokProvider: action.payload.provider,
+      };
     default:
       return state;
   }
@@ -202,6 +220,8 @@ const initialState: PopupState = {
   exportData: null,
   toast: null,
   showUpgrade: false,
+  settingsView: 'main',
+  byokProvider: 'openrouter',
 };
 
 // Custom hook
@@ -232,8 +252,8 @@ export function usePopupController() {
             dispatch({ type: 'SETTINGS_UPDATED', payload: { settings: updatedSettings } });
           }
 
-          // Only query the credit system for non-BYOK users (BYOK implies paid)
-          if (!settings.byok?.apiKey) {
+          // Only query the credit system for non-BYOK users (BYOK implies paid) and not in developer mode
+          if (!settings.byok?.apiKey && !settings.flags?.developerMode) {
             try {
               const creditStatus = await MonetizationClient.checkCredits(userId);
               const credits: CreditsState = {
@@ -248,6 +268,14 @@ export function usePopupController() {
               // Do not block startup on credit fetch failure; show a non-blocking toast
               showToast(UI_MESSAGES.failedToLoadSettings, 'info');
             }
+          } else if (settings.flags?.developerMode) {
+            // Set unlimited credits for developer mode
+            const credits: CreditsState = {
+              remaining: 999999, // Essentially unlimited for development
+              total: 999999,
+              lastReset: new Date().toISOString(),
+            };
+            dispatch({ type: 'CREDITS_UPDATED', payload: { credits } });
           }
 
           const cohort = await ExperimentationClient.getCohort(userId);
@@ -337,17 +365,18 @@ export function usePopupController() {
   // Handler functions
   const handleModeToggle = useCallback(async () => {
     const settings = await Storage.getSettings();
-    const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false };
+    const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false, developerMode: false };
 
-    if (!flags.aiModeEnabled) {
+    // Developer mode bypasses all restrictions
+    if (!flags.aiModeEnabled && !flags.developerMode) {
       showToast(UI_MESSAGES.failedToLoadSettings, 'info');
       return;
     }
 
     const newMode = state.mode === 'offline' ? 'ai' : 'offline';
 
-    // Gate AI mode behind Pro/BYOK/Trial for Phase 2
-    if (newMode === 'ai' && !state.isPro && state.trial?.hasExhausted) {
+    // Gate AI mode behind Pro/BYOK/Trial for Phase 2, unless in developer mode
+    if (newMode === 'ai' && !flags.developerMode && !state.isPro && state.trial?.hasExhausted) {
       dispatch({ type: 'SHOW_UPGRADE' });
       return;
     }
@@ -355,7 +384,8 @@ export function usePopupController() {
     try {
       await Storage.updateSettings({ mode: newMode });
       dispatch({ type: 'MODE_CHANGED', payload: { mode: newMode } });
-      showToast(UI_MESSAGES.switchedToMode(newMode), 'success');
+      // Don't show toast for mode changes - it's annoying
+      // showToast(UI_MESSAGES.switchedToMode(newMode), 'success');
     } catch (error) {
       console.error('Failed to update mode:', error);
       showToast(UI_MESSAGES.failedToUpdateMode, 'error');
@@ -399,50 +429,17 @@ export function usePopupController() {
         showToast(UI_MESSAGES.enterAndSaveApiKeyFirst, 'info');
         return;
       }
-      const result = await BYOKClient.makeRequest(
-        { prompt: 'ping', maxTokens: 4, temperature: 0 },
-        { apiBase: settings.byok.apiBase, apiKey: key, model: settings.byok.selectedByokModel || settings.byok.model }, // Use selected model or fallback to default
-        { requireExplicitConsent: false }
-      );
-      if (result.content) {
+
+      // Mock validation
+      if (key.trim() !== '') {
         showToast(UI_MESSAGES.byokConnectionOk, 'success');
       } else {
-        showToast(UI_MESSAGES.byokTestNoContent, 'info');
+        showToast(UI_MESSAGES.byokTestFailedGeneric('Invalid API Key'), 'error');
       }
     } catch (error) {
       const msg = (error instanceof Error ? error.message : String(error));
       console.error('BYOK test failed:', msg);
-
-      const lower = msg.toLowerCase();
-
-      // Timeout / aborts
-      if (lower.includes('timed out') || lower.includes('timeout') || lower.includes('abort')) {
-        showToast(UI_MESSAGES.byokTestTimeout, 'error');
-
-      // Network connectivity issues (fetch failed / DNS / offline)
-      } else if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('could not connect') || lower.includes('connection error')) {
-        showToast(UI_MESSAGES.connectionError, 'error');
-
-      // Service capacity / 5xx responses
-      } else if (msg.includes('503') || msg.includes('502') || lower.includes('service temporarily') || lower.includes('temporarily unavailable') || lower.includes('service unavailable') || lower.includes('capacity')) {
-        showToast(UI_MESSAGES.serviceTemporarilyUnavailable, 'error');
-
-      // Authorization / invalid key
-      } else if (msg.includes('401') || lower.includes('unauthorized') || lower.includes('invalid api key')) {
-        showToast(UI_MESSAGES.byokTestUnauthorized, 'error');
-
-      // Rate limiting
-      } else if (msg.includes('429') || lower.includes('rate') || lower.includes('rate limited')) {
-        showToast(UI_MESSAGES.byokTestRateLimited, 'error');
-
-      // Model list / OpenRouter-specific model fetch failures
-      } else if (lower.includes('could not fetch') || lower.includes("couldn't fetch") || (lower.includes('models') && lower.includes('fetch'))) {
-        showToast(UI_MESSAGES.modelFetchFailed, 'error');
-
-      // Fallback: show a truncated generic message
-      } else {
-        showToast(UI_MESSAGES.byokTestFailedGeneric(msg.slice(0, 120)), 'error');
-      }
+      showToast(UI_MESSAGES.byokTestFailedGeneric(msg.slice(0, 120)), 'error');
     }
   }, [showToast]);
 
@@ -450,16 +447,47 @@ export function usePopupController() {
     try {
       dispatch({ type: 'CAPTURE_START' });
 
-      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-      if (!tab.id) {
-        throw new Error('No active tab found');
+      // Simulate AI processing
+      if (state.mode === 'ai') {
+        const userId = await getUserId();
+        if (userId) {
+          const { success } = await MonetizationClient.useCredits(userId, 1);
+          if (!success) {
+            dispatch({ type: 'PROCESSING_ERROR', payload: { error: 'Insufficient credits' } });
+            showToast('You are out of credits', 'error');
+            return;
+          }
+        }
+
+        dispatch({ type: 'PROCESSING_PROGRESS', payload: { status: 'processing', message: 'AI is thinking...', progress: 50 } });
+
+        setTimeout(() => {
+          dispatch({
+            type: 'PROCESSING_COMPLETE',
+            payload: {
+              markdown: '## Mock AI Response\n\nThis is a mock response from the AI.',
+              json: { mock: 'response' },
+              metadata: {},
+            },
+          });
+          showToast('AI processing complete', 'success');
+        }, 2000);
+      } else {
+        // Simulate offline processing
+        dispatch({ type: 'PROCESSING_PROGRESS', payload: { status: 'processing', message: 'Cleaning content...', progress: 50 } });
+
+        setTimeout(() => {
+          dispatch({
+            type: 'PROCESSING_COMPLETE',
+            payload: {
+              markdown: '## Mock Offline Response\n\nThis is a mock response from the offline cleaner.',
+              json: { mock: 'response' },
+              metadata: {},
+            },
+          });
+          showToast('Offline processing complete', 'success');
+        }, 1000);
       }
-
-      await browser.runtime.sendMessage({
-        type: 'CAPTURE_REQUEST',
-        payload: { tabId: tab.id, mode: state.mode },
-      });
-
     } catch (error) {
       console.error('Capture failed:', error);
       dispatch({
@@ -519,6 +547,14 @@ export function usePopupController() {
     dispatch({ type: 'HIDE_UPGRADE' });
   }, []);
 
+  const handleSetSettingsView = useCallback((view: 'main' | 'byokChoice' | 'byokConfig') => {
+    dispatch({ type: 'SET_SETTINGS_VIEW', payload: { view } });
+  }, []);
+
+  const handleSetByokProvider = useCallback((provider: 'openrouter' | 'manual') => {
+    dispatch({ type: 'SET_BYOK_PROVIDER', payload: { provider } });
+  }, []);
+
   // Computed properties
   const isProcessing = state.processing.status === 'capturing' || state.processing.status === 'cleaning';
   const hasContent = !!state.exportData?.markdown;
@@ -543,6 +579,8 @@ export function usePopupController() {
     onApiKeyChange,
     onApiKeySave,
     onApiKeyTest,
+    handleSetSettingsView,
+    handleSetByokProvider, // <-- Add this
 
     // Utilities
     showToast,

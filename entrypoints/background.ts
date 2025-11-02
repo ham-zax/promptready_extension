@@ -302,15 +302,63 @@ class EnhancedContentProcessor {
         throw new Error('No tab ID provided');
       }
 
-      // Send capture request to content script
-      await browser.tabs.sendMessage(tabId, {
-        type: 'CAPTURE_SELECTION',
-        payload: {},
-      });
+      console.log(`[Background] Sending CAPTURE_SELECTION to tab ${tabId}`);
+      
+      try {
+        // Send capture request to content script
+        await browser.tabs.sendMessage(tabId, {
+          type: 'CAPTURE_SELECTION',
+          payload: {},
+        });
+        
+        console.log(`[Background] CAPTURE_SELECTION sent successfully to tab ${tabId}`);
+      } catch (messageError) {
+        console.warn('[Background] Content script not responding, attempting to inject:', messageError.message);
+        
+        // Try to inject content script dynamically
+        try {
+          await browser.scripting.executeScript({
+            target: { tabId },
+            files: ['content-scripts/content.js']
+          });
+          
+          console.log('[Background] Content script injected, retrying message...');
+          
+          // Wait a moment for script to initialize
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Retry the message
+          await browser.tabs.sendMessage(tabId, {
+            type: 'CAPTURE_SELECTION',
+            payload: {},
+          });
+          
+          console.log('[Background] CAPTURE_SELECTION successful after injection');
+        } catch (injectError) {
+          console.error('[Background] Failed to inject content script:', injectError);
+          throw messageError; // Throw original error with better context
+        }
+      }
 
     } catch (error) {
-      console.error('Capture request failed:', error);
-      this.broadcastError('Failed to initiate capture').catch(console.error);
+      console.error('[Background] Capture request failed:', error);
+      console.error('[Background] Error details:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      });
+      
+      // More descriptive error message
+      let errorMessage = 'Failed to initiate capture';
+      if (error.message.includes('Receiving end does not exist')) {
+        errorMessage = 'Content script not available - try refreshing the page';
+      } else if (error.message.includes('Could not establish connection')) {
+        errorMessage = 'Cannot connect to page - try reloading the extension';
+      } else if (error.message.includes('Cannot access')) {
+        errorMessage = 'Cannot access this page - try on a regular website';
+      }
+      
+      this.broadcastError(errorMessage).catch(console.error);
     }
   }
 

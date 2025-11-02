@@ -154,7 +154,7 @@ The BYOK Configuration View
 │ "Provider: OpenRouter"│ "Provider: Manual"                       │
 │                    │  │                                          │
 │ API Key:           │  │ API Base URL:                            │
-│ [ *************** ]│  │ [ https://api.groq.com/openai/v1      ]  │
+│ [ *************** ]│  │ [ https://z.groq.com/openai/v1      ]  │
 │                    │  │                                          │
 │ Model:             │  │ API Key:                                 │
 │ [ (Searchable Dropdown) ] │ [ *************** ]                    │

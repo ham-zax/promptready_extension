@@ -2,7 +2,7 @@
 // Implements AI-first monetization with clear Offline/AI mode toggle
 // Perfect separation of concerns using custom hook
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePopupController } from './hooks/usePopupController';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Toast } from './components/Toast';
@@ -12,6 +12,11 @@ import { ModeToggle } from './components/ModeToggle';
 import { PrimaryButton } from './components/PrimaryButton';
 import { ProUpgradePrompt } from './components/ProUpgradePrompt';
 import { CreditExhaustedPrompt } from './components/CreditExhaustedPrompt';
+import { Storage } from '@/lib/storage';
+
+// Developer mode activation state
+let devKeySequence = '';
+const DEV_MODE_SEQUENCE = 'devmode'; // Type 'devmode' to activate
 
 // Main popup component - now purely presentational
 export default function SimplifiedPopup() {
@@ -30,17 +35,70 @@ export default function SimplifiedPopup() {
     onApiKeyChange,
     onApiKeySave,
     onApiKeyTest,
+    settingsView, // <-- Add this
+    handleSetSettingsView, // <-- Add this
+    byokProvider, // <-- Add this
+    handleSetByokProvider, // <-- Add this
   } = usePopupController();
 
   const [showSettings, setShowSettings] = useState(false);
-  const [isSettingsVisible, setIsSettingsVisible] = useState(false);
+
+  // Developer mode activation via keyboard sequence
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      // Only process keys when not focused on input elements
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      devKeySequence += event.key.toLowerCase();
+      
+      // Check if sequence matches
+      if (devKeySequence.includes(DEV_MODE_SEQUENCE)) {
+        toggleDeveloperMode();
+        devKeySequence = ''; // Reset sequence
+      }
+      
+      // Keep sequence length manageable
+      if (devKeySequence.length > 20) {
+        devKeySequence = devKeySequence.slice(-10);
+      }
+    };
+
+    const toggleDeveloperMode = async () => {
+      try {
+        const settings = await Storage.getSettings();
+        const currentDevMode = settings.flags?.developerMode || false;
+        const newFlags = {
+          ...settings.flags,
+          developerMode: !currentDevMode
+        };
+        
+        await Storage.updateSettings({ flags: newFlags });
+        
+        // Show toast notification
+        if (!currentDevMode) {
+          console.log('🔓 Developer mode activated - AI mode unrestricted');
+          // You could add a toast here if needed
+        } else {
+          console.log('🔒 Developer mode deactivated');
+        }
+      } catch (error) {
+        console.error('Failed to toggle developer mode:', error);
+      }
+    };
+
+    document.addEventListener('keypress', handleKeyPress);
+    return () => document.removeEventListener('keypress', handleKeyPress);
+  }, []);
 
   const handleShowSettings = () => {
-    setIsSettingsVisible(true);
-    setShowSettings(true); // Also open the main settings panel
+    setShowSettings(true);
+    handleSetSettingsView('byokChoice');
   };
 
   const getAiLabel = () => {
+    if (state.settings?.flags?.developerMode) return 'AI (DEV)'; // Developer mode
     if (state.hasApiKey) return 'AI (BYOK)'; // If user has their own key
     if (state.trial && !state.trial.hasExhausted) return 'AI (Trial)'; // If user is on free trial
     return 'AI'; // Default label if neither BYOK nor Trial (e.g., after trial exhausted)
@@ -55,6 +113,9 @@ export default function SimplifiedPopup() {
             <span className="text-xl">📋</span>
             <h1 className="text-lg font-semibold">PromptReady</h1>
             {state.isPro && <ProBadge />}
+            {state.settings?.flags?.developerMode && (
+              <span className="ml-1 px-1.5 py-0.5 text-xs bg-yellow-500 text-black rounded font-medium">DEV</span>
+            )}
           </div>
           <button
             onClick={() => setShowSettings(!showSettings)}
@@ -68,12 +129,15 @@ export default function SimplifiedPopup() {
         {/* Credits and Mode Toggle */}
         <div className="mt-3 flex items-center justify-between">
           <div className="text-xs opacity-90">
-            {!state.isPro && state.trial && !state.trial.hasExhausted ? `You have ${state.credits?.remaining} credits left.` : ' '}
+            {state.settings?.flags?.developerMode ? (
+              <span className="text-yellow-300">Developer Mode Active</span>
+            ) : (
+              !state.isPro && state.trial && !state.trial.hasExhausted ? `You have ${state.credits?.remaining} credits left.` : ' '
+            )}
           </div>
           <div className="flex items-center">
             <ModeToggle
               mode={state.mode}
-              isPro={state.isPro}
               onChange={(m: Settings['mode']) => onSettingsChange({ mode: m })}
               onUpgradePrompt={handleModeToggle}
             />
@@ -97,6 +161,10 @@ export default function SimplifiedPopup() {
         onApiKeyTest={onApiKeyTest}
         hasApiKey={state.hasApiKey}
         apiKeyInput={state.apiKeyInput}
+        settingsView={settingsView} // <-- Add this
+        onSetSettingsView={handleSetSettingsView} // <-- Add this
+        byokProvider={byokProvider} // <-- Add this
+        onSetByokProvider={handleSetByokProvider} // <-- Add this
       />
 
       {/* Main Content */}
@@ -104,16 +172,25 @@ export default function SimplifiedPopup() {
         {/* Capture Button */}
         <PrimaryButton
           onClick={handleCapture}
-          disabled={isProcessing || state.credits?.remaining === 0}
+          disabled={isProcessing || (state.credits?.remaining === 0 && !state.settings?.flags?.developerMode)}
           isProcessing={isProcessing}
           processingText={state.processing.message || 'Processing...'}
         >
           Capture Content
         </PrimaryButton>
 
-        {/* Credit Exhaustion Prompt */}
-        {state.credits?.remaining === 0 && (
-          <CreditExhaustedPrompt onUpgrade={handleShowSettings} />
+        {/* Upgrade Prompt View */}
+        {state.credits?.remaining === 0 && !state.settings?.flags?.developerMode && (
+          <div className="p-4 text-center">
+            <p className="text-lg font-semibold">You're out of free credits.</p>
+            <p className="text-sm text-gray-600 mb-4">Upgrade to continue using AI Mode.</p>
+            <button
+              onClick={handleShowSettings}
+              className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Upgrade with your API Key
+            </button>
+          </div>
         )}
 
         {/* Processing Progress */}
@@ -176,6 +253,60 @@ export default function SimplifiedPopup() {
                   >
                     {state.exportData.qualityReport.overallScore}/100
                   </span>
+                </div>
+              </div>
+            )}
+
+            {/* Developer Info */}
+            {state.settings?.flags?.developerMode && state.exportData && (
+              <div className="border-t pt-3">
+                <h4 className="text-xs font-medium text-gray-700 mb-1">Developer Info</h4>
+                <div className="text-xs text-gray-600 space-y-1">
+                  <div>Pipeline: {state.exportData.pipelineUsed || 'standard'}</div>
+                  <div>Chars: {(state.exportData.markdown || '').length}</div>
+                  {state.exportData.stats && (
+                    <div>Stats: {JSON.stringify(state.exportData.stats)}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Developer Export Options */}
+            {state.settings?.flags?.developerMode && hasContent && (
+              <div className="border-t pt-3">
+                <h4 className="text-xs font-medium text-gray-700 mb-2">Developer Exports</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => handleCopy(state.exportData!.markdown)}
+                    className="flex items-center justify-center space-x-1 py-1 px-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors text-xs"
+                  >
+                    <span>📋</span>
+                    <span>Raw MD</span>
+                  </button>
+                  <button
+                    onClick={() => handleCopy(JSON.stringify(state.exportData!.json, null, 2))}
+                    className="flex items-center justify-center space-x-1 py-1 px-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors text-xs"
+                  >
+                    <span>📄</span>
+                    <span>Raw JSON</span>
+                  </button>
+                  <button
+                    onClick={() => handleCopy(state.exportData!.markdown.replace(/`/g, '\\`'))}
+                    className="flex items-center justify-center space-x-1 py-1 px-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors text-xs"
+                  >
+                    <span>💻</span>
+                    <span>Code Block</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      const html = state.exportData!.json.export?.html || '';
+                      handleCopy(html);
+                    }}
+                    className="flex items-center justify-center space-x-1 py-1 px-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors text-xs"
+                  >
+                    <span>🌐</span>
+                    <span>HTML</span>
+                  </button>
                 </div>
               </div>
             )}
