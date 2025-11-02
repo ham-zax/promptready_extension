@@ -154,6 +154,7 @@ export default defineContentScript({
                 await navigator.clipboard.writeText(manualTextArea.value);
                 console.log('[BMAD_CLIPBOARD] Manual Copy button: success via navigator.clipboard');
                 await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'manual-button:navigator.clipboard' } }).catch(() => {});
+                // Clean up before removing
                 try { document.body.removeChild(promptDiv); } catch(e) {}
                 return;
               }

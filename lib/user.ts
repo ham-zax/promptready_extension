@@ -1,29 +1,51 @@
-
 import { browser } from 'wxt/browser';
 
+let cachedUserId: string | null = null;
+
+/**
+ * Stable user identity retrieval with quiet fallbacks and persistence.
+ * Strategy:
+ * - Prefer previously stored local ID (stable across sessions)
+ * - If identity API is available and permitted, use it once and persist
+ * - Otherwise generate a UUID, persist, and cache in-memory
+ * - No warning logs on fallback to avoid console noise
+ */
 export async function getUserId(): Promise<string> {
+  if (cachedUserId) return cachedUserId;
+
   try {
-    // Check if browser APIs are available
-    if (typeof browser === 'undefined' || !browser.identity) {
-      console.warn('[User] Browser identity not available, using fallback');
-      return crypto.randomUUID();
+    // 1) Prefer a persisted ID to avoid repeated API calls and noisy logs
+    const stored = await browser.storage.local.get('userId');
+    const existing: string | undefined = stored?.userId;
+    if (existing && typeof existing === 'string' && existing.length > 0) {
+      cachedUserId = existing;
+      return existing;
     }
-    
-    const userInfo = await browser.identity.getProfileUserInfo({ accountStatus: 'ANY' });
-    if (userInfo && userInfo.id) {
-      return userInfo.id;
-    } else {
-      // Fallback to a randomly generated ID and store it in local storage
-      let userId = (await browser.storage.local.get('userId')).userId;
-      if (!userId) {
-        userId = crypto.randomUUID();
-        await browser.storage.local.set({ userId });
+
+    // 2) Try the browser identity API if present (may require permissions)
+    if (browser?.identity?.getProfileUserInfo) {
+      try {
+        const userInfo = await browser.identity.getProfileUserInfo({ accountStatus: 'ANY' });
+        if (userInfo?.id) {
+          cachedUserId = userInfo.id;
+          // Persist for stability across sessions and contexts
+          await browser.storage.local.set({ userId: userInfo.id });
+          return userInfo.id;
+        }
+      } catch {
+        // Identity may not be available or permitted; proceed to fallback silently
       }
-      return userId;
     }
-  } catch (error) {
-    console.error('Error getting user ID:', error);
-    // Fallback to a randomly generated ID
-    return crypto.randomUUID();
+
+    // 3) Fallback: generate a stable UUID and persist
+    const newId = crypto.randomUUID();
+    await browser.storage.local.set({ userId: newId });
+    cachedUserId = newId;
+    return newId;
+  } catch {
+    // Last-resort: non-persisted UUID to avoid blocking caller
+    const failId = crypto.randomUUID();
+    cachedUserId = failId;
+    return failId;
   }
 }

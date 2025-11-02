@@ -44,6 +44,30 @@ class EnhancedContentProcessor {
   // Gatekeeper to prevent duplicate long-running processing for the same selectionHash
   private inProgressRequests: Set<string> = new Set();
 
+  // Periodic cleanup timer for fingerprints
+  private fingerprintCleanupTimer: any = null;
+
+  constructor() {
+    // Setup periodic cleanup of old fingerprints every 2 minutes
+    this.fingerprintCleanupTimer = setInterval(() => {
+      this.cleanupOldFingerprints();
+    }, 2 * 60 * 1000);
+  }
+
+  private cleanupOldFingerprints(): void {
+    const now = Date.now();
+    const pruned: string[] = [];
+    for (const [fp, ts] of Array.from(this.recentCopyFingerprints.entries())) {
+      if (now - ts > 60 * 1000) {
+        this.recentCopyFingerprints.delete(fp);
+        pruned.push(fp);
+      }
+    }
+    if (pruned.length > 0) {
+      console.log(`[Background] Pruned ${pruned.length} old copy fingerprints`);
+    }
+  }
+
   /**
    * Store export data in session storage to survive service worker termination
    */
@@ -286,6 +310,16 @@ class EnhancedContentProcessor {
           this.inProgressRequests.delete(selectionHash);
           console.log(`[BMAD_GATE] Cleared in-progress request for hash ${selectionHash}`);
         }
+        // Also cleanup pendingCaptureMap after a delay to prevent memory leak
+        // Keep it briefly in case of retries, but ensure eventual cleanup
+        if (selectionHash) {
+          setTimeout(() => {
+            if (this.pendingCaptureMap.has(selectionHash)) {
+              this.pendingCaptureMap.delete(selectionHash);
+              console.log(`[BMAD_GATE] Cleaned up stale capture mapping for hash ${selectionHash}`);
+            }
+          }, 5000); // 5 second grace period
+        }
       } catch (cleanupErr: any) {
         console.warn('[BMAD_GATE] Failed to clear in-progress request:', cleanupErr);
       }
@@ -303,36 +337,36 @@ class EnhancedContentProcessor {
       }
 
       console.log(`[Background] Sending CAPTURE_SELECTION to tab ${tabId}`);
-      
+
       try {
         // Send capture request to content script
         await browser.tabs.sendMessage(tabId, {
           type: 'CAPTURE_SELECTION',
           payload: {},
         });
-        
+
         console.log(`[Background] CAPTURE_SELECTION sent successfully to tab ${tabId}`);
       } catch (messageError: any) {
         console.warn('[Background] Content script not responding, attempting to inject:', messageError.message);
-        
+
         // Try to inject content script dynamically
         try {
           await browser.scripting.executeScript({
             target: { tabId },
             files: ['content-scripts/content.js']
           });
-          
+
           console.log('[Background] Content script injected, retrying message...');
-          
+
           // Wait a moment for script to initialize
           await new Promise(resolve => setTimeout(resolve, 100));
-          
+
           // Retry the message
           await browser.tabs.sendMessage(tabId, {
             type: 'CAPTURE_SELECTION',
             payload: {},
           });
-          
+
           console.log('[Background] CAPTURE_SELECTION successful after injection');
         } catch (injectError: any) {
           console.error('[Background] Failed to inject content script:', injectError);
@@ -347,7 +381,7 @@ class EnhancedContentProcessor {
         name: error.name,
         stack: error.stack
       });
-      
+
       // More descriptive error message
       let errorMessage = 'Failed to initiate capture';
       if (error.message.includes('Receiving end does not exist')) {
@@ -357,7 +391,7 @@ class EnhancedContentProcessor {
       } else if (error.message.includes('Cannot access')) {
         errorMessage = 'Cannot access this page - try on a regular website';
       }
-      
+
       this.broadcastError(errorMessage).catch(console.error);
     }
   }
@@ -369,21 +403,21 @@ class EnhancedContentProcessor {
     try {
       const { exportMd, exportJson, metadata, stats, warnings, originalHtml } = message.payload;
 
-  // BMAD TRACE: log what we received from offscreen before any insertion
-  console.log('[BMAD_TRACE] Background received from offscreen:', (exportMd || '').substring(0, 100));
+      // BMAD TRACE: log what we received from offscreen before any insertion
+      console.log('[BMAD_TRACE] Background received from offscreen:', (exportMd || '').substring(0, 100));
 
-  // Ensure a canonical citation block exists at the top-level of the final markdown.
+      // Ensure a canonical citation block exists at the top-level of the final markdown.
       // Some pipeline paths (bypass from offscreen) may return markdown that never had
       // the background's canonical citation inserted. Enforce it here so every final
       // output delivered to tabs/popup contains the standardized cite-first block.
       let finalMd = exportMd;
 
-  // BMAD TRACE: log the finalized markdown after insertion (or unchanged)
-  console.log('[BMAD_TRACE] Background after cite block insertion:', (finalMd || '').substring(0, 100));
+      // BMAD TRACE: log the finalized markdown after insertion (or unchanged)
+      console.log('[BMAD_TRACE] Background after cite block insertion:', (finalMd || '').substring(0, 100));
 
       // If we have a selectionHash -> tabId mapping, forward the raw markdown to that tab's content script.
       try {
-  const selectionHash = message.payload?.metadata?.selectionHash || message.payload?.exportJson?.metadata?.selectionHash;
+        const selectionHash = message.payload?.metadata?.selectionHash || message.payload?.exportJson?.metadata?.selectionHash;
         if (selectionHash) {
           const tabId = this.pendingCaptureMap.get(selectionHash);
           if (tabId) {
@@ -428,7 +462,7 @@ class EnhancedContentProcessor {
                     await this.broadcastMessage({
                       type: 'COPY_COMPLETE',
                       payload: { success: true, method: offRes.method || 'offscreen' },
-                    }).catch(() => {});
+                    }).catch(() => { });
                   } else {
                     console.warn('[Background] Offscreen copy reported failure:', offRes?.error || 'unknown');
                   }
@@ -664,151 +698,95 @@ class EnhancedContentProcessor {
       try {
         const targetTab = await browser.tabs.get(targetTabId);
         if (targetTab?.windowId) {
-          try { await browser.windows.update(targetTab.windowId, { focused: true } as any); } catch (focusWinErr: any) {}
+          try { await browser.windows.update(targetTab.windowId, { focused: true } as any); } catch (focusWinErr: any) { }
         }
-        try { await browser.tabs.update(targetTabId, { active: true } as any); } catch (focusTabErr: any) {}
+        try { await browser.tabs.update(targetTabId, { active: true } as any); } catch (focusTabErr: any) { }
         // small delay to allow focus to settle
         await new Promise((r) => setTimeout(r, 200));
       } catch (focusErr: any) {
         console.warn('[Background] Could not focus target tab/window before clipboard:', focusErr);
       }
 
+      // Compute a lightweight fingerprint to detect repeated identical forwards
+      const fingerprint = `${content.length}:${content.slice(0, 100)}::${content.slice(-100)}`;
+      const now = Date.now();
+      const lastTs = this.recentCopyFingerprints.get(fingerprint) || 0;
+      const SUPPRESSION_WINDOW_MS = 3000; // 3 seconds
+
+      if (now - lastTs < SUPPRESSION_WINDOW_MS) {
+        console.log('[Background] Suppressing duplicate copy forward (within window) for tab', targetTabId);
+        return; // Skip forwarding duplicate within suppression window
+      }
+
+      // Record fingerprint timestamp before sending to avoid races
+      this.recentCopyFingerprints.set(fingerprint, now);
+
       try {
-        // Compute a lightweight fingerprint to detect repeated identical forwards
-        const fingerprint = `${content.length}:${content.slice(0, 100)}::${content.slice(-100)}`;
-        const now = Date.now();
-        const lastTs = this.recentCopyFingerprints.get(fingerprint) || 0;
-        const SUPPRESSION_WINDOW_MS = 3000; // 3 seconds
-
-        if (now - lastTs < SUPPRESSION_WINDOW_MS) {
-          console.log('[Background] Suppressing duplicate copy forward (within window) for tab', targetTabId);
-          return; // Skip forwarding duplicate within suppression window
-        }
-
-        // Record fingerprint timestamp before sending to avoid races
-        this.recentCopyFingerprints.set(fingerprint, now);
-
-        // Ensure content script is ready before attempting copy
-let pingOk = await this.ensureContentScript(targetTabId);
-if (!pingOk) {
-  try {
-    await browser.scripting.executeScript({
-      target: { tabId: targetTabId },
-      files: ['content-scripts/content.js'],
-    });
-    await new Promise((r) => setTimeout(r, 150));
-    pingOk = await this.ensureContentScript(targetTabId);
-  } catch (preInjectErr: any) {
-    console.warn('[Background] Pre-send injection failed:', preInjectErr);
-  }
-}
-
-await browser.tabs.sendMessage(targetTabId, {
-  type: 'COPY_TO_CLIPBOARD',
-  payload: { content, waitForPopupClose: true },
-});console.log('[Background] ✅ Forwarded copy request to content script for tab', targetTabId);
-
-        // Prune old fingerprints to avoid unbounded growth
-        for (const [fp, ts] of Array.from(this.recentCopyFingerprints.entries())) {
-          if (now - ts > 60 * 1000) { // keep entries for 1 minute
-            this.recentCopyFingerprints.delete(fp);
-          }
-        }
+        // Use helper method to inject and send message
+        await this.injectAndSendMessage(targetTabId, {
+          type: 'COPY_TO_CLIPBOARD',
+          payload: { content, waitForPopupClose: true },
+        });
+        console.log('[Background] ✅ Forwarded copy request to content script for tab', targetTabId);
       } catch (sendErr: any) {
         console.error('[Background] Failed to forward copy request to content script:', sendErr);
-
-        // Attempt dynamic injection and retry once if receiving end does not exist
+        
+        // Last resort: fallback to offscreen copy
         try {
-          await browser.scripting.executeScript({
-            target: { tabId: targetTabId },
-            files: ['content-scripts/content.js'],
+          await this.ensureOffscreenDocument();
+          const offRes: any = await browser.runtime.sendMessage({
+            type: 'OFFSCREEN_COPY',
+            payload: { content },
           });
-          // Short delay to allow the content script to initialize
-          await new Promise((r) => setTimeout(r, 150));
 
-          // Ensure content script is ready before attempting copy
-let pingOk = await this.ensureContentScript(targetTabId);
-if (!pingOk) {
-  try {
-    await browser.scripting.executeScript({
-      target: { tabId: targetTabId },
-      files: ['content-scripts/content.js'],
-    });
-    await new Promise((r) => setTimeout(r, 150));
-    pingOk = await this.ensureContentScript(targetTabId);
-  } catch (preInjectErr: any) {
-    console.warn('[Background] Pre-send injection failed:', preInjectErr);
-  }
-}
-
-await browser.tabs.sendMessage(targetTabId, {
-  type: 'COPY_TO_CLIPBOARD',
-  payload: { content, waitForPopupClose: true },
-});console.log('[Background] ✅ Forwarded copy request after injection to content script for tab', targetTabId);
-
-          // Successful after injection; stop here
-          return;
-        } catch (injectErr: any) {
-          console.warn('[Background] Injection/retry failed; falling back to offscreen copy:', injectErr);
-          // Fallback: use offscreen document to perform clipboard write
-          try {
-            await this.ensureOffscreenDocument();
-            const offRes: any = await browser.runtime.sendMessage({
-              type: 'OFFSCREEN_COPY',
-              payload: { content },
-            });
-
-            if (offRes && offRes.success) {
-              console.log('[Background] ✅ Offscreen copy succeeded via', offRes.method || 'offscreen');
-              // Optionally notify UI about copy completion
-              await this.broadcastMessage({
-                type: 'COPY_COMPLETE',
-                payload: { success: true, method: offRes.method || 'offscreen' },
-              }).catch(() => {});
-              return;
-            } else {
-              const errMsg = offRes?.error || 'Offscreen copy failed';
-              throw new Error(errMsg);
-            }
-          } catch (offErr: any) {
-            console.error('[Background] Offscreen copy fallback failed:', offErr);
-            // Re-throw the original send error to bubble up
-            throw sendErr;
+          if (offRes && offRes.success) {
+            console.log('[Background] ✅ Offscreen copy succeeded via', offRes.method || 'offscreen');
+            // Optionally notify UI about copy completion
+            await this.broadcastMessage({
+              type: 'COPY_COMPLETE',
+              payload: { success: true, method: offRes.method || 'offscreen' },
+            }).catch(() => { });
+            return;
+          } else {
+            const errMsg = offRes?.error || 'Offscreen copy failed';
+            throw new Error(errMsg);
           }
+        } catch (offErr: any) {
+          console.error('[Background] Offscreen copy fallback failed:', offErr);
+          // Re-throw the original send error to bubble up
+          throw sendErr;
         }
       }
     } catch (error: any) {
       console.error('[Background] ❌ Enhanced clipboard copy failed:', error);
       throw error;
     }
-  }
-
-  /**
+  }  /**
    * Legacy copy content to clipboard via offscreen document
    */
-  async copyToClipboard(content: string): Promise<void> {
-    return this.copyToClipboardEnhanced(content);
-  }
+  async copyToClipboard(content: string): Promise < void> {
+        return this.copyToClipboardEnhanced(content);
+      }
 
   /**
    * Ensure offscreen document exists with atomic creation to prevent race conditions
    */
-  async ensureOffscreenDocument(): Promise<void> {
-    // If there's already a creation in progress, wait for it
-    if (this.offscreenCreationPromise) {
-      return this.offscreenCreationPromise;
-    }
+  async ensureOffscreenDocument(): Promise < void> {
+        // If there's already a creation in progress, wait for it
+        if(this.offscreenCreationPromise) {
+        return this.offscreenCreationPromise;
+      }
 
-    // Create the promise for atomic creation
-    this.offscreenCreationPromise = this.createOffscreenDocumentAtomic();
+      // Create the promise for atomic creation
+      this.offscreenCreationPromise = this.createOffscreenDocumentAtomic();
 
-    try {
-      await this.offscreenCreationPromise;
-    } finally {
-      // Clear the promise once creation is complete (success or failure)
-      this.offscreenCreationPromise = null;
+      try {
+        await this.offscreenCreationPromise;
+      } finally {
+        // Clear the promise once creation is complete (success or failure)
+        this.offscreenCreationPromise = null;
+      }
     }
-  }
 
   /**
    * Atomic offscreen document creation
@@ -908,7 +886,7 @@ await browser.tabs.sendMessage(targetTabId, {
         if (!hasPopup) {
           // No popup available to receive; persist for polling and skip broadcast
           if (isCriticalMessage) {
-            await this.handleCriticalMessageFailure(message, new Error('No popup context available'));
+            await this.handleCriticalMessageFailure(message, new Error('No popup context available'), true);
           }
           console.log(`[Background] No popup available to receive ${message.type}; stored for polling and skipped broadcast`);
           return;
@@ -934,9 +912,9 @@ await browser.tabs.sendMessage(targetTabId, {
         if (isLastAttempt) {
           if (isNoReceiver && (message?.type === 'EXPORT_COMPLETE' || message?.type === 'PROCESSING_COMPLETE')) {
             // Downgrade to warn and persist for polling
-            console.warn(`[Background] No receiver for ${message.type}; stored for polling`);
+            console.log(`[Background] No receiver for ${message.type}; stored for polling`);
             if (isCriticalMessage) {
-              await this.handleCriticalMessageFailure(message, error);
+              await this.handleCriticalMessageFailure(message, error, true);
             }
             return;
           }
@@ -945,15 +923,15 @@ await browser.tabs.sendMessage(targetTabId, {
 
           // For critical messages, try alternative notification methods
           if (isCriticalMessage) {
-            await this.handleCriticalMessageFailure(message, error);
+            await this.handleCriticalMessageFailure(message, error, false);
           }
         } else {
           if (isNoReceiver && (message?.type === 'EXPORT_COMPLETE' || message?.type === 'PROCESSING_COMPLETE')) {
             // No point retrying if no receiver exists; break early after persisting
             if (isCriticalMessage) {
-              await this.handleCriticalMessageFailure(message, error);
+              await this.handleCriticalMessageFailure(message, error, true);
             }
-            console.warn(`[Background] No receiver for ${message.type}; skipping retries`);
+            console.log(`[Background] No receiver for ${message.type}; skipping retries`);
             return;
           }
           console.warn(`[Background] Broadcast attempt ${attempt} failed, retrying...`, error);
@@ -991,9 +969,18 @@ await browser.tabs.sendMessage(targetTabId, {
 
   /**
    * Handle failure of critical message broadcasts
+   * @param message - The message that failed to broadcast
+   * @param error - The error that occurred
+   * @param isExpectedFailure - If true, this is an expected condition (popup closed) and should not be logged as an error
    */
-  private async handleCriticalMessageFailure(message: any, error: any): Promise<void> {
-    console.error(`[Background] Critical message broadcast failed: ${message.type}`, error);
+  private async handleCriticalMessageFailure(message: any, error: any, isExpectedFailure: boolean = false): Promise<void> {
+    if (isExpectedFailure) {
+      // This is expected behavior when popup is closed, just store for later
+      console.log(`[Background] Critical message stored for later delivery: ${message.type}`);
+    } else {
+      // This is an unexpected failure
+      console.error(`[Background] Critical message broadcast failed: ${message.type}`, error);
+    }
 
     try {
       // Store the failed message in session storage for UI to poll
@@ -1013,7 +1000,9 @@ await browser.tabs.sendMessage(targetTabId, {
 
       await browser.storage.session.set({ failed_broadcasts: messages });
 
-      console.log(`[Background] Critical message stored for polling: ${message.type}`);
+      if (!isExpectedFailure) {
+        console.log(`[Background] Critical message stored for polling: ${message.type}`);
+      }
     } catch (storageError: any) {
       console.error('[Background] Failed to store critical message for polling:', storageError);
     }
@@ -1044,6 +1033,32 @@ await browser.tabs.sendMessage(targetTabId, {
       type: 'PROCESSING_COMPLETE',
       payload: data,
     });
+  }
+
+  /**
+   * Helper to inject content script and send message with retry logic
+   */
+  private async injectAndSendMessage(tabId: number, message: any): Promise<void> {
+    // First try: check if content script is already present
+    let pingOk = await this.ensureContentScript(tabId);
+
+    // If not present, inject it
+    if (!pingOk) {
+      try {
+        await browser.scripting.executeScript({
+          target: { tabId },
+          files: ['content-scripts/content.js'],
+        });
+        await new Promise((r) => setTimeout(r, 150));
+        pingOk = await this.ensureContentScript(tabId);
+      } catch (injectErr: any) {
+        console.warn('[Background] Content script injection failed:', injectErr);
+        throw new Error('Failed to inject content script');
+      }
+    }
+
+    // Send the message
+    await browser.tabs.sendMessage(tabId, message);
   }
 
   /**

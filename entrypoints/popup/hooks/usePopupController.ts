@@ -63,7 +63,7 @@ type PopupAction =
   | { type: 'SET_SETTINGS_VIEW'; payload: { view: 'main' | 'byokChoice' | 'byokConfig' } }
   | { type: 'SET_BYOK_PROVIDER'; payload: { provider: 'openrouter' | 'manual' | 'z.ai' } };
 
- // Reducer function
+// Reducer function
 function popupReducer(state: PopupState, action: PopupAction): PopupState {
   switch (action.type) {
     case 'SETTINGS_LOADED': {
@@ -293,6 +293,62 @@ export function usePopupController() {
     loadInitialData();
   }, [showToast]);
 
+  // Surface stored critical messages when popup opens (when popup wasn't present to receive broadcasts)
+  useEffect(() => {
+    const consumeFailedBroadcasts = async () => {
+      try {
+        const res = await browser.storage.session.get(['failed_broadcasts']);
+        const failed: any[] = (res && (res as any).failed_broadcasts) || [];
+        if (Array.isArray(failed) && failed.length > 0) {
+          for (const msg of failed) {
+            try {
+              switch (msg.type) {
+                case 'PROCESSING_COMPLETE':
+                  dispatch({
+                    type: 'PROCESSING_COMPLETE',
+                    payload: msg.payload,
+                  });
+                  {
+                    const pipeline = (msg?.payload as any)?.stats?.pipelineUsed;
+                    const successMessage =
+                      pipeline === 'intelligent-bypass'
+                        ? UI_MESSAGES.intelligentBypassSuccess
+                        : UI_MESSAGES.contentProcessed;
+                    showToast(successMessage, 'success');
+                  }
+                  break;
+                case 'EXPORT_COMPLETE':
+                  showToast(UI_MESSAGES.contentExported, 'success');
+                  break;
+                case 'PROCESSING_ERROR':
+                  dispatch({
+                    type: 'PROCESSING_ERROR',
+                    payload: { error: msg?.payload?.error || 'Unknown error' },
+                  });
+                  showToast(
+                    UI_MESSAGES.processingFailed(msg?.payload?.error || 'Unknown error'),
+                    'error'
+                  );
+                  break;
+                default:
+                  break;
+              }
+            } catch (innerErr) {
+              console.warn('Failed to consume stored message:', innerErr);
+            }
+          }
+          try {
+            await browser.storage.session.remove(['failed_broadcasts']);
+          } catch (clearErr) {
+            console.warn('Failed to clear stored broadcasts:', clearErr);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load pending broadcasts:', err);
+      }
+    };
+    consumeFailedBroadcasts();
+  }, [showToast]);
   // Message listener for background script communication
   useEffect(() => {
     const messageListener = (message: any) => {
@@ -345,11 +401,19 @@ export function usePopupController() {
 
         case 'EXPORT_COMPLETE':
           showToast(UI_MESSAGES.contentExported, 'success');
+          // Close popup after a delay so user can see the success message
+          setTimeout(() => {
+            try { window.close(); } catch { }
+          }, 800);
           break;
 
         case 'COPY_COMPLETE':
           if (message.payload.success) {
             showToast(UI_MESSAGES.copiedToClipboard, 'success');
+            // Close popup after a delay so user can see the success message
+            setTimeout(() => {
+              try { window.close(); } catch { }
+            }, 800);
           } else {
             // Popup-side fallback: attempt to write to clipboard directly from the popup
             (async () => {
@@ -464,56 +528,34 @@ export function usePopupController() {
     try {
       dispatch({ type: 'CAPTURE_START' });
 
-      // Simulate AI processing
-      if (state.mode === 'ai') {
-        const userId = await getUserId();
-        if (userId) {
-          const { success } = await MonetizationClient.useCredits(userId, 1);
-          if (!success) {
-            dispatch({ type: 'PROCESSING_ERROR', payload: { error: 'Insufficient credits' } });
-            showToast('You are out of credits', 'error');
-            return;
-          }
-        }
+      // Immediate feedback while background orchestrates real capture
+      dispatch({
+        type: 'PROCESSING_PROGRESS',
+        payload: { status: 'processing', message: 'Capturing content...', progress: 10 },
+      });
 
-        dispatch({ type: 'PROCESSING_PROGRESS', payload: { status: 'processing', message: 'AI is thinking...', progress: 50 } });
-
-        setTimeout(() => {
-          dispatch({
-            type: 'PROCESSING_COMPLETE',
-            payload: {
-              markdown: '## Mock AI Response\n\nThis is a mock response from the AI.',
-              json: { mock: 'response' },
-              metadata: {},
-            },
-          });
-          showToast('AI processing complete', 'success');
-        }, 2000);
-      } else {
-        // Simulate offline processing
-        dispatch({ type: 'PROCESSING_PROGRESS', payload: { status: 'processing', message: 'Cleaning content...', progress: 50 } });
-
-        setTimeout(() => {
-          dispatch({
-            type: 'PROCESSING_COMPLETE',
-            payload: {
-              markdown: '## Mock Offline Response\n\nThis is a mock response from the offline cleaner.',
-              json: { mock: 'response' },
-              metadata: {},
-            },
-          });
-          showToast('Offline processing complete', 'success');
-        }, 1000);
+      // Ask background to perform real capture on the active tab
+      const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
+      const tabId = activeTab?.id;
+      if (!tabId) {
+        throw new Error('No active tab found');
       }
+
+      await browser.runtime.sendMessage({
+        type: 'CAPTURE_REQUEST',
+        payload: { tabId },
+      });
+      // Further progress and completion will arrive via runtime messages
+
     } catch (error) {
       console.error('Capture failed:', error);
       dispatch({
         type: 'PROCESSING_ERROR',
-        payload: { error: 'Capture failed' },
+        payload: { error: error instanceof Error ? error.message : 'Capture failed' },
       });
       showToast(UI_MESSAGES.failedToCapture, 'error');
     }
-  }, [state.mode, showToast]);
+  }, [showToast]);
 
   const handleCopy = useCallback(async (content: string) => {
     try {
@@ -527,12 +569,7 @@ export function usePopupController() {
 
       console.log('Copy request sent to background successfully');
       // Success toast will be shown via EXPORT_COMPLETE message
-      // Close the popup to return focus to the page (improves navigator.clipboard success rate on strict sites)
-      try {
-        setTimeout(() => {
-          try { window.close(); } catch {}
-        }, 120);
-      } catch {}
+      // Popup will close after receiving EXPORT_COMPLETE/COPY_COMPLETE message
 
     } catch (error) {
       console.error('Copy request failed:', error);

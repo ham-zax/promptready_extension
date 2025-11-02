@@ -106,6 +106,16 @@ export class Storage {
 
       const settings = { ...DEFAULT_SETTINGS, ...stored, mode: migratedMode };
 
+      // Ensure user ID exists (check for both missing and empty string)
+      if (!settings.user || !settings.user.id) {
+        if (!settings.user) settings.user = {};
+        settings.user.id = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+        // Save the generated ID
+        await browser.storage.local.set({
+          [STORAGE_KEYS.SETTINGS]: settings,
+        });
+      }
+
       // Ensure selectedByokModel exists for backward compatibility (may previously have been 'model')
       settings.byok = {
         ...DEFAULT_SETTINGS.byok,
