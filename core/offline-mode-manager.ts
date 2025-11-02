@@ -2,7 +2,6 @@
 // Integrates with the simplified popup UI and processing pipeline
 
 import { ReadabilityConfigManager } from './readability-config.js';
-import { TurndownConfigManager } from './turndown-config.js';
 import { MarkdownPostProcessor } from './post-processor.js';
 import { Storage } from '../lib/storage.js';
 import { ExportMetadata } from '../lib/types.js';
@@ -147,6 +146,7 @@ export class OfflineModeManager {
       let markdown: string;
 
       try {
+        const { TurndownConfigManager } = await import('./turndown-config.js');
         markdown = await TurndownConfigManager.convert(extractedContent, config.turndownPreset);
         console.log('[OfflineModeManager] Turndown conversion successful');
       } catch (error) {

@@ -5,7 +5,11 @@
       "Bash(cp:*)",
       "Bash(sessions/bin/sessions:*)",
       "Bash(rm:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git merge:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(npx:*)"
     ],
     "deny": []
   }
