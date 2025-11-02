@@ -1,11 +1,14 @@
-// Simplified popup UI focused on 'open→copy→done' workflow
-// Implements AI-first monetization with clear Offline/AI mode toggle
-// Perfect separation of concerns using custom hook
+// Refactored popup UI with focused hooks and simplified authentication
+// Implements modern state management with proper separation of concerns
 
 import React, { useState, useEffect } from 'react';
 import { usePopupController } from './hooks/usePopupController';
-import { SettingsPanel } from './components/SettingsPanel';
-import { Toast } from './components/Toast';
+import { useByokManager } from './hooks/useByokManager';
+import { useProManager } from './hooks/useProManager';
+import { useErrorHandler } from './hooks/useErrorHandler';
+import { useToastManager } from './hooks/useToastManager';
+import { UnifiedSettings } from './components/UnifiedSettings';
+import { ToastContainer } from './hooks/useToastManager';
 import type { Settings } from '@/lib/types';
 import { ProBadge } from './components/ProBadge';
 import { ModeToggle } from './components/ModeToggle';
@@ -18,8 +21,9 @@ import { Storage } from '@/lib/storage';
 let devKeySequence = '';
 const DEV_MODE_SEQUENCE = 'devmode'; // Type 'devmode' to activate
 
-// Main popup component - now purely presentational
-export default function SimplifiedPopup() {
+// Main popup component with refactored architecture
+export default function RefactoredPopup() {
+  // Legacy controller for basic functionality
   const {
     state,
     isProcessing,
@@ -29,17 +33,13 @@ export default function SimplifiedPopup() {
     handleCopy,
     handleExport,
     handleUpgradeClose,
-    // Newly exposed handlers
-    showToast,
-    onSettingsChange,
-    onApiKeyChange,
-    onApiKeySave,
-    onApiKeyTest,
-    settingsView, // <-- Add this
-    handleSetSettingsView, // <-- Add this
-    byokProvider, // <-- Add this
-    handleSetByokProvider, // <-- Add this
   } = usePopupController();
+
+  // New focused hooks
+  const byokManager = useByokManager();
+  const proManager = useProManager();
+  const errorHandler = useErrorHandler();
+  const toastManager = useToastManager();
 
   const [showSettings, setShowSettings] = useState(false);
 
@@ -94,14 +94,25 @@ export default function SimplifiedPopup() {
 
   const handleShowSettings = () => {
     setShowSettings(true);
-    handleSetSettingsView('byokChoice');
   };
 
   const getAiLabel = () => {
     if (state.settings?.flags?.developerMode) return 'AI (DEV)'; // Developer mode
-    if (state.hasApiKey) return 'AI (BYOK)'; // If user has their own key
-    if (state.trial && !state.trial.hasExhausted) return 'AI (Trial)'; // If user is on free trial
+    if (byokManager.hasApiKey) return 'AI (BYOK)'; // If user has their own key
+    if (proManager.isInTrial) return 'AI (Trial)'; // If user is on free trial
     return 'AI'; // Default label if neither BYOK nor Trial (e.g., after trial exhausted)
+  };
+
+  // Enhanced handlers using new hooks
+  const handleUpgrade = () => {
+    toastManager.showPersistentToast(
+      'Choose your upgrade path:',
+      'info',
+      {
+        label: 'Start Free Trial',
+        onClick: () => proManager.startTrial('user@example.com'),
+      }
+    );
   };
 
   return (
@@ -151,20 +162,13 @@ export default function SimplifiedPopup() {
         </div>
       </div>
 
-      {/* Settings Panel */}
-      <SettingsPanel
+      {/* Unified Settings Panel */}
+      <UnifiedSettings
         isExpanded={showSettings}
         settings={state.settings as Settings}
         onSettingsChange={onSettingsChange}
-        onApiKeyChange={onApiKeyChange}
-        onApiKeySave={onApiKeySave}
-        onApiKeyTest={onApiKeyTest}
-        hasApiKey={state.hasApiKey}
-        apiKeyInput={state.apiKeyInput}
-        settingsView={settingsView} // <-- Add this
-        onSetSettingsView={handleSetSettingsView} // <-- Add this
-        byokProvider={byokProvider} // <-- Add this
-        onSetByokProvider={handleSetByokProvider} // <-- Add this
+        isPro={state.isPro}
+        hasApiKey={byokManager.hasApiKey}
       />
 
       {/* Main Content */}
@@ -315,19 +319,19 @@ export default function SimplifiedPopup() {
       </div>
 
       {/* Toast Notifications */}
-      {state.toast && (
-        <Toast
-          message={state.toast.message}
-          type={state.toast.type}
-          onClose={() => {}}
-        />
-      )}
+      <ToastContainer
+        toasts={toastManager.toasts}
+        onHide={toastManager.hideToast}
+      />
 
       {/* Upgrade Modal */}
       <ProUpgradePrompt
         isVisible={state.showUpgrade}
         onClose={handleUpgradeClose}
-        onUpgrade={() => setShowSettings(true)}
+        onUpgradeComplete={() => {
+          toastManager.showSuccess('Trial activated successfully!');
+          handleUpgradeClose();
+        }}
       />
     </div>
   );

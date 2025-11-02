@@ -1,0 +1,55 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    "@semantic-release/changelog",
+    "@semantic-release/github",
+    "@semantic-release/npm"
+  ],
+  "rules": {
+    "subjectScopeCase": false,
+    "subjectEmpty": false,
+    "subjectFullStop": false,
+    "typeCase": false,
+    "typeEnum": [
+      "feat",
+      "fix",
+      "docs",
+      "style",
+      "refactor",
+      "perf",
+      "test",
+      "chore",
+      "ci",
+      "build",
+      "revert"
+    ],
+    "scopeEnum": [
+      "auth",
+      "ui",
+      "api",
+      "storage",
+      "validation",
+      "test",
+      "docs",
+      "build",
+      "deps"
+    ]
+  },
+  "releaseRules": [
+    {
+      "type": "feat",
+      "release": "minor"
+    },
+    {
+      "type": "fix",
+      "release": "patch"
+    },
+    {
+      "scope": "deps",
+      "release": "patch"
+    }
+  ],
+  "preset": "angular"
+}

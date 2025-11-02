@@ -49,3 +49,5 @@ gemini.md
 test-byok.js
 SESSION_CHECKPOINT_*.md
 MVP_INTEGRATION_TEST_REPORT.md
+.serena*
+.claude*
