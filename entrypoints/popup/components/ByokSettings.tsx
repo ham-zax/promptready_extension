@@ -81,7 +81,6 @@ export function ByokSettings({
                 Save
               </button>
             </div>
-          </div>
 
           {provider === 'manual' && (
             <div className="space-y-2">
