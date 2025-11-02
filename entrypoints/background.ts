@@ -730,7 +730,7 @@ class EnhancedContentProcessor {
         console.log('[Background] ✅ Forwarded copy request to content script for tab', targetTabId);
       } catch (sendErr: any) {
         console.error('[Background] Failed to forward copy request to content script:', sendErr);
-        
+
         // Last resort: fallback to offscreen copy
         try {
           await this.ensureOffscreenDocument();
@@ -764,29 +764,29 @@ class EnhancedContentProcessor {
   }  /**
    * Legacy copy content to clipboard via offscreen document
    */
-  async copyToClipboard(content: string): Promise < void> {
-        return this.copyToClipboardEnhanced(content);
-      }
+  async copyToClipboard(content: string): Promise<void> {
+    return this.copyToClipboardEnhanced(content);
+  }
 
   /**
    * Ensure offscreen document exists with atomic creation to prevent race conditions
    */
-  async ensureOffscreenDocument(): Promise < void> {
-        // If there's already a creation in progress, wait for it
-        if(this.offscreenCreationPromise) {
-        return this.offscreenCreationPromise;
-      }
-
-      // Create the promise for atomic creation
-      this.offscreenCreationPromise = this.createOffscreenDocumentAtomic();
-
-      try {
-        await this.offscreenCreationPromise;
-      } finally {
-        // Clear the promise once creation is complete (success or failure)
-        this.offscreenCreationPromise = null;
-      }
+  async ensureOffscreenDocument(): Promise<void> {
+    // If there's already a creation in progress, wait for it
+    if (this.offscreenCreationPromise) {
+      return this.offscreenCreationPromise;
     }
+
+    // Create the promise for atomic creation
+    this.offscreenCreationPromise = this.createOffscreenDocumentAtomic();
+
+    try {
+      await this.offscreenCreationPromise;
+    } finally {
+      // Clear the promise once creation is complete (success or failure)
+      this.offscreenCreationPromise = null;
+    }
+  }
 
   /**
    * Atomic offscreen document creation

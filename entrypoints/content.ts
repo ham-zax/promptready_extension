@@ -17,9 +17,9 @@ export default defineContentScript({
     // ====================================================================================
 
     async function copyTextToClipboard(text: string): Promise<{ success: boolean; method?: string; error?: any }> {
-  // Check permissions API for additional diagnostics
-  const permState = await checkClipboardPermission();
-  console.log('[BMAD_CLIPBOARD] clipboard-write permission state:', permState);
+      // Check permissions API for additional diagnostics
+      const permState = await checkClipboardPermission();
+      console.log('[BMAD_CLIPBOARD] clipboard-write permission state:', permState);
       // Tier 1: navigator.clipboard with best-effort focus
       try {
         try {
@@ -34,7 +34,7 @@ export default defineContentScript({
           await navigator.clipboard.writeText(text);
           console.log('[BMAD_CLIPBOARD] Success via navigator.clipboard');
           // Notify background/popup that copy succeeded
-          await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'navigator.clipboard' } }).catch(() => {});
+          await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'navigator.clipboard' } }).catch(() => { });
           return { success: true, method: 'navigator.clipboard' };
         }
       } catch (err) {
@@ -58,7 +58,7 @@ export default defineContentScript({
         const ok = execCommandCopy(text);
         if (ok) {
           console.log('[BMAD_CLIPBOARD] Success via execCommand fallback');
-          await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'execCommand' } }).catch(() => {});
+          await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'execCommand' } }).catch(() => { });
           return { success: true, method: 'execCommand' };
         }
       } catch (err) {
@@ -68,11 +68,11 @@ export default defineContentScript({
       // Tier 3: Manual UI fallback
       try {
         showManualCopyPrompt(text);
-        await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: false, method: 'manual-prompt' } }).catch(() => {});
+        await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: false, method: 'manual-prompt' } }).catch(() => { });
         return { success: false, method: 'manual-prompt' };
       } catch (err) {
         console.error('[BMAD_CLIPBOARD] Manual prompt failed:', err);
-        await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: false, method: 'manual-prompt', error: String(err) } }).catch(() => {});
+        await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: false, method: 'manual-prompt', error: String(err) } }).catch(() => { });
         return { success: false, error: err };
       }
     }
@@ -153,9 +153,9 @@ export default defineContentScript({
               if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
                 await navigator.clipboard.writeText(manualTextArea.value);
                 console.log('[BMAD_CLIPBOARD] Manual Copy button: success via navigator.clipboard');
-                await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'manual-button:navigator.clipboard' } }).catch(() => {});
+                await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'manual-button:navigator.clipboard' } }).catch(() => { });
                 // Clean up before removing
-                try { document.body.removeChild(promptDiv); } catch(e) {}
+                try { document.body.removeChild(promptDiv); } catch (e) { }
                 return;
               }
             } catch (err) {
@@ -167,8 +167,8 @@ export default defineContentScript({
             const ok = execCommandCopy(manualTextArea.value);
             if (ok) {
               console.log('[BMAD_CLIPBOARD] Manual Copy button: success via execCommand');
-              await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'manual-button:execCommand' } }).catch(() => {});
-              try { document.body.removeChild(promptDiv); } catch(e) {}
+              await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'manual-button:execCommand' } }).catch(() => { });
+              try { document.body.removeChild(promptDiv); } catch (e) { }
               return;
             }
 
@@ -178,7 +178,7 @@ export default defineContentScript({
             alert('Automatic copy failed. Please press Ctrl+C / Cmd+C to copy the text.');
           } catch (err) {
             console.error('[BMAD_CLIPBOARD] Manual Copy button click failed:', err);
-            try { document.body.removeChild(promptDiv); } catch(e) {}
+            try { document.body.removeChild(promptDiv); } catch (e) { }
           }
         });
 
@@ -186,7 +186,7 @@ export default defineContentScript({
         closeButton.textContent = 'Close';
         closeButton.style.padding = '6px 10px';
         closeButton.addEventListener('click', () => {
-          try { document.body.removeChild(promptDiv); } catch(e) {}
+          try { document.body.removeChild(promptDiv); } catch (e) { }
         });
 
         buttonsRow.appendChild(copyButton);
@@ -199,7 +199,7 @@ export default defineContentScript({
       } catch (err) {
         console.error('[BMAD_CLIPBOARD] Failed to show manual copy prompt:', err);
         // As a last fallback, show alert
-        try { alert('Automatic copy failed. Please copy the following text:\n\n' + text); } catch(e) {}
+        try { alert('Automatic copy failed. Please copy the following text:\n\n' + text); } catch (e) { }
       }
     }
 
@@ -292,14 +292,14 @@ export default defineContentScript({
 
             // Use centralized resilient clipboard helper
             try {
-                // If the sender requested the popup to close first (popup may steal focus),
-                // wait a short moment to increase the chance the document is focused.
-                if (message.payload && message.payload.waitForPopupClose) {
-                  console.log('[BMAD_CLIPBOARD] waitForPopupClose requested; delaying briefly to allow popup to close');
-                  await new Promise((r) => setTimeout(r, 250));
-                }
+              // If the sender requested the popup to close first (popup may steal focus),
+              // wait a short moment to increase the chance the document is focused.
+              if (message.payload && message.payload.waitForPopupClose) {
+                console.log('[BMAD_CLIPBOARD] waitForPopupClose requested; delaying briefly to allow popup to close');
+                await new Promise((r) => setTimeout(r, 250));
+              }
 
-                await copyTextToClipboard(message.payload.content);
+              await copyTextToClipboard(message.payload.content);
               return true;
             } catch (err) {
               console.error('[BMAD_CLIPBOARD] copyTextToClipboard failed unexpectedly:', err);
@@ -315,7 +315,7 @@ export default defineContentScript({
             payload: {
               message: error instanceof Error ? error.message : 'Content script operation failed',
             },
-          }).catch(() => {});
+          }).catch(() => { });
 
           return true;
         }

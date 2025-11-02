@@ -73,11 +73,11 @@ const DEFAULT_SETTINGS: Settings = {
 // =============================================================================
 
 export class Storage {
-  
+
   // ---------------------------------------------------------------------------
   // Settings Management
   // ---------------------------------------------------------------------------
-  
+
   static async getSettings(): Promise<Settings> {
     try {
       // Check if browser APIs are available
@@ -85,7 +85,7 @@ export class Storage {
         console.warn('[Storage] Browser storage not available, using defaults');
         return { ...DEFAULT_SETTINGS };
       }
-      
+
       const result = await browser.storage.local.get([STORAGE_KEYS.SETTINGS]);
       const stored = result[STORAGE_KEYS.SETTINGS];
 
@@ -138,7 +138,7 @@ export class Storage {
       return DEFAULT_SETTINGS;
     }
   }
-  
+
   static async updateSettings(updates: Partial<Settings>): Promise<void> {
     try {
       // Check if browser APIs are available
@@ -146,7 +146,7 @@ export class Storage {
         console.warn('[Storage] Browser storage not available, ignoring updates');
         return;
       }
-      
+
       const currentSettings = await this.getSettings();
       // Deep-merge for nested objects we manage (byok, privacy, templates)
       const { byok, privacy, templates, credits, user, trial, ...rest } = (updates || {}) as any;
@@ -183,7 +183,7 @@ export class Storage {
       throw error;
     }
   }
-  
+
   // ---------------------------------------------------------------------------\
   // API Key Management (plain storage)
   // ---------------------------------------------------------------------------
@@ -269,32 +269,32 @@ export class Storage {
   static async clearEncryptedApiKey(): Promise<void> {
     return this.clearApiKey();
   }
-  
+
   // ---------------------------------------------------------------------------
   // Telemetry Management (opt-in)
   // ---------------------------------------------------------------------------
-  
+
   static async recordTelemetry(event: TelemetryEvent): Promise<void> {
     try {
       const settings = await this.getSettings();
       if (!settings.privacy.telemetryEnabled) {
         return; // Telemetry disabled
       }
-      
+
       const result = await browser.storage.local.get([STORAGE_KEYS.TELEMETRY]);
       const events = result[STORAGE_KEYS.TELEMETRY] || [];
-      
+
       // Add new event
       events.push(event);
-      
+
       // Keep only last 1000 events to prevent storage bloat
-      const trimmedEvents = events.slice(-1000);      
+      const trimmedEvents = events.slice(-1000);
       await browser.storage.local.set(
         {
           [STORAGE_KEYS.TELEMETRY]: trimmedEvents,
         }
       );
-      
+
     } catch (error) {
       console.error('Failed to record telemetry:', error);
       // Don't throw - telemetry failures shouldn't break functionality
@@ -310,7 +310,7 @@ export class Storage {
       return [];
     }
   }
-  
+
   static async clearTelemetry(): Promise<void> {
     try {
       await browser.storage.local.remove([STORAGE_KEYS.TELEMETRY]);

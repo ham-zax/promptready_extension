@@ -401,19 +401,13 @@ export function usePopupController() {
 
         case 'EXPORT_COMPLETE':
           showToast(UI_MESSAGES.contentExported, 'success');
-          // Close popup after a delay so user can see the success message
-          setTimeout(() => {
-            try { window.close(); } catch { }
-          }, 800);
+          // Don't auto-close - let user see export options and decide when to close
           break;
 
         case 'COPY_COMPLETE':
           if (message.payload.success) {
             showToast(UI_MESSAGES.copiedToClipboard, 'success');
-            // Close popup after a delay so user can see the success message
-            setTimeout(() => {
-              try { window.close(); } catch { }
-            }, 800);
+            // Don't auto-close - let user see export options and decide when to close
           } else {
             // Popup-side fallback: attempt to write to clipboard directly from the popup
             (async () => {
@@ -494,7 +488,13 @@ export function usePopupController() {
       const key = state.apiKeyInput.trim();
       await Storage.setApiKey(key);
       const updated = await Storage.getSettings();
+
+      // Clear the input field after successful save
+      dispatch({ type: 'SET_APIKEY_INPUT', payload: { value: '' } });
+
+      // Update settings which will recalculate isPro and hasApiKey
       dispatch({ type: 'SETTINGS_UPDATED', payload: { settings: updated } });
+
       showToast(UI_MESSAGES.apiKeySaved, 'success');
     } catch (error) {
       console.error('Failed to save API key:', error);

@@ -115,7 +115,7 @@ export class EnhancedOffscreenProcessor {
       const { html, url, title, mode, customConfig, settings, selectionHash } = message.payload;
       this.sendProgress('Processing content...', 10, 'initialization');
       if (!html || html.trim().length === 0) throw new Error('No HTML content provided');
-      
+
       const optimalConfig = await OfflineModeManager.getOptimalConfig(url, settings);
       const finalConfig = { ...optimalConfig, ...customConfig };
 
@@ -157,7 +157,7 @@ export class EnhancedOffscreenProcessor {
     config: OfflineModeConfig
   ): Promise<ProcessingCompleteMessage['payload']> {
     this.sendProgress('Cleaning and preparing content...', 20, 'preprocessing');
-    
+
     const result = await OfflineModeManager.processContent(html, url, title, config);
     if (!result.success) {
       throw new Error(`Offline processing failed: ${result.errors.join(', ')}`);
@@ -189,60 +189,43 @@ export class EnhancedOffscreenProcessor {
       // Get API key from passed settings instead of storage (offscreen documents have limited API access)
       const apiKey = settings.byok?.apiKey || '';
 
-      let processedMarkdown: string;
-      let remainingCredits: number | undefined;
-
-      if (apiKey) {
-        // Use BYOK client if API key is available
-        this.sendProgress('Using BYOK for AI processing...', 40, 'byok-processing');
-        const byokResult = await BYOKClient.makeRequest(
-          { prompt: html, maxTokens: 4000, temperature: 0.7 }, // Use html as prompt
-          { apiBase: settings.byok.apiBase, apiKey: apiKey, model: settings.byok.model || settings.byok.selectedByokModel || 'anthropic/claude-3.5-sonnet' }
-        );
-        processedMarkdown = byokResult.content;
-        // BYOK does not return remaining credits, so it will be undefined
-      } else {
-        // Fallback to trial proxy
-        const userId = await getUserId();
-        // NOTE: This assumes the AI proxy is available at this relative path.
-        // In a real extension, this would be a full URL to the deployed function.
-        const response = await fetch('/api/process-ai', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: userId,
-            content: html,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json() as AIErrorResponse;
-          throw new Error(errorData.error || `AI service returned status ${response.status}`);
-        }
-
-        const result = await response.json() as AISuccessResponse;
-        processedMarkdown = result.content;
-        remainingCredits = result.remaining;
+      if (!apiKey) {
+        // No API key and no credit service available - inform user and fallback
+        console.warn('[AI Mode] No API key configured and no credit service available. Falling back to offline mode.');
+        this.sendProgress('No API key configured. Using offline mode...', 50, 'fallback');
+        return await this.processOfflineMode(html, url, title, config);
       }
+
+      // Use BYOK client if API key is available
+      this.sendProgress('Using your API key for AI processing...', 40, 'byok-processing');
+      const byokResult = await BYOKClient.makeRequest(
+        { prompt: html, maxTokens: 4000, temperature: 0.7 }, // Use html as prompt
+        {
+          apiBase: settings.byok.apiBase,
+          apiKey: apiKey,
+          model: settings.byok.model || settings.byok.selectedByokModel || 'anthropic/claude-3.5-sonnet'
+        }
+      );
+
+      const processedMarkdown = byokResult.content;
 
       this.sendProgress('Post-processing AI response...', 80, 'postprocessing');
       const postResult = MarkdownPostProcessor.process(processedMarkdown, {});
       const exportJson = this.generateStructuredExport(postResult, url, title);
 
-      this.sendComplete(postResult.markdown, exportJson, { title, url, remainingCredits }, {}, [], html);
-      
+      this.sendComplete(postResult.markdown, exportJson, { title, url }, {}, [], html);
+
       return {
         exportMd: postResult.markdown,
         exportJson,
-        metadata: { title, url, remainingCredits },
+        metadata: { title, url },
         stats: {},
         warnings: [],
         originalHtml: html,
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown AI processing error';
+      console.error('[AI Mode] Processing failed:', errorMessage);
       this.sendError(errorMessage, 'ai-processing');
       this.sendProgress('AI processing failed, falling back to offline mode...', 90, 'fallback');
       return await this.processOfflineMode(html, url, title, config);
@@ -283,7 +266,7 @@ export class EnhancedOffscreenProcessor {
 
         try {
           document.body.removeChild(ta);
-        } catch {}
+        } catch { }
 
         if (ok) {
           return { success: true, method: 'offscreen:execCommand' };
