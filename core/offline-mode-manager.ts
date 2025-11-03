@@ -448,6 +448,7 @@ export class OfflineModeManager {
 
   /**
    * Fallback content extraction when Readability fails
+   * Now uses ScoringEngine for better heuristic-based selection
    */
   private static async fallbackContentExtraction(html: string): Promise<string> {
     const doc = safeParseHTML(html);
@@ -469,7 +470,20 @@ export class OfflineModeManager {
       return semanticContent;
     }
   
-    // Fallback to body
+    // Try ScoringEngine to find best content element
+    try {
+      const { ScoringEngine } = await import('./scoring/scoring-engine.js');
+      const { bestCandidate } = ScoringEngine.findBestCandidate(doc.body);
+      if (bestCandidate && bestCandidate.element) {
+        console.log(`[OfflineModeManager] Using ScoringEngine result with score: ${bestCandidate.score}`);
+        const pruned = ScoringEngine.pruneNode(bestCandidate.element);
+        return pruned.innerHTML;
+      }
+    } catch (error) {
+      console.warn('[OfflineModeManager] ScoringEngine fallback failed:', error);
+    }
+  
+    // Final fallback to body
     const body = doc.body;
     if (body) {
       removeUnwantedElements(body, [

@@ -2,6 +2,8 @@
 // Based on Architecture Section 7 (Core Modules)
 
 import { FileNamingService } from '../lib/fileNaming.js';
+import GracefulDegradationPipeline from '../core/graceful-degradation-pipeline.js';
+import type { PipelineResult } from '../core/graceful-degradation-pipeline.js';
 
 export interface CaptureResult {
   html: string;
@@ -9,6 +11,7 @@ export interface CaptureResult {
   title: string;
   selectionHash: string;
   isSelection?: boolean;
+  pipelineMetadata?: PipelineResult;
 }
 
 export class ContentCapture {
@@ -171,7 +174,7 @@ export class ContentCapture {
 
   /**
    * Capture full page content (fallback when no selection)
-   * Uses similar logic to MarkDownload implementation
+   * Uses graceful degradation pipeline for robust content extraction
    */
   static async captureFullPage(): Promise<CaptureResult> {
     try {
@@ -187,35 +190,41 @@ export class ContentCapture {
         console.warn('[ContentCapture] markHiddenNodes failed during captureFullPage:', e);
       }
 
-      // Get the main content area
-      const article = document.querySelector('article, main, [role="main"]');
-      const content = article || document.body;
-      console.log('captureFullPage: Content element found:', !!content, 'Type:', content?.tagName);
+      // Use graceful degradation pipeline for robust extraction
+      console.log('captureFullPage: Executing graceful degradation pipeline...');
+      const pipelineResult = await GracefulDegradationPipeline.execute(document, {
+        debug: false,
+        enableStage1: true,
+        enableStage2: true,
+        enableStage3: true,
+      });
 
-      if (!content) {
-        throw new Error('No content found on the page.');
-      }
+      console.log(
+        `captureFullPage: Pipeline completed - Stage: ${pipelineResult.stage}, Quality: ${pipelineResult.qualityScore}/100`
+      );
 
-      // Clone the content to avoid modifying the original page
-      const clonedContent = content.cloneNode(true) as HTMLElement;
-      // New pre-clean step — run on the clone before any other processing
-      this.removeUnwantedTags(clonedContent);
+      // Clone extracted content to ensure it's safe to manipulate
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = pipelineResult.content;
+      this.removeUnwantedTags(tempDiv);
+      this.fixRelativeUrls(tempDiv, window.location.href);
 
-      // Fix relative URLs
-      this.fixRelativeUrls(clonedContent, window.location.href);
-
-      const html = clonedContent.innerHTML;
+      const html = tempDiv.innerHTML;
       console.log('captureFullPage: HTML content length:', html.length);
       console.log('captureFullPage: Generating selection hash...');
       const selectionHash = await FileNamingService.generateSelectionHash(html);
-      console.log('captureFullPage: Selection hash generated:', selectionHash.substring(0, 16) + '...');
+      console.log(
+        'captureFullPage: Selection hash generated:',
+        selectionHash.substring(0, 16) + '...'
+      );
 
-      const result = {
+      const result: CaptureResult = {
         html,
         url: window.location.href,
         title: this.extractPageTitle(),
         selectionHash,
         isSelection: false,
+        pipelineMetadata: pipelineResult,
       };
 
       console.log('captureFullPage: Capture completed successfully');
@@ -223,7 +232,6 @@ export class ContentCapture {
       console.log('captureFullPage: URL:', result.url);
 
       return result;
-
     } catch (error) {
       console.error('Full page capture failed:', error);
       throw error;

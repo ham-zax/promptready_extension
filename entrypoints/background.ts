@@ -281,7 +281,18 @@ class EnhancedContentProcessor {
         throw new Error('No content data provided');
       }
 
-      const { html, url, title } = message.payload;
+      const { html, url, title, pipelineMetadata } = message.payload;
+      
+      // Track pipeline metrics if available
+      if (pipelineMetadata) {
+        console.log(`[Pipeline] Extraction completed via: ${pipelineMetadata.stage}`);
+        console.log(`[Pipeline] Quality score: ${pipelineMetadata.qualityScore}/100`);
+        if (pipelineMetadata.fallbacksUsed.length > 0) {
+          console.log(`[Pipeline] Fallbacks used: ${pipelineMetadata.fallbacksUsed.join(' → ')}`);
+        }
+        console.log(`[Pipeline] Extraction time: ${pipelineMetadata.extractionTime}ms`);
+      }
+      
       // Determine originating tab id from sender (content scripts send messages with sender.tab)
       const originatingTabId = sender?.tab?.id || message.payload?.tabId;
       if (selectionHash && originatingTabId) {
@@ -317,6 +328,7 @@ class EnhancedContentProcessor {
           renderer: settings.renderer || 'turndown',
           customConfig: undefined, // TODO: Add offlineConfig to Settings interface if needed
           settings: settings, // Pass full settings to offscreen document
+          pipelineMetadata, // Pass through pipeline metadata
         },
       });
 
