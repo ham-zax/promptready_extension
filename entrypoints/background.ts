@@ -122,7 +122,7 @@ class EnhancedContentProcessor {
     this.captureDebounceTimer = setTimeout(async () => {
       try {
         const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-        
+
         if (!tab.id) {
           throw new Error('No active tab found');
         }

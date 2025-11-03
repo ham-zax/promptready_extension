@@ -12,7 +12,7 @@ export interface CaptureResult {
 }
 
 export class ContentCapture {
-  
+
   /**
    * Capture the current selection and page metadata
    * This is the content script's primary responsibility
@@ -26,13 +26,13 @@ export class ContentCapture {
       this.markHiddenNodes(document.documentElement);
 
       const selection = window.getSelection();
-      
+
       if (!selection || selection.rangeCount === 0) {
         // If no selection, try to capture the main content area
         console.log('No selection found, attempting to capture main content...');
         return await this.captureFullPage();
       }
-      
+
       // Build combined HTML of all ranges
       const tempDiv = document.createElement('div');
       for (let i = 0; i < selection.rangeCount; i++) {
@@ -47,26 +47,26 @@ export class ContentCapture {
 
         tempDiv.appendChild(wrapper);
       }
-      
+
       // Get the HTML content
       const html = tempDiv.innerHTML;
-      
+
       if (!html.trim()) {
         console.log('Selected content is empty, attempting to capture main content...');
         return await this.captureFullPage();
       }
-      
+
       // Fix relative URLs to absolute URLs before sending to service worker
       this.fixRelativeUrls(tempDiv, window.location.href);
       const processedHtml = tempDiv.innerHTML;
 
       // Generate selection hash for citation integrity (USE PROCESSED HTML)
       const selectionHash = await FileNamingService.generateSelectionHash(processedHtml);
-      
+
       // Get page metadata
       const title = this.extractPageTitle();
       const url = window.location.href;
-      
+
       return {
         html: processedHtml,
         url,
@@ -74,36 +74,36 @@ export class ContentCapture {
         selectionHash,
         isSelection: true,
       };
-      
+
     } catch (error) {
       console.error('Content capture failed:', error);
       throw error;
     }
   }
-  
+
   /**
    * Extract page title with fallbacks
    */
   private static extractPageTitle(): string {
     // Try document title first
     let title = document.title?.trim();
-    
+
     if (!title) {
       // Fallback to h1
       const h1 = document.querySelector('h1');
       title = h1?.textContent?.trim() || '';
     }
-    
+
     if (!title) {
       // Fallback to meta title
       const metaTitle = document.querySelector('meta[property="og:title"]');
       title = metaTitle?.getAttribute('content')?.trim() || '';
     }
-    
+
     // Final fallback
     return title || 'Untitled Page';
   }
-  
+
   /**
    * Fix relative URLs to absolute URLs
    * This ensures links and images work correctly in exports
@@ -117,7 +117,7 @@ export class ContentCapture {
           anchor.setAttribute('href', new URL(href, baseUrl).href);
         }
       });
-      
+
       // Fix image sources
       element.querySelectorAll('img[src]').forEach((img) => {
         const src = img.getAttribute('src');
@@ -125,7 +125,7 @@ export class ContentCapture {
           img.setAttribute('src', new URL(src, baseUrl).href);
         }
       });
-      
+
       // Fix video sources
       element.querySelectorAll('video[src]').forEach((video) => {
         const src = video.getAttribute('src');
@@ -133,7 +133,7 @@ export class ContentCapture {
           video.setAttribute('src', new URL(src, baseUrl).href);
         }
       });
-      
+
       // Fix source elements (inside video/audio)
       element.querySelectorAll('source[src]').forEach((source) => {
         const src = source.getAttribute('src');
@@ -141,13 +141,13 @@ export class ContentCapture {
           source.setAttribute('src', new URL(src, baseUrl).href);
         }
       });
-      
+
     } catch (error) {
       console.warn('Failed to fix some relative URLs:', error);
       // Don't throw - URL fixing is nice-to-have, not critical
     }
   }
-  
+
   /**
    * Check if URL is absolute
    */
@@ -159,7 +159,7 @@ export class ContentCapture {
       return false;
     }
   }
-  
+
   private static removeUnwantedTags(element: HTMLElement): void {
     const selectors = 'script, style, noscript, template, link[rel="stylesheet"]';
     try {
@@ -168,32 +168,83 @@ export class ContentCapture {
       console.warn('[ContentCapture] Failed to remove some unwanted tags:', e);
     }
   }
-  
+
   private static captureRedditPost(): string | null {
-    // Try Reddit's main post selectors
-    const postSelectors = [
-      '[data-test-id="post-content"]',
-      '.Post',
-      'shreddit-post',
-      '[slot="text-body"]',
-      '.RichTextJSON-root',
-      '[data-click-id="text"]',
-    ];
+    try {
+      const contentContainer = document.createElement('div');
 
-    for (const selector of postSelectors) {
-      const post = document.querySelector(selector);
-      if (post && post.textContent && post.textContent.length > 50) {
-        return post.innerHTML;
+      // Capture main post content
+      const postSelectors = [
+        '[data-test-id="post-content"]',
+        '.Post',
+        'shreddit-post',
+        '[slot="text-body"]',
+        '.RichTextJSON-root',
+        '[data-click-id="text"]',
+      ];
+
+      let postContent: Element | null = null;
+      for (const selector of postSelectors) {
+        postContent = document.querySelector(selector);
+        if (postContent && postContent.textContent && postContent.textContent.length > 50) {
+          console.log('[Reddit Capture] Found post content with selector:', selector);
+          contentContainer.appendChild(postContent.cloneNode(true));
+          break;
+        }
       }
-    }
 
-    // Fallback to article tag
-    const article = document.querySelector('article');
-    if (article) {
-      return article.innerHTML;
-    }
+      if (!postContent) {
+        // Fallback to article tag for post
+        const article = document.querySelector('article');
+        if (article) {
+          console.log('[Reddit Capture] Using article tag as fallback');
+          contentContainer.appendChild(article.cloneNode(true));
+        }
+      }
 
-    return null;
+      // Capture comments section
+      const commentSelectors = [
+        '#-post-rtjson-content',  // New Reddit comments container
+        'shreddit-comment-tree',  // Reddit comment tree web component
+        '[id^="t1_"]',            // Reddit comment IDs start with t1_
+        '.Comment',               // Old Reddit comment class
+        '.commentarea',           // Old Reddit comment area
+        '[data-test-id="comment"]', // Test ID for comments
+        'faceplate-batch shreddit-comment', // Another comment container
+      ];
+
+      // Try to capture all comments
+      for (const selector of commentSelectors) {
+        const comments = document.querySelectorAll(selector);
+        if (comments.length > 0) {
+          console.log(`[Reddit Capture] Found ${comments.length} comments with selector:`, selector);
+
+          // Create a comments section
+          const commentsSection = document.createElement('div');
+          commentsSection.innerHTML = '<hr><h2>Comments</h2>';
+
+          comments.forEach(comment => {
+            commentsSection.appendChild(comment.cloneNode(true));
+          });
+
+          contentContainer.appendChild(commentsSection);
+          break; // Found comments, no need to try other selectors
+        }
+      }
+
+      const finalHtml = contentContainer.innerHTML;
+
+      if (finalHtml && finalHtml.trim().length > 50) {
+        console.log(`[Reddit Capture] Captured total content length: ${finalHtml.length} characters`);
+        return finalHtml;
+      }
+
+      console.warn('[Reddit Capture] No significant content found');
+      return null;
+    } catch (error) {
+      console.error('[Reddit Capture] Error capturing Reddit content:', error);
+      return null;
+    }
   }
 
   /**
@@ -237,25 +288,25 @@ export class ContentCapture {
       const article = document.querySelector('article, main, [role="main"]');
       const content = article || document.body;
       console.log('captureFullPage: Content element found:', !!content, 'Type:', content?.tagName);
-      
+
       if (!content) {
         throw new Error('No content found on the page.');
       }
-      
+
       // Clone the content to avoid modifying the original page
       const clonedContent = content.cloneNode(true) as HTMLElement;
       // New pre-clean step — run on the clone before any other processing
       this.removeUnwantedTags(clonedContent);
-      
+
       // Fix relative URLs
       this.fixRelativeUrls(clonedContent, window.location.href);
-      
+
       const html = clonedContent.innerHTML;
       console.log('captureFullPage: HTML content length:', html.length);
       console.log('captureFullPage: Generating selection hash...');
       const selectionHash = await FileNamingService.generateSelectionHash(html);
       console.log('captureFullPage: Selection hash generated:', selectionHash.substring(0, 16) + '...');
-      
+
       const result = {
         html,
         url: window.location.href,
@@ -263,13 +314,13 @@ export class ContentCapture {
         selectionHash,
         isSelection: false,
       };
-      
+
       console.log('captureFullPage: Capture completed successfully');
       console.log('captureFullPage: Title:', result.title);
       console.log('captureFullPage: URL:', result.url);
-      
+
       return result;
-      
+
     } catch (error) {
       console.error('Full page capture failed:', error);
       throw error;
@@ -289,7 +340,7 @@ export namespace ContentCapture {
       if (!href || !href.startsWith(window.location.origin)) {
         baseEl.setAttribute('href', window.location.href);
       }
-    } catch {}
+    } catch { }
   }
 
   export function ensureTitle(): void {
@@ -301,7 +352,7 @@ export namespace ContentCapture {
         titleEl.innerText = document.title || window.location.hostname;
         head.appendChild(titleEl);
       }
-    } catch {}
+    } catch { }
   }
 
   export function addLatexToMathJax3(): void {
@@ -312,7 +363,7 @@ export namespace ContentCapture {
       for (const math of globalThis.MathJax.startup.document.math) {
         math.typesetRoot?.setAttribute?.('markdownload-latex', math.math);
       }
-    } catch {}
+    } catch { }
   }
 
   export function markHiddenNodes(root: Element): void {

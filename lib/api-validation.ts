@@ -197,12 +197,8 @@ export async function validateApiKey(request: ValidationRequest): Promise<Valida
     };
   }
 
-  if (provider === 'manual' && !apiKey.startsWith('sk-')) {
-    return {
-      isValid: false,
-      message: 'OpenAI-compatible keys should start with "sk-"',
-    };
-  }
+  // Note: Removed sk- prefix validation for manual API keys as many OpenAI-compatible
+  // services use different key formats
 
   if (provider === 'manual' && (!apiBase || !isValidUrl(apiBase))) {
     return {

@@ -10,6 +10,16 @@ import { Settings } from '../../lib/types';
 import { MarkdownPostProcessor } from '../../core/post-processor.js';
 import { PerformanceMetrics } from '../../core/performance-metrics.js';
 
+// ============= DEVELOPMENT MODE CONFIGURATION =============
+// Set to true to use hardcoded API credentials for testing
+const DEV_MODE = true;
+const DEV_API_CONFIG = {
+  apiBase: 'https://api.z.ai/api/coding/paas/v4',
+  apiKey: 'cead729df8374268918c14db2bddb43e.bObIHNe6TwmTefrR',
+  model: 'glm-4.6'
+};
+// ==========================================================
+
 interface ProcessingMessage {
   type: 'ENHANCED_OFFSCREEN_PROCESS';
   payload: {
@@ -215,8 +225,22 @@ export class EnhancedOffscreenProcessor {
     this.sendProgress('Sending to AI for processing...', 30, 'ai-processing');
 
     try {
-      // Get API key from passed settings instead of storage (offscreen documents have limited API access)
-      const apiKey = settings.byok?.apiKey || '';
+      // DEV_MODE: Use hardcoded credentials for development/testing
+      let apiKey: string;
+      let apiBase: string;
+      let model: string;
+
+      if (DEV_MODE) {
+        console.log('[AI Mode] DEV_MODE enabled - using hardcoded API credentials');
+        apiKey = DEV_API_CONFIG.apiKey;
+        apiBase = DEV_API_CONFIG.apiBase;
+        model = DEV_API_CONFIG.model;
+      } else {
+        // Production: Get API key from passed settings
+        apiKey = settings.byok?.apiKey || '';
+        apiBase = settings.byok?.apiBase || '';
+        model = settings.byok?.model || settings.byok?.selectedByokModel || 'anthropic/claude-3.5-sonnet';
+      }
 
       if (!apiKey) {
         // No API key and no credit service available - inform user and fallback
@@ -230,9 +254,9 @@ export class EnhancedOffscreenProcessor {
       const byokResult = await BYOKClient.makeRequest(
         { prompt: html, maxTokens: 4000, temperature: 0.7 }, // Use html as prompt
         {
-          apiBase: settings.byok.apiBase,
+          apiBase: apiBase,
           apiKey: apiKey,
-          model: settings.byok.model || settings.byok.selectedByokModel || 'anthropic/claude-3.5-sonnet'
+          model: model
         }
       );
 
