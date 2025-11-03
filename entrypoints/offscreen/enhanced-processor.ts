@@ -32,6 +32,7 @@ interface ProcessingMessage {
     renderer?: 'turndown' | 'structurer';
     customConfig?: Partial<OfflineModeConfig>;
     settings?: any; // Pass settings from background to avoid storage access issues
+    isAlreadyMarkdown?: boolean; // NEW: Skip Turndown if content is pre-formatted markdown
   };
 }
 
@@ -151,12 +152,17 @@ export class EnhancedOffscreenProcessor {
     EnhancedOffscreenProcessor.performance.recordProcessingSnapshot('offscreen_processing_start');
 
     try {
-      const { html, url, title, mode, customConfig, settings, selectionHash } = message.payload;
+      const { html, url, title, mode, customConfig, settings, selectionHash, isAlreadyMarkdown } = message.payload;
       this.sendProgress('Processing content...', 10, 'initialization');
       if (!html || html.trim().length === 0) throw new Error('No HTML content provided');
 
       const optimalConfig = await OfflineModeManager.getOptimalConfig(url, settings);
       const finalConfig = { ...optimalConfig, ...customConfig };
+      
+      // NEW: If content is already markdown, add a flag to skip Turndown
+      if (isAlreadyMarkdown) {
+        finalConfig.skipTurndown = true;
+      }
 
       let processingResult;
       if (mode === 'offline') {

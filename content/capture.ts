@@ -193,7 +193,7 @@ export class ContentCapture {
       // Use graceful degradation pipeline for robust extraction
       console.log('captureFullPage: Executing graceful degradation pipeline...');
       const pipelineResult = await GracefulDegradationPipeline.execute(document, {
-        debug: false,
+        debug: true,  // Enable debug to troubleshoot Reddit extraction
         enableStage1: true,
         enableStage2: true,
         enableStage3: true,

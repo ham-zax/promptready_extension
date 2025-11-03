@@ -66,6 +66,13 @@ const DEFAULT_SETTINGS: Settings = {
     trialEnabled: true,
     developerMode: false,  // Developer mode OFF by default
   },
+  ui: {
+    theme: 'auto',
+    animations: true,
+    compactMode: false,
+    keepPopupOpen: true,  // Keep popup open by default
+    autoCloseDelay: 3000, // 3 seconds delay
+  },
 };
 
 // =============================================================================

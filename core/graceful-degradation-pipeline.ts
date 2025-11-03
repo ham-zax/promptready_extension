@@ -4,11 +4,12 @@
 import { ReadabilityConfigManager } from './readability-config.js';
 import { ScoringEngine } from './scoring/scoring-engine.js';
 import { QualityGateValidator, type QualityGateResult } from './quality-gates.js';
+import { RedditShadowExtractor } from './reddit-shadow-extractor.js';
 import { Readability } from '@mozilla/readability';
 
 export interface PipelineResult {
   content: string;
-  stage: 'semantic' | 'readability' | 'heuristic';
+  stage: 'reddit-shadow' | 'semantic' | 'readability' | 'heuristic';
   qualityScore: number;
   qualityReport: string;
   fallbacksUsed: string[];
@@ -41,7 +42,7 @@ export class GracefulDegradationPipeline {
 
   /**
    * Execute the graceful degradation pipeline
-   * Tries stages in order: semantic → readability → heuristic
+   * Tries stages in order: reddit-shadow → semantic → readability → heuristic
    * Falls back to next stage if quality gate fails
    */
   static async execute(
@@ -52,11 +53,51 @@ export class GracefulDegradationPipeline {
     const finalConfig = { ...this.DEFAULT_CONFIG, ...config };
     const fallbacksUsed: string[] = [];
 
+    // Check for timeout violations
+    const checkTimeout = () => {
+      if (finalConfig.timeout > 0 && Date.now() - startTime > finalConfig.timeout) {
+        throw new Error(`Pipeline execution exceeded timeout of ${finalConfig.timeout}ms`);
+      }
+    };
+
     try {
+      // Stage 0: Reddit Shadow DOM (site-specific optimization)
+      console.log('[Pipeline] 🚀 Starting pipeline execution');
+      console.log('[Pipeline] 📍 URL:', document.location?.href || 'unknown');
+      console.log('[Pipeline] 🔧 Config:', finalConfig);
+      
+      const redditResult = RedditShadowExtractor.extractContent(document);
+      if (redditResult && redditResult.metadata.qualityScore >= finalConfig.minQualityScore) {
+        const elapsed = Date.now() - startTime;
+        console.log('[Pipeline] ✅ Stage 0 (Reddit Shadow) succeeded:', redditResult.metadata);
+        if (finalConfig.debug) {
+          console.log('[Pipeline] 📊 Reddit content length:', redditResult.content.length);
+        }
+        return {
+          content: redditResult.content,
+          stage: 'reddit-shadow',
+          qualityScore: redditResult.metadata.qualityScore,
+          qualityReport: `Reddit Shadow DOM extraction: ${redditResult.metadata.strategy}, depth: ${redditResult.metadata.shadowDomDepth}, score: ${redditResult.metadata.qualityScore}`,
+          fallbacksUsed,
+          extractionTime: elapsed,
+          metadata: this.extractMetadata(document),
+        };
+      } else if (redditResult) {
+        fallbacksUsed.push('reddit-shadow-low-quality');
+        console.log('[Pipeline] ⚠️  Stage 0 (Reddit Shadow) quality too low:', redditResult.metadata.qualityScore, '< minQualityScore:', finalConfig.minQualityScore);
+        if (finalConfig.debug) {
+          console.log('[Pipeline] Falling back to Stage 1 (Semantic)');
+        }
+      } else {
+        console.log('[Pipeline] ℹ️  Stage 0 (Reddit Shadow) returned null - not a Reddit page or no content found');
+      }
+
       // Stage 1: Semantic Query (strict gate: 60+)
       if (finalConfig.enableStage1) {
+        checkTimeout();
         const result = await this.executeStage1(document, finalConfig);
-        if (result.gateResult.passed) {
+        // Check both gate pass AND minQualityScore requirement
+        if (result.gateResult.passed && result.gateResult.score >= finalConfig.minQualityScore) {
           const elapsed = Date.now() - startTime;
           return {
             content: result.content,
@@ -73,7 +114,7 @@ export class GracefulDegradationPipeline {
           fallbacksUsed.push('semantic-gate-failed');
           if (finalConfig.debug) {
             console.log(
-              '[Pipeline] Stage 1 (Semantic) failed gate:',
+              '[Pipeline] Stage 1 (Semantic) failed gate or minQualityScore:',
               result.gateResult
             );
           }
@@ -82,8 +123,10 @@ export class GracefulDegradationPipeline {
 
       // Stage 2: Readability (medium gate: 40+)
       if (finalConfig.enableStage2) {
+        checkTimeout();
         const result = await this.executeStage2(document, finalConfig);
-        if (result.gateResult.passed) {
+        // Check both gate pass AND minQualityScore requirement
+        if (result.gateResult.passed && result.gateResult.score >= finalConfig.minQualityScore) {
           const elapsed = Date.now() - startTime;
           return {
             content: result.content,
@@ -100,7 +143,7 @@ export class GracefulDegradationPipeline {
           fallbacksUsed.push('readability-gate-failed');
           if (finalConfig.debug) {
             console.log(
-              '[Pipeline] Stage 2 (Readability) failed gate:',
+              '[Pipeline] Stage 2 (Readability) failed gate or minQualityScore:',
               result.gateResult
             );
           }
@@ -109,6 +152,7 @@ export class GracefulDegradationPipeline {
 
       // Stage 3: Heuristic Scoring (always passes - best effort)
       if (finalConfig.enableStage3) {
+        checkTimeout();
         const result = await this.executeStage3(document, finalConfig);
         fallbacksUsed.push('using-heuristic-fallback');
         const elapsed = Date.now() - startTime;

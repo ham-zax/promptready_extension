@@ -44,8 +44,9 @@ export default function RefactoredPopup() {
         // Check user preference for auto-close
         const checkAutoClose = async () => {
           const settings = await Storage.getSettings();
-          const keepOpen = settings.ui?.keepPopupOpen ?? false;
-          const delay = settings.ui?.autoCloseDelay ?? 2000;
+          // Default to keeping popup open (true) if setting doesn't exist
+          const keepOpen = settings.ui?.keepPopupOpen ?? true;
+          const delay = settings.ui?.autoCloseDelay ?? 3000;
 
           if (!keepOpen) {
             // Start countdown
@@ -61,6 +62,8 @@ export default function RefactoredPopup() {
                 return prev - 1;
               });
             }, 1000);
+          } else {
+            console.log('[Popup] Keeping popup open (keepPopupOpen:', keepOpen, ')');
           }
         };
 

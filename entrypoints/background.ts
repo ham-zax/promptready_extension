@@ -6,6 +6,7 @@ import { Storage } from '../lib/storage.js';
 
 import { ErrorHandler } from '../core/error-handler.js';
 import { ContentQualityValidator } from '../core/content-quality-validator.js';
+import { SessionMetricsStore } from '../core/metrics-session-store.js';
 
 export default defineBackground(() => {
   console.log('PromptReady Enhanced Background Service Worker initialized');
@@ -283,6 +284,10 @@ class EnhancedContentProcessor {
 
       const { html, url, title, pipelineMetadata } = message.payload;
       
+      // Check if content is already markdown (from Reddit or other pre-formatted sources)
+      const isAlreadyMarkdown = pipelineMetadata?.stage === 'reddit-shadow' || 
+                                 pipelineMetadata?.metadata?.isMarkdown === true;
+      
       // Track pipeline metrics if available
       if (pipelineMetadata) {
         console.log(`[Pipeline] Extraction completed via: ${pipelineMetadata.stage}`);
@@ -291,6 +296,16 @@ class EnhancedContentProcessor {
           console.log(`[Pipeline] Fallbacks used: ${pipelineMetadata.fallbacksUsed.join(' → ')}`);
         }
         console.log(`[Pipeline] Extraction time: ${pipelineMetadata.extractionTime}ms`);
+        
+        // Store metrics in session for analytics
+        await this.recordPipelineMetric({
+          stage: pipelineMetadata.stage,
+          qualityScore: pipelineMetadata.qualityScore,
+          fallbacksUsed: pipelineMetadata.fallbacksUsed,
+          extractionTime: pipelineMetadata.extractionTime,
+          url,
+          title,
+        });
       }
       
       // Determine originating tab id from sender (content scripts send messages with sender.tab)
@@ -329,12 +344,21 @@ class EnhancedContentProcessor {
           customConfig: undefined, // TODO: Add offlineConfig to Settings interface if needed
           settings: settings, // Pass full settings to offscreen document
           pipelineMetadata, // Pass through pipeline metadata
+          isAlreadyMarkdown, // NEW: Flag to skip Turndown for pre-formatted markdown
         },
       });
 
       // Handle the direct response
       if (!response.success) {
         throw new Error(response.error || 'Processing failed');
+      }
+
+      // Check performance overhead after processing
+      const perfMetrics = await import('../core/performance-metrics.js');
+      const perfInstance = perfMetrics.PerformanceMetrics.getInstance();
+      const overheadAcceptable = perfInstance.checkPerformanceOverhead();
+      if (!overheadAcceptable) {
+        console.warn('[Background] Performance overhead detected - consider optimizing pipeline');
       }
 
       // Process the successful result
@@ -940,6 +964,17 @@ class EnhancedContentProcessor {
     } catch (error: any) {
       console.error('Failed to clear cache:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Record pipeline metric to session store for analytics
+   */
+  private async recordPipelineMetric(metric: any): Promise<void> {
+    try {
+      await SessionMetricsStore.recordMetric(metric);
+    } catch (error: any) {
+      console.warn('[Background] Failed to record pipeline metric:', error);
     }
   }
 

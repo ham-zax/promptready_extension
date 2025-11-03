@@ -27,6 +27,7 @@ export interface OfflineModeConfig {
     enableTurndownFallback: boolean;
     maxRetries: number;
   };
+  skipTurndown?: boolean; // NEW: Skip Turndown conversion if content is already markdown
 }
 
 export interface OfflineProcessingResult {
@@ -186,29 +187,36 @@ export class OfflineModeManager {
       this.performance.captureMemorySnapshot('readability_complete');
       this.performance.recordProcessingSnapshot('readability_complete');
 
-      // Step 2: HTML to Markdown conversion
+      // Step 2: HTML to Markdown conversion (skip if already markdown)
       this.performance.captureMemorySnapshot('turndown_start');
       this.performance.recordProcessingSnapshot('turndown_start');
       let markdown: string;
 
       const turndownTimerId = this.performance.recordExtractionStart();
 
-      try {
-        const { TurndownConfigManager } = await import('./turndown-config.js');
-        const { result: turndownResult, duration: turndownDuration } = await this.performance.measureAsyncOperation(
-          'turndown_conversion',
-          () => TurndownConfigManager.convert(extractedContent, config.turndownPreset)
-        );
-        markdown = turndownResult;
-        console.log('[OfflineModeManager] Turndown conversion successful');
-      } catch (error) {
-        console.warn('[OfflineModeManager] Turndown conversion failed:', error);
-        if (config.fallbacks.enableTurndownFallback) {
-          markdown = await this.fallbackMarkdownConversion(extractedContent);
-          fallbacksUsed.push('turndown-fallback');
-          warnings.push('Used fallback markdown conversion');
-        } else {
-          throw error;
+      // NEW: Skip Turndown if content is already markdown (e.g., from Reddit extractor)
+      if (config.skipTurndown) {
+        console.log('[OfflineModeManager] Skipping Turndown - content is already markdown');
+        markdown = html; // Content is already markdown, use as-is
+        fallbacksUsed.push('pre-formatted-markdown');
+      } else {
+        try {
+          const { TurndownConfigManager } = await import('./turndown-config.js');
+          const { result: turndownResult, duration: turndownDuration } = await this.performance.measureAsyncOperation(
+            'turndown_conversion',
+            () => TurndownConfigManager.convert(extractedContent, config.turndownPreset)
+          );
+          markdown = turndownResult;
+          console.log('[OfflineModeManager] Turndown conversion successful');
+        } catch (error) {
+          console.warn('[OfflineModeManager] Turndown conversion failed:', error);
+          if (config.fallbacks.enableTurndownFallback) {
+            markdown = await this.fallbackMarkdownConversion(extractedContent);
+            fallbacksUsed.push('turndown-fallback');
+            warnings.push('Used fallback markdown conversion');
+          } else {
+            throw error;
+          }
         }
       }
 
@@ -875,11 +883,12 @@ export class OfflineModeManager {
 
     const title = metadata.title || 'Untitled Page';
     const url = metadata.url || '';
-    const date = metadata.capturedAt ? new Date(metadata.capturedAt).toLocaleDateString() : 'Unknown Date';
+    const date = metadata.capturedAt ? new Date(metadata.capturedAt).toISOString().split('T')[0] : 'Unknown Date';
+    const hash = metadata.selectionHash || 'N/A';
 
-    const citationFooter = `\n\n---\n*Cleaned from: [${title}](${url}) on ${date}*`;
+    const citationHeader = `> Source: [${title}](${url})\n> Captured: ${date}\n> Hash: ${hash}\n\n`;
 
-    return result + citationFooter;
+    return citationHeader + result;
   }
 
   // =============================================================================
