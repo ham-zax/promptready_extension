@@ -169,84 +169,6 @@ export class ContentCapture {
     }
   }
 
-  private static captureRedditPost(): string | null {
-    try {
-      const contentContainer = document.createElement('div');
-
-      // Capture main post content
-      const postSelectors = [
-        '[data-test-id="post-content"]',
-        '.Post',
-        'shreddit-post',
-        '[slot="text-body"]',
-        '.RichTextJSON-root',
-        '[data-click-id="text"]',
-      ];
-
-      let postContent: Element | null = null;
-      for (const selector of postSelectors) {
-        postContent = document.querySelector(selector);
-        if (postContent && postContent.textContent && postContent.textContent.length > 50) {
-          console.log('[Reddit Capture] Found post content with selector:', selector);
-          contentContainer.appendChild(postContent.cloneNode(true));
-          break;
-        }
-      }
-
-      if (!postContent) {
-        // Fallback to article tag for post
-        const article = document.querySelector('article');
-        if (article) {
-          console.log('[Reddit Capture] Using article tag as fallback');
-          contentContainer.appendChild(article.cloneNode(true));
-        }
-      }
-
-      // Capture comments section
-      const commentSelectors = [
-        '#-post-rtjson-content',  // New Reddit comments container
-        'shreddit-comment-tree',  // Reddit comment tree web component
-        '[id^="t1_"]',            // Reddit comment IDs start with t1_
-        '.Comment',               // Old Reddit comment class
-        '.commentarea',           // Old Reddit comment area
-        '[data-test-id="comment"]', // Test ID for comments
-        'faceplate-batch shreddit-comment', // Another comment container
-      ];
-
-      // Try to capture all comments
-      for (const selector of commentSelectors) {
-        const comments = document.querySelectorAll(selector);
-        if (comments.length > 0) {
-          console.log(`[Reddit Capture] Found ${comments.length} comments with selector:`, selector);
-
-          // Create a comments section
-          const commentsSection = document.createElement('div');
-          commentsSection.innerHTML = '<hr><h2>Comments</h2>';
-
-          comments.forEach(comment => {
-            commentsSection.appendChild(comment.cloneNode(true));
-          });
-
-          contentContainer.appendChild(commentsSection);
-          break; // Found comments, no need to try other selectors
-        }
-      }
-
-      const finalHtml = contentContainer.innerHTML;
-
-      if (finalHtml && finalHtml.trim().length > 50) {
-        console.log(`[Reddit Capture] Captured total content length: ${finalHtml.length} characters`);
-        return finalHtml;
-      }
-
-      console.warn('[Reddit Capture] No significant content found');
-      return null;
-    } catch (error) {
-      console.error('[Reddit Capture] Error capturing Reddit content:', error);
-      return null;
-    }
-  }
-
   /**
    * Capture full page content (fallback when no selection)
    * Uses similar logic to MarkDownload implementation
@@ -263,25 +185,6 @@ export class ContentCapture {
         this.markHiddenNodes(document.documentElement);
       } catch (e) {
         console.warn('[ContentCapture] markHiddenNodes failed during captureFullPage:', e);
-      }
-
-      // Reddit-specific capture
-      if (window.location.href.includes('reddit.com')) {
-        const redditContent = this.captureRedditPost();
-        if (redditContent) {
-          const clonedContent = document.createElement('div');
-          clonedContent.innerHTML = redditContent;
-          this.removeUnwantedTags(clonedContent);
-          this.fixRelativeUrls(clonedContent, window.location.href);
-
-          return {
-            html: clonedContent.innerHTML,
-            url: window.location.href,
-            title: this.extractPageTitle(),
-            selectionHash: await FileNamingService.generateSelectionHash(clonedContent.innerHTML),
-            isSelection: false,
-          };
-        }
       }
 
       // Get the main content area
