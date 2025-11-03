@@ -1,3 +1,9 @@
+---
+title: "Delta Matrix"
+description: "A delta matrix comparing the current implementation of the PromptReady extension against the requirements outlined in PRD v3.0."
+context: "This document provides a detailed breakdown of the features and epics, tracking their status (Implemented, In Progress, Not Implemented) against the product requirements. It serves as a tool for sprint planning and tracking progress."
+---
+
 # PromptReady PRD v3.0 Delta Matrix vs Current Implementation
 
 Status: Draft for review
@@ -105,5 +111,3 @@ Notes
 - Architecture: docs/architecture.md, docs/Architecture-Unified.md.md
 - Offline pipeline: docs/offline-capabilities-integration-guide.md
 - Rules engine: docs/rules_engine_spec.md
-
-

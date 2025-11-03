@@ -8,6 +8,12 @@
  * @returns Parsed Document or null if parsing fails
  */
 export function safeParseHTML(html: string, mimeType: string = 'text/html'): Document | null {
+  // Guard: Check if DOMParser is available (offscreen context only)
+  if (typeof DOMParser === 'undefined') {
+    console.error('[DOMUtils] DOMParser not available - must run in offscreen document context');
+    return null;
+  }
+
   try {
     if (!html || typeof html !== 'string') {
       console.warn('[DOMUtils] Invalid HTML input provided');

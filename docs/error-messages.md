@@ -1,3 +1,9 @@
+---
+title: "User-Facing Error Messages"
+description: "Canonical text for all user-facing error messages and confirmation dialogs within the PromptReady extension."
+context: "This document ensures a consistent and helpful tone in all user-facing error messages. It provides the titles, body text, and actions for various error conditions, such as API key validation failures, service capacity issues, and connection errors."
+---
+
 # PromptReady - User-Facing Error Messages v1.0
 
 *   **Status:** DRAFT

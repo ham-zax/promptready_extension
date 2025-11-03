@@ -8,6 +8,7 @@ import { OfflineModeManager, OfflineModeConfig } from '../../core/offline-mode-m
 import { BYOKClient } from '../../pro/byok-client';
 import { Settings } from '../../lib/types';
 import { MarkdownPostProcessor } from '../../core/post-processor.js';
+import { PerformanceMetrics } from '../../core/performance-metrics.js';
 
 interface ProcessingMessage {
   type: 'ENHANCED_OFFSCREEN_PROCESS';
@@ -66,6 +67,7 @@ interface ProcessingErrorMessage {
 export class EnhancedOffscreenProcessor {
   private static instance: EnhancedOffscreenProcessor | null = null;
   private isProcessing = false;
+  private static performance = PerformanceMetrics.getInstance();
 
   static getInstance(): EnhancedOffscreenProcessor {
     if (!this.instance) {
@@ -102,6 +104,28 @@ export class EnhancedOffscreenProcessor {
         return true; // async response
       }
 
+      // Handle performance analytics requests
+      if (message.type === 'GET_PERFORMANCE_ANALYTICS') {
+        OfflineModeManager.getPerformanceAnalytics()
+          .then(data => sendResponse({ success: true, data }))
+          .catch(err => sendResponse({
+            success: false,
+            error: err instanceof Error ? err.message : String(err)
+          }));
+        return true; // async response
+      }
+
+      // Handle real-time metrics requests
+      if (message.type === 'GET_REAL_TIME_METRICS') {
+        OfflineModeManager.getRealTimeMetrics()
+          .then(data => sendResponse({ success: true, data }))
+          .catch(err => sendResponse({
+            success: false,
+            error: err instanceof Error ? err.message : String(err)
+          }));
+        return true; // async response
+      }
+
       return false;
     });
   }
@@ -111,6 +135,11 @@ export class EnhancedOffscreenProcessor {
       throw new Error('Another processing operation is already in progress');
     }
     this.isProcessing = true;
+
+    // Initialize performance tracking for this session
+    EnhancedOffscreenProcessor.performance.captureMemorySnapshot('offscreen_processing_start');
+    EnhancedOffscreenProcessor.performance.recordProcessingSnapshot('offscreen_processing_start');
+
     try {
       const { html, url, title, mode, customConfig, settings, selectionHash } = message.payload;
       this.sendProgress('Processing content...', 10, 'initialization');

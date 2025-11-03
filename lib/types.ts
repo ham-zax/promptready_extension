@@ -74,6 +74,13 @@ export interface Settings {
   credits?: CreditsState;
   user?: UserState;
   trial?: TrialState;
+  ui?: {
+    theme: 'light' | 'dark' | 'auto';
+    animations: boolean;
+    compactMode: boolean;
+    keepPopupOpen: boolean;
+    autoCloseDelay: number; // milliseconds
+  };
 }
 
 

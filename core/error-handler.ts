@@ -267,6 +267,9 @@ export class ErrorHandler {
             throw new Error('No HTML input available');
           }
 
+          if (typeof document === 'undefined') {
+            throw new Error('Cannot create DOM element in this environment');
+          }
           // Create a temporary element for parsing
           const tempDiv = document.createElement('div');
           tempDiv.innerHTML = html;

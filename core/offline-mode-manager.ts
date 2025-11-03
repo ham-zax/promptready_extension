@@ -6,6 +6,7 @@ import { MarkdownPostProcessor } from './post-processor.js';
 import { Storage } from '../lib/storage.js';
 import { ExportMetadata } from '../lib/types.js';
 import { CacheManager } from '../lib/cache-manager.js';
+import { PerformanceMetrics } from './performance-metrics.js';
 import { safeParseHTML, extractSemanticContent, removeUnwantedElements, extractTextContent } from '../lib/dom-utils.js';
 
 export interface OfflineModeConfig {
@@ -45,7 +46,21 @@ export interface OfflineProcessingResult {
 }
 
 export class OfflineModeManager {
-  
+
+  // Performance metrics instance for real-time tracking
+  private static performance = PerformanceMetrics.getInstance();
+
+  // Real-time metrics tracking
+  private static activeSessions = new Map<string, {
+    startTime: number;
+    htmlLength: number;
+    config: OfflineModeConfig;
+    lastUpdate?: number;
+    qualityScore?: number;
+    markdownLength?: number;
+  }>();
+  private static readonly METRICS_UPDATE_INTERVAL = 500; // 500ms intervals
+
   private static readonly DEFAULT_CONFIG: OfflineModeConfig = {
     turndownPreset: 'standard',
     postProcessing: {
@@ -77,11 +92,23 @@ export class OfflineModeManager {
     title: string,
     customConfig?: Partial<OfflineModeConfig>
   ): Promise<OfflineProcessingResult> {
-    const startTime = performance.now();
+    const startTime = Date.now();
     const config = { ...this.DEFAULT_CONFIG, ...customConfig };
     const warnings: string[] = [];
     const errors: string[] = [];
     let fallbacksUsed: string[] = [];
+
+    // Initialize real-time tracking
+    const sessionId = this.generateSessionId();
+    this.activeSessions.set(sessionId, {
+      startTime,
+      htmlLength: html.length,
+      config
+    });
+
+    // Initialize performance tracking
+    this.performance.captureMemorySnapshot('processing_start');
+    this.performance.recordProcessingSnapshot('processing_start');
 
     try {
       console.log('[OfflineModeManager] Starting offline processing...');
@@ -89,10 +116,21 @@ export class OfflineModeManager {
       // Check cache first
       if (config.performance.enableCaching) {
         const cacheKey = await this.generateCacheKey(html, url, config);
-        const cached = await CacheManager.get(cacheKey);
+
+        // Track cache retrieval time
+        const { result: cached, duration: cacheTime } = await this.performance.measureAsyncOperation(
+          'cache_retrieval',
+          () => CacheManager.get(cacheKey)
+        );
+
         if (cached) {
+          this.performance.recordCacheHit(cacheTime);
+          this.performance.recordProcessingSnapshot('cache_hit', undefined, this.performance.getCacheMetrics());
           console.log('[OfflineModeManager] Returning cached result');
           return cached;
+        } else {
+          this.performance.recordCacheMiss();
+          this.performance.recordProcessingSnapshot('cache_miss', undefined, this.performance.getCacheMetrics());
         }
       }
 
@@ -107,7 +145,9 @@ export class OfflineModeManager {
       }
 
       // Step 1: Content extraction with Readability
-      const readabilityStart = performance.now();
+      this.performance.captureMemorySnapshot('readability_start');
+      this.performance.recordProcessingSnapshot('readability_start');
+      const readabilityTimerId = this.performance.recordExtractionStart();
       let extractedContent: string;
       let readabilityUsed = false;
 
@@ -121,8 +161,11 @@ export class OfflineModeManager {
           if (!doc) {
             throw new Error('Failed to parse HTML for Readability processing');
           }
-          const result = await ReadabilityConfigManager.extractContent(doc, url, readabilityConfig);
-          extractedContent = result.content;
+          const { result: extractionResult, duration: readabilityDuration } = await this.performance.measureAsyncOperation(
+            'readability_extraction',
+            () => ReadabilityConfigManager.extractContent(doc, url, readabilityConfig)
+          );
+          extractedContent = extractionResult.content;
           readabilityUsed = true;
           console.log('[OfflineModeManager] Readability extraction successful');
         } else {
@@ -139,15 +182,24 @@ export class OfflineModeManager {
         }
       }
 
-      const readabilityTime = performance.now() - readabilityStart;
+      const readabilityTime = this.performance.endTimer(readabilityTimerId);
+      this.performance.captureMemorySnapshot('readability_complete');
+      this.performance.recordProcessingSnapshot('readability_complete');
 
       // Step 2: HTML to Markdown conversion
-      const turndownStart = performance.now();
+      this.performance.captureMemorySnapshot('turndown_start');
+      this.performance.recordProcessingSnapshot('turndown_start');
       let markdown: string;
+
+      const turndownTimerId = this.performance.recordExtractionStart();
 
       try {
         const { TurndownConfigManager } = await import('./turndown-config.js');
-        markdown = await TurndownConfigManager.convert(extractedContent, config.turndownPreset);
+        const { result: turndownResult, duration: turndownDuration } = await this.performance.measureAsyncOperation(
+          'turndown_conversion',
+          () => TurndownConfigManager.convert(extractedContent, config.turndownPreset)
+        );
+        markdown = turndownResult;
         console.log('[OfflineModeManager] Turndown conversion successful');
       } catch (error) {
         console.warn('[OfflineModeManager] Turndown conversion failed:', error);
@@ -160,26 +212,38 @@ export class OfflineModeManager {
         }
       }
 
-      const turndownTime = performance.now() - turndownStart;
+      const turndownTime = this.performance.endTimer(turndownTimerId);
+      this.performance.captureMemorySnapshot('turndown_complete');
+      this.performance.recordProcessingSnapshot('turndown_complete');
 
       // Step 3: Post-processing
-      const postProcessingStart = performance.now();
+      this.performance.captureMemorySnapshot('post_processing_start');
+      this.performance.recordProcessingSnapshot('post_processing_start');
       let processedMarkdown = markdown;
+      let postProcessingTime = 0;
+
+      const postProcessingTimerId = this.performance.recordExtractionStart();
 
       if (config.postProcessing.enabled) {
         try {
           const postProcessingOptions = this.getPostProcessingOptions(config);
-          const result = MarkdownPostProcessor.process(processedMarkdown, postProcessingOptions);
-          processedMarkdown = result.markdown;
-          warnings.push(...result.warnings);
-          console.log(`[OfflineModeManager] Post-processing completed with ${result.improvements.length} improvements`);
+          const { result: postResult, duration: postProcessingDuration } = await this.performance.measureAsyncOperation(
+            'post_processing',
+            () => Promise.resolve(MarkdownPostProcessor.process(processedMarkdown, postProcessingOptions))
+          );
+          processedMarkdown = postResult.markdown;
+          postProcessingTime = postProcessingDuration;
+          warnings.push(...postResult.warnings);
+          console.log(`[OfflineModeManager] Post-processing completed with ${postResult.improvements.length} improvements`);
         } catch (error) {
           console.warn('[OfflineModeManager] Post-processing failed:', error);
           warnings.push('Post-processing failed, using raw markdown');
         }
       }
 
-      const postProcessingTime = performance.now() - postProcessingStart;
+      postProcessingTime = this.performance.endTimer(postProcessingTimerId);
+      this.performance.captureMemorySnapshot('post_processing_complete');
+      this.performance.recordProcessingSnapshot('post_processing_complete');
 
       // Step 4: Generate metadata and insert cite-first block
       const selectionHash = await this.generateCacheKey(html, url, config);
@@ -189,7 +253,46 @@ export class OfflineModeManager {
       // Step 5: Quality assessment
       const qualityScore = this.assessQuality(processedMarkdown, html, warnings, errors);
 
-      const totalTime = performance.now() - startTime;
+      const totalTime = Date.now() - startTime;
+
+      // Record comprehensive extraction metrics
+      const extractionMetrics = this.performance.recordExtractionComplete(
+        readabilityTime,
+        turndownTime,
+        postProcessingTime,
+        html.length,
+        extractedContent.length,
+        processedMarkdown.length,
+        fallbacksUsed
+      );
+
+      // Record quality metrics
+      const qualityMetrics = this.performance.recordQualityMetrics(
+        qualityScore,
+        this.calculateStructurePreservation(html, processedMarkdown),
+        this.calculateReadabilityScore(processedMarkdown),
+        warnings.length,
+        errors.length
+      );
+
+      // Record successful extraction
+      this.performance.recordExtraction({
+        extractionTime: totalTime,
+        contentLength: html.length,
+        contentQuality: qualityScore,
+        charThreshold: html.length > config.performance.maxContentLength ? 'truncated' : 'within_limit',
+        presetUsed: config.readabilityPreset || 'auto',
+        timestamp: Date.now(),
+      });
+
+      // Final performance snapshot
+      this.performance.captureMemorySnapshot('processing_complete');
+      this.performance.recordProcessingSnapshot(
+        'processing_complete',
+        extractionMetrics,
+        this.performance.getCacheMetrics(),
+        qualityMetrics
+      );
 
       const result: OfflineProcessingResult = {
         success: true,
@@ -213,20 +316,51 @@ export class OfflineModeManager {
         await CacheManager.set(cacheKey, result, this.DEFAULT_CACHE_TTL_HOURS);
       }
 
+      // Update real-time session tracking
+      this.updateSessionMetrics(sessionId, {
+        totalTime,
+        qualityScore,
+        warningsCount: warnings.length,
+        errorsCount: errors.length,
+        markdownLength: processedMarkdown.length
+      });
+
       console.log(`[OfflineModeManager] Processing completed in ${totalTime.toFixed(2)}ms`);
       return result;
 
-    } catch (error) {
+        } catch (error) {
       console.error('[OfflineModeManager] Processing failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       errors.push(errorMessage);
+
+      // Record failure metrics
+      this.performance.recordExtractionFailure();
+      this.performance.captureMemorySnapshot('processing_error');
+
+      const totalTime = performance.now() - startTime;
+
+      // Record quality metrics even for failures
+      const qualityMetrics = this.performance.recordQualityMetrics(
+        0, // Failed extraction gets 0 quality score
+        0, // No structure preservation for failure
+        0, // No readability score for failure
+        warnings.length,
+        errors.length
+      );
+
+      this.performance.recordProcessingSnapshot(
+        'processing_error',
+        undefined,
+        this.performance.getCacheMetrics(),
+        qualityMetrics
+      );
 
       return {
         success: false,
         markdown: '',
         metadata: this.generateMetadata(title, url, 'error-' + Date.now()),
         processingStats: {
-          totalTime: performance.now() - startTime,
+          totalTime,
           readabilityTime: 0,
           turndownTime: 0,
           postProcessingTime: 0,
@@ -247,8 +381,19 @@ export class OfflineModeManager {
     const actualSettings = settings || await Storage.getSettings();
     const baseConfig = { ...this.DEFAULT_CONFIG };
 
-    // Detect content type and adjust configuration
-    if (url.includes('github.com') || url.includes('docs.') || url.includes('api.')) {
+    // Reddit-specific configuration
+    if (url.includes('reddit.com')) {
+      baseConfig.readabilityPreset = 'reddit-post';
+      baseConfig.turndownPreset = 'standard';
+      baseConfig.postProcessing = {
+        ...baseConfig.postProcessing,
+        addTableOfContents: false,
+        optimizeForPlatform: 'standard',
+      };
+      console.log('[OfflineModeManager] Using Reddit-specific configuration');
+    }
+    // GitHub configuration
+    else if (url.includes('github.com') || url.includes('docs.') || url.includes('api.')) {
       baseConfig.readabilityPreset = 'technical-documentation';
       baseConfig.turndownPreset = 'github';
       baseConfig.postProcessing.optimizeForPlatform = 'github';
@@ -307,23 +452,39 @@ export class OfflineModeManager {
   private static async fallbackContentExtraction(html: string): Promise<string> {
     const doc = safeParseHTML(html);
     if (!doc) {
-      return html; // Return original HTML if parsing fails
+      return html;
     }
-
-    // Try semantic elements first using centralized utility
+  
+    // For npm pages, look for README specifically
+    if (doc.querySelector('[data-testid="readme"]')) {
+      const readme = doc.querySelector('[data-testid="readme"]');
+      if (readme) {
+        return readme.innerHTML;
+      }
+    }
+  
+    // Try semantic elements first
     const semanticContent = extractSemanticContent(doc, 500);
     if (semanticContent) {
       return semanticContent;
     }
-
-    // Fallback to body content with basic cleaning
+  
+    // Fallback to body
     const body = doc.body;
     if (body) {
-      // Remove obvious noise using centralized utility
-      removeUnwantedElements(body, ['.ad', '.advertisement']);
+      removeUnwantedElements(body, [
+        '.ad', 
+        '.advertisement',
+        'nav',
+        'header',
+        'footer',
+        '[role="navigation"]',
+        '[role="banner"]',
+        '[role="contentinfo"]'
+      ]);
       return body.innerHTML;
     }
-
+  
     return html;
   }
 
@@ -440,6 +601,86 @@ export class OfflineModeManager {
     if (markdown.match(/\n{4,}/)) score -= 10; // Excessive whitespace
 
     return Math.max(0, Math.min(100, score));
+  }
+
+  /**
+   * Calculate structure preservation score
+   */
+  private static calculateStructurePreservation(originalHtml: string, processedMarkdown: string): number {
+    let score = 100;
+
+    // Check heading preservation
+    const originalHeadings = (originalHtml.match(/<h[1-6][^>]*>/gi) || []).length;
+    const processedHeadings = (processedMarkdown.match(/^#{1,6}\s/gm) || []).length;
+
+    if (originalHeadings > 0) {
+      const headingPreservationRatio = processedHeadings / originalHeadings;
+      if (headingPreservationRatio < 0.8) score -= 30;
+      else if (headingPreservationRatio < 0.9) score -= 15;
+    }
+
+    // Check list preservation
+    const originalLists = (originalHtml.match(/<[ou]l[^>]*>/gi) || []).length;
+    const processedLists = (processedMarkdown.match(/^[\s]*[-*+]\s|^[\s]*\d+\.\s/gm) || []).length;
+
+    if (originalLists > 0) {
+      const listPreservationRatio = processedLists / originalLists;
+      if (listPreservationRatio < 0.8) score -= 20;
+      else if (listPreservationRatio < 0.9) score -= 10;
+    }
+
+    // Check table preservation
+    const originalTables = (originalHtml.match(/<table[^>]*>/gi) || []).length;
+    const processedTables = (processedMarkdown.match(/\|.*\|/g) || []).length;
+
+    if (originalTables > 0 && processedTables === 0) {
+      score -= 25;
+    }
+
+    return Math.max(0, score);
+  }
+
+  /**
+   * Calculate readability score for processed markdown
+   */
+  private static calculateReadabilityScore(markdown: string): number {
+    let score = 100;
+
+    // Penalize excessive HTML content
+    const htmlTags = markdown.match(/<[^>]+>/g) || [];
+    if (htmlTags.length > 5) score -= htmlTags.length * 2;
+
+    // Check for proper markdown formatting
+    const lines = markdown.split('\n');
+    let emptyLineCount = 0;
+    let consecutiveEmptyLines = 0;
+    let maxConsecutiveEmpty = 0;
+
+    for (const line of lines) {
+      if (line.trim() === '') {
+        emptyLineCount++;
+        consecutiveEmptyLines++;
+        maxConsecutiveEmpty = Math.max(maxConsecutiveEmpty, consecutiveEmptyLines);
+      } else {
+        consecutiveEmptyLines = 0;
+      }
+    }
+
+    // Penalize excessive whitespace
+    if (maxConsecutiveEmpty > 3) score -= 15;
+    if (emptyLineCount / lines.length > 0.3) score -= 10;
+
+    // Check for balanced markdown elements
+    const headings = (markdown.match(/^#{1,6}\s/gm) || []).length;
+    const paragraphs = markdown.split(/\n\s*\n/).length;
+
+    if (headings > 0 && paragraphs > 0) {
+      const headingToParagraphRatio = headings / Math.min(headings + paragraphs, 10);
+      if (headingToParagraphRatio > 0.5) score -= 10; // Too many headings
+      else if (headingToParagraphRatio < 0.1) score -= 5; // Too few headings
+    }
+
+    return Math.max(0, score);
   }
 
   /**
@@ -625,5 +866,370 @@ export class OfflineModeManager {
     const citationFooter = `\n\n---\n*Cleaned from: [${title}](${url}) on ${date}*`;
 
     return result + citationFooter;
+  }
+
+  // =============================================================================
+  // Performance Metrics Public API
+  // =============================================================================
+
+  /**
+   * Get current performance metrics summary
+   */
+  static getPerformanceMetrics() {
+    return this.performance.getMetricsSummary();
+  }
+
+  /**
+   * Generate comprehensive performance report
+   */
+  static generatePerformanceReport() {
+    return this.performance.generateReport();
+  }
+
+  /**
+   * Check if performance monitoring overhead is acceptable
+   */
+  static checkPerformanceOverhead() {
+    return this.performance.checkPerformanceOverhead();
+  }
+
+  /**
+   * Reset performance metrics for new session
+   */
+  static resetPerformanceMetrics() {
+    this.performance.reset();
+  }
+
+  /**
+   * Get performance session ID
+   */
+  static getPerformanceSessionId() {
+    return this.performance.getSessionId();
+  }
+
+  /**
+   * Get cache statistics with performance tracking
+   */
+  static async getEnhancedCacheStats(): Promise<{
+    size: number;
+    totalSize: number;
+    oldestEntry: number;
+    newestEntry: number;
+    hitRate: number;
+    averageRetrievalTime: number;
+    performanceGrade: string;
+  }> {
+    const basicStats = await this.getCacheStats();
+    const performanceMetrics = this.performance.getCacheMetrics();
+
+    // Calculate performance grade
+    let performanceGrade = 'A';
+    if (performanceMetrics.hitRate < 0.3 || performanceMetrics.averageRetrievalTime > 100) {
+      performanceGrade = 'D';
+    } else if (performanceMetrics.hitRate < 0.5 || performanceMetrics.averageRetrievalTime > 50) {
+      performanceGrade = 'C';
+    } else if (performanceMetrics.hitRate < 0.7 || performanceMetrics.averageRetrievalTime > 25) {
+      performanceGrade = 'B';
+    }
+
+    return {
+      ...basicStats,
+      ...performanceMetrics,
+      performanceGrade
+    };
+  }
+
+  /**
+   * Analyze processing performance trends
+   */
+  static getProcessingTrends() {
+    const report = this.performance.generateReport();
+
+    return {
+      pipelineEfficiency: report.pipelinePerformance,
+      bottlenecks: this.identifyBottlenecks(report),
+      optimizationOpportunities: report.recommendations,
+      memoryHealth: report.memoryEfficiency,
+      qualityTrends: report.qualityAssessment
+    };
+  }
+
+  /**
+   * Identify performance bottlenecks
+   */
+  private static identifyBottlenecks(report: any): string[] {
+    const bottlenecks: string[] = [];
+
+    // Check pipeline stages
+    const { readability, turndown, postProcessing } = report.pipelinePerformance;
+
+    if (readability.avg > 500) {
+      bottlenecks.push('Readability extraction is slow (>500ms average)');
+    }
+
+    if (turndown.avg > 300) {
+      bottlenecks.push('Turndown conversion is slow (>300ms average)');
+    }
+
+    if (postProcessing.avg > 200) {
+      bottlenecks.push('Post-processing is slow (>200ms average)');
+    }
+
+    // Check memory
+    if (report.memoryEfficiency.peakUsage > 85) {
+      bottlenecks.push('High memory usage detected (>85% of heap)');
+    }
+
+    if (report.memoryEfficiency.leakDetection) {
+      bottlenecks.push('Potential memory leak detected');
+    }
+
+    return bottlenecks;
+  }
+
+  // =============================================================================
+  // Real-Time Performance Tracking Methods
+  // =============================================================================
+
+  /**
+   * Generate unique session ID for tracking
+   */
+  private static generateSessionId(): string {
+    return `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }
+
+  /**
+   * Update session metrics with real-time data
+   */
+  private static updateSessionMetrics(sessionId: string, metrics: {
+    totalTime: number;
+    qualityScore: number;
+    warningsCount: number;
+    errorsCount: number;
+    markdownLength: number;
+  }): void {
+    const session = this.activeSessions.get(sessionId);
+    if (session) {
+      // Store session metrics for real-time access
+      this.activeSessions.set(sessionId, {
+        ...session,
+        ...metrics,
+        lastUpdate: Date.now()
+      });
+    }
+  }
+
+  /**
+   * Get current active session metrics
+   */
+  static getCurrentSessionMetrics(): {
+    activeSessions: number;
+    averageProcessingTime: number;
+    averageQualityScore: number;
+    totalProcessedContent: number;
+    recentSessions: Array<{
+      id: string;
+      duration: number;
+      qualityScore: number;
+      status: 'completed' | 'failed' | 'active';
+    }>;
+  } {
+    const sessions = Array.from(this.activeSessions.values());
+    const activeSessions = sessions.filter(s => !s.lastUpdate || (Date.now() - s.lastUpdate) < 30000); // Active within 30s
+
+    const averageProcessingTime = sessions.length > 0
+      ? sessions.reduce((sum, s) => sum + (s.lastUpdate ? s.lastUpdate - s.startTime : 0), 0) / sessions.length
+      : 0;
+
+    const averageQualityScore = sessions.length > 0
+      ? sessions.reduce((sum, s) => sum + (s.qualityScore || 0), 0) / sessions.length
+      : 0;
+
+    const totalProcessedContent = sessions.reduce((sum, s) => sum + (s.markdownLength || 0), 0);
+
+    const recentSessions = sessions.slice(-10).map((s, index) => ({
+      id: `session_${index}`,
+      duration: s.lastUpdate ? s.lastUpdate - s.startTime : 0,
+      qualityScore: s.qualityScore || 0,
+      status: (s.lastUpdate ? 'completed' : 'active') as 'completed' | 'failed' | 'active'
+    }));
+
+    return {
+      activeSessions: activeSessions.length,
+      averageProcessingTime,
+      averageQualityScore,
+      totalProcessedContent,
+      recentSessions
+    };
+  }
+
+  /**
+   * Get real-time performance stream for monitoring
+   */
+  static async getRealTimeMetrics(): Promise<{
+    timestamp: number;
+    activeProcessingSessions: number;
+    currentMemoryUsage?: number;
+    cachePerformance: any;
+    processingTrends: any;
+    systemHealth: 'optimal' | 'warning' | 'critical';
+    recommendations: string[];
+  }> {
+    const sessionMetrics = this.getCurrentSessionMetrics();
+    const cacheMetrics = this.performance.getCacheMetrics();
+    const memoryEfficiency = this.performance.getMemoryEfficiency();
+
+    // Determine system health
+    let systemHealth: 'optimal' | 'warning' | 'critical' = 'optimal';
+    const recommendations: string[] = [];
+
+    if (sessionMetrics.averageProcessingTime > 1000) {
+      systemHealth = 'critical';
+      recommendations.push('Processing times are exceeding 1 second - optimization needed');
+    } else if (sessionMetrics.averageProcessingTime > 500) {
+      systemHealth = 'warning';
+      recommendations.push('Processing times are elevated - monitor closely');
+    }
+
+    if (cacheMetrics.hitRate < 60) {
+      systemHealth = systemHealth === 'critical' ? 'critical' : 'warning';
+      recommendations.push('Cache hit rate below 60% - review cache strategy');
+    }
+
+    if (memoryEfficiency.leakDetection) {
+      systemHealth = 'critical';
+      recommendations.push('Memory leak detected - immediate investigation required');
+    }
+
+    return {
+      timestamp: Date.now(),
+      activeProcessingSessions: sessionMetrics.activeSessions,
+      currentMemoryUsage: memoryEfficiency.currentUsage,
+      cachePerformance: cacheMetrics,
+      processingTrends: sessionMetrics,
+      systemHealth,
+      recommendations
+    };
+  }
+
+  /**
+   * Start real-time metrics monitoring (call from background script)
+   */
+  static startRealTimeMonitoring(): {
+    stop: () => void;
+    getMetrics: () => Promise<any>;
+  } {
+    let monitoringInterval: NodeJS.Timeout;
+
+    const startMonitoring = () => {
+      console.log('[OfflineModeManager] Starting real-time performance monitoring');
+
+      monitoringInterval = setInterval(async () => {
+        try {
+          const metrics = await this.getRealTimeMetrics();
+
+          // Broadcast to extension components for dashboard updates
+          if (typeof browser !== 'undefined' && browser.runtime) {
+            browser.runtime.sendMessage({
+              type: 'PERFORMANCE_METRICS_UPDATE',
+              payload: metrics
+            }).catch(() => {
+              // Silently ignore if no receivers
+            });
+          }
+
+          // Log significant events
+          if (metrics.systemHealth === 'critical') {
+            console.warn('[OfflineModeManager] Critical performance issue detected:', metrics.recommendations);
+          }
+        } catch (error) {
+          console.error('[OfflineModeManager] Real-time monitoring error:', error);
+        }
+      }, this.METRICS_UPDATE_INTERVAL);
+    };
+
+    const stopMonitoring = () => {
+      if (monitoringInterval) {
+        clearInterval(monitoringInterval);
+        console.log('[OfflineModeManager] Real-time monitoring stopped');
+      }
+    };
+
+    const getMetrics = async () => {
+      return await this.getRealTimeMetrics();
+    };
+
+    // Auto-start monitoring
+    startMonitoring();
+
+    return { stop: stopMonitoring, getMetrics };
+  }
+
+  /**
+   * Get performance analytics for dashboard
+   */
+  static async getPerformanceAnalytics(): Promise<{
+    overview: {
+      totalSessions: number;
+      averageProcessingTime: number;
+      averageQualityScore: number;
+      successRate: number;
+    };
+    timeline: Array<{
+      timestamp: number;
+      processingTime: number;
+      qualityScore: number;
+      sessionType: string;
+    }>;
+    cacheAnalytics: {
+      hitRate: number;
+      totalRequests: number;
+      averageRetrievalTime: number;
+    };
+    systemHealth: {
+      status: 'optimal' | 'warning' | 'critical';
+      issues: string[];
+    };
+    recommendations: string[];
+  }> {
+    const sessionMetrics = this.getCurrentSessionMetrics();
+    const cacheMetrics = this.performance.getCacheMetrics();
+    const performanceReport = this.performance.generateReport();
+
+    // Calculate success rate
+    const totalSessions = this.activeSessions.size;
+    const successfulSessions = Array.from(this.activeSessions.values()).filter(s => s.qualityScore && s.qualityScore > 50).length;
+    const successRate = totalSessions > 0 ? (successfulSessions / totalSessions) * 100 : 0;
+
+    // Generate timeline data
+    const timeline = Array.from(this.activeSessions.entries()).slice(-20).map(([id, session]) => ({
+      timestamp: session.startTime,
+      processingTime: session.lastUpdate ? session.lastUpdate - session.startTime : 0,
+      qualityScore: session.qualityScore || 0,
+      sessionType: session.config.readabilityPreset || 'standard'
+    }));
+
+    // System health analysis
+    const systemHealth: {
+      status: 'optimal' | 'warning' | 'critical';
+      issues: string[];
+    } = {
+      status: performanceReport.recommendations.length > 3 ? 'critical' :
+                performanceReport.recommendations.length > 1 ? 'warning' : 'optimal',
+      issues: performanceReport.recommendations
+    };
+
+    return {
+      overview: {
+        totalSessions,
+        averageProcessingTime: sessionMetrics.averageProcessingTime,
+        averageQualityScore: sessionMetrics.averageQualityScore,
+        successRate
+      },
+      timeline,
+      cacheAnalytics: cacheMetrics,
+      systemHealth,
+      recommendations: performanceReport.recommendations
+    };
   }
 }

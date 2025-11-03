@@ -207,6 +207,41 @@ export class ReadabilityConfigManager {
         /wikia\.com/,
       ],
     },
+    {
+      name: 'npm-package',
+      description: 'Optimized for npm package pages',
+      config: {
+        ...ReadabilityConfigManager.DEFAULT_CONFIG,
+        charThreshold: 200,
+        keepClasses: true,
+        classesToPreserve: [
+            ...ReadabilityConfigManager.DEFAULT_CONFIG.classesToPreserve,
+            'markdown', 
+            'readme', 
+            'code'
+        ],
+      },
+      urlPatterns: [/npmjs\.com/, /www\.npmjs\.org/],
+    },
+    {
+      name: 'reddit-post',
+      description: 'Optimized for Reddit posts and comments',
+      config: {
+        ...ReadabilityConfigManager.DEFAULT_CONFIG,
+        charThreshold: 200,
+        keepClasses: true,
+        classesToPreserve: [
+          ...ReadabilityConfigManager.DEFAULT_CONFIG.classesToPreserve,
+          'Post',
+          'Comment',
+          'RichTextJSON-root',
+          '_1qeIAgB0cPwnLhDF9XSiJM', // Reddit's dynamic class names
+          '_3Im6OD67aKo33nql4FpSp_', // Comment content
+          'md', // Markdown class
+        ],
+      },
+      urlPatterns: [/reddit\.com\/r\//, /www\.reddit\.com/],
+    },
   ];
 
   /**

@@ -17,6 +17,7 @@ import { ProUpgradePrompt } from './components/ProUpgradePrompt';
 import { CreditExhaustedPrompt } from './components/CreditExhaustedPrompt';
 import { Storage } from '@/lib/storage';
 import { LoadingOverlay } from './components/LoadingOverlay';
+import { browser } from 'wxt/browser';
 
 // Developer mode activation state
 let devKeySequence = '';
@@ -24,10 +25,72 @@ const DEV_MODE_SEQUENCE = 'devmode'; // Type 'devmode' to activate
 
 // Main popup component with refactored architecture
 export default function RefactoredPopup() {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStage, setProcessingStage] = useState('');
+  const [processingComplete, setProcessingComplete] = useState(false);
+  const [autoCloseCountdown, setAutoCloseCountdown] = useState<number | null>(null);
+
+  useEffect(() => {
+    // Listen for processing progress
+    const handleProgress = (message: any) => {
+      if (message.type === 'PROCESSING_PROGRESS') {
+        setProcessingStage(message.payload.message);
+        setIsProcessing(true);
+        setProcessingComplete(false);
+      } else if (message.type === 'PROCESSING_COMPLETE') {
+        setIsProcessing(false);
+        setProcessingComplete(true);
+        
+        // Check user preference for auto-close
+        const checkAutoClose = async () => {
+          const settings = await Storage.getSettings();
+          const keepOpen = settings.ui?.keepPopupOpen ?? false;
+          const delay = settings.ui?.autoCloseDelay ?? 2000;
+
+          if (!keepOpen) {
+            // Start countdown
+            setAutoCloseCountdown(Math.floor(delay / 1000));
+            
+            const countdownInterval = setInterval(() => {
+              setAutoCloseCountdown(prev => {
+                if (prev === null || prev <= 1) {
+                  clearInterval(countdownInterval);
+                  window.close();
+                  return null;
+                }
+                return prev - 1;
+              });
+            }, 1000);
+          }
+        };
+
+        checkAutoClose();
+      } else if (message.type === 'PROCESSING_ERROR') {
+        setIsProcessing(false);
+        setProcessingComplete(false);
+        setAutoCloseCountdown(null);
+      }
+    };
+  
+    browser.runtime.onMessage.addListener(handleProgress);
+    return () => browser.runtime.onMessage.removeListener(handleProgress);
+  }, []);
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isProcessing) {
+        e.preventDefault();
+        e.returnValue = ''; // Standard way to show "are you sure" dialog
+        return 'Processing in progress...';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isProcessing]);
+
   // Legacy controller for basic functionality
   const {
     state,
-    isProcessing,
     hasContent,
     handleModeToggle,
     handleCapture,
@@ -188,7 +251,7 @@ export default function RefactoredPopup() {
           onClick={handleCapture}
           disabled={isProcessing || (state.credits?.remaining === 0 && !state.settings?.flags?.developerMode)}
           isProcessing={isProcessing}
-          processingText={state.processing.message || 'Processing...'}
+          processingText={processingStage || 'Processing...'}
         >
           Capture Content
         </PrimaryButton>
@@ -350,6 +413,25 @@ export default function RefactoredPopup() {
         )}
       </div>
 
+      {/* Processing complete notification */}
+      {processingComplete && (
+        <div className="fixed top-4 right-4 bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-3">
+          <span>✔️</span>
+          <div>
+            <p className="font-medium">Content copied to clipboard!</p>
+            {autoCloseCountdown !== null && (
+              <p className="text-sm">Closing in {autoCloseCountdown}s...</p>
+            )}
+          </div>
+          <button
+            onClick={() => setAutoCloseCountdown(null)}
+            className="ml-4 text-white hover:text-gray-200"
+          >
+            <span>❌</span>
+          </button>
+        </div>
+      )}
+
       {/* Toast Notifications */}
       <ToastContainer
         toasts={toastManager.toasts}
@@ -365,8 +447,8 @@ export default function RefactoredPopup() {
           handleUpgradeClose();
         }}
       />
-      {(state.processing.status === 'capturing' || state.processing.status === 'cleaning' || state.processing.status === 'processing') && (
-        <LoadingOverlay status={state.processing.status as any} message={state.processing.message} progress={state.processing.progress} />
+      {isProcessing && (
+        <LoadingOverlay status="processing" message={processingStage} progress={undefined} />
       )}
     </div>
   );

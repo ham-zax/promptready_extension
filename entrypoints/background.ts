@@ -46,6 +46,8 @@ class EnhancedContentProcessor {
 
   // Periodic cleanup timer for fingerprints
   private fingerprintCleanupTimer: any = null;
+  private captureDebounceTimer: any = null;
+  private readonly CAPTURE_DEBOUNCE_MS = 500; // 500ms debounce
 
   constructor() {
     // Setup periodic cleanup of old fingerprints every 2 minutes
@@ -111,43 +113,46 @@ class EnhancedContentProcessor {
    * Handle keyboard shortcut activation
    */
   async handleCaptureCommand(): Promise<void> {
-    try {
-      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-
-      if (!tab.id) {
-        throw new Error('No active tab found');
-      }
-
-      // Check if tab is accessible
-      if (tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://')) {
-        this.broadcastError('Cannot capture content from this page').catch(console.error);
-        return;
-      }
-
-      console.log('Initiating capture for tab:', tab.id);
-
-      // Ensure content script is responsive before sending capture
-      console.log('Checking content script availability for tab:', tab.id);
-      const ok = await this.ensureContentScript(tab.id);
-      console.log('Content script check result:', ok);
-      if (!ok) {
-        console.error('Content script ping failed for tab:', tab.id, 'URL:', tab.url);
-        this.broadcastError('Content script not available on this page. Please refresh the page and try again.');
-        return;
-      }
-
-      // Send capture request to content script
-      await browser.tabs.sendMessage(tab.id, {
-        type: 'CAPTURE_SELECTION',
-        payload: { tabId: tab.id },
-      });
-
-
-
-    } catch (error: any) {
-      console.error('Capture command failed:', error);
-      this.broadcastError('Failed to capture content. Please try again.').catch(console.error);
+    // Clear any pending capture
+    if (this.captureDebounceTimer) {
+      clearTimeout(this.captureDebounceTimer);
     }
+
+    // Debounce: Wait 500ms before actually capturing
+    this.captureDebounceTimer = setTimeout(async () => {
+      try {
+        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+        
+        if (!tab.id) {
+          throw new Error('No active tab found');
+        }
+
+        // Check if tab is accessible
+        if (tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://')) {
+          this.broadcastError('Cannot capture content from this page').catch(console.error);
+          return;
+        }
+
+        console.log('Initiating capture for tab:', tab.id);
+
+        const ok = await this.ensureContentScript(tab.id);
+        if (!ok) {
+          console.error('Content script ping failed for tab:', tab.id);
+          this.broadcastError('Content script not available. Please refresh the page.');
+          return;
+        }
+
+        // Send capture request
+        await browser.tabs.sendMessage(tab.id, {
+          type: 'CAPTURE_SELECTION',
+          payload: { tabId: tab.id },
+        });
+
+      } catch (error: any) {
+        console.error('Capture command failed:', error);
+        this.broadcastError('Failed to capture content. Please try again.').catch(console.error);
+      }
+    }, this.CAPTURE_DEBOUNCE_MS);
   }
 
   /**
@@ -195,6 +200,44 @@ class EnhancedContentProcessor {
         case 'CLEAR_CACHE':
           await this.clearProcessingCache();
           sendResponse({ success: true });
+          break;
+
+        case 'GET_PERFORMANCE_ANALYTICS':
+          try {
+            await this.ensureOffscreenDocument();
+            const analyticsResponse = await browser.runtime.sendMessage({
+              type: 'GET_PERFORMANCE_ANALYTICS',
+              payload: {}
+            });
+            sendResponse({
+              success: true,
+              data: analyticsResponse?.data || {}
+            });
+          } catch (error: any) {
+            sendResponse({
+              success: false,
+              error: error instanceof Error ? error.message : 'Failed to get analytics'
+            });
+          }
+          break;
+
+        case 'GET_REAL_TIME_METRICS':
+          try {
+            await this.ensureOffscreenDocument();
+            const metricsResponse = await browser.runtime.sendMessage({
+              type: 'GET_REAL_TIME_METRICS',
+              payload: {}
+            });
+            sendResponse({
+              success: true,
+              data: metricsResponse?.data || {}
+            });
+          } catch (error: any) {
+            sendResponse({
+              success: false,
+              error: error instanceof Error ? error.message : 'Failed to get metrics'
+            });
+          }
           break;
 
         case 'CONTENT_SCRIPT_READY':

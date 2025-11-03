@@ -169,6 +169,33 @@ export class ContentCapture {
     }
   }
   
+  private static captureRedditPost(): string | null {
+    // Try Reddit's main post selectors
+    const postSelectors = [
+      '[data-test-id="post-content"]',
+      '.Post',
+      'shreddit-post',
+      '[slot="text-body"]',
+      '.RichTextJSON-root',
+      '[data-click-id="text"]',
+    ];
+
+    for (const selector of postSelectors) {
+      const post = document.querySelector(selector);
+      if (post && post.textContent && post.textContent.length > 50) {
+        return post.innerHTML;
+      }
+    }
+
+    // Fallback to article tag
+    const article = document.querySelector('article');
+    if (article) {
+      return article.innerHTML;
+    }
+
+    return null;
+  }
+
   /**
    * Capture full page content (fallback when no selection)
    * Uses similar logic to MarkDownload implementation
@@ -186,6 +213,26 @@ export class ContentCapture {
       } catch (e) {
         console.warn('[ContentCapture] markHiddenNodes failed during captureFullPage:', e);
       }
+
+      // Reddit-specific capture
+      if (window.location.href.includes('reddit.com')) {
+        const redditContent = this.captureRedditPost();
+        if (redditContent) {
+          const clonedContent = document.createElement('div');
+          clonedContent.innerHTML = redditContent;
+          this.removeUnwantedTags(clonedContent);
+          this.fixRelativeUrls(clonedContent, window.location.href);
+
+          return {
+            html: clonedContent.innerHTML,
+            url: window.location.href,
+            title: this.extractPageTitle(),
+            selectionHash: await FileNamingService.generateSelectionHash(clonedContent.innerHTML),
+            isSelection: false,
+          };
+        }
+      }
+
       // Get the main content area
       const article = document.querySelector('article, main, [role="main"]');
       const content = article || document.body;

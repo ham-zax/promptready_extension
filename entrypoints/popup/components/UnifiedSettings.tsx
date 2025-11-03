@@ -118,6 +118,46 @@ export function UnifiedSettings({
         />
       </div>
 
+      {/* Popup Behavior */}
+      <div className="border border-gray-200 rounded-lg p-4 bg-white">
+        <h3 className="font-semibold text-gray-900 mb-3">Popup Behavior</h3>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <label htmlFor="keepPopupOpen" className="text-sm text-gray-700">Keep popup open after processing</label>
+            <input
+              id="keepPopupOpen"
+              type="checkbox"
+              checked={settings.ui?.keepPopupOpen ?? false}
+              onChange={(e) => onSettingsChange({
+                ui: {
+                  ...(settings.ui || { theme: 'auto', animations: true, compactMode: false, keepPopupOpen: false, autoCloseDelay: 2000 }),
+                  keepPopupOpen: e.target.checked
+                }
+              })}
+            />
+          </div>
+          {!settings.ui?.keepPopupOpen && (
+            <div className="flex items-center justify-between">
+              <label htmlFor="autoCloseDelay" className="text-sm text-gray-700">Auto-close delay (seconds)</label>
+              <input
+                id="autoCloseDelay"
+                type="number"
+                min="1"
+                max="10"
+                value={(settings.ui?.autoCloseDelay ?? 2000) / 1000}
+                onChange={(e) => onSettingsChange({
+                  ui: {
+                    ...(settings.ui || { theme: 'auto', animations: true, compactMode: false, keepPopupOpen: false, autoCloseDelay: 2000 }),
+                    autoCloseDelay: parseInt(e.target.value) * 1000
+                  }
+                })}
+                className="w-20 p-1 border border-gray-300 rounded-md text-sm"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Privacy */}
       <div className="border border-gray-200 rounded-lg p-4 bg-white">
         <PrivacySettings

@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { OfflineModeManager } from '../core/offline-mode-manager';
+import { DateUtils } from '../lib/date-utils';
 
 const html = `
 <!doctype html>
@@ -14,6 +15,14 @@ const html = `
 const url = 'https://example.com/page';
 
 describe('OfflineModeManager', () => {
+  beforeEach(() => {
+    OfflineModeManager.clearCache();
+  });
+
+  afterEach(() => {
+    OfflineModeManager.clearCache();
+  });
+
   it('processes content and inserts cite-first block + H1', async () => {
     const res = await OfflineModeManager.processContent(html, url, 'My Title', {
       turndownPreset: 'standard',
@@ -26,6 +35,9 @@ describe('OfflineModeManager', () => {
     expect(res.markdown).toMatch(/^> Source:/m); // Cite-first block should be at the top
     expect(res.markdown).toContain('# Heading'); // H1 should be present
     expect(res.metadata.url).toBe(url);
+
+    // Test date formatting consistency
+    expect(res.metadata.capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/); // ISO 8601 format
   });
 });
 

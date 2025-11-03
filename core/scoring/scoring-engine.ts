@@ -12,6 +12,10 @@ export class ScoringEngine {
   public static scoreNode(el: HTMLElement): number {
     if (!el) return 0;
     try {
+      if (typeof window === 'undefined') {
+        // Cannot get computed style in a non-browser environment
+        return 0;
+      }
       const style = window.getComputedStyle(el);
       if (style && (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') === 0)) {
         return 0;
