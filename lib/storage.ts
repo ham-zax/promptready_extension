@@ -3,7 +3,7 @@
 
 import { browser } from 'wxt/browser';
 import { Settings, TelemetryEvent } from './types.js';
-import { getRuntimeProfile } from './runtime-profile.js';
+import { getRuntimeProfile, type RuntimeProfile } from './runtime-profile.js';
 
 // =============================================================================
 // Storage Keys
@@ -21,7 +21,7 @@ const STORAGE_KEYS = {
 
 const runtimeProfile = getRuntimeProfile();
 const DEFAULT_SETTINGS: Settings = {
-  mode: runtimeProfile.openAccessEnabled || runtimeProfile.premiumBypassEnabled || runtimeProfile.useMockMonetization ? 'ai' : 'offline',
+  mode: 'offline',
   theme: 'system',
   templates: {
     bundles: [],
@@ -77,6 +77,40 @@ const DEFAULT_SETTINGS: Settings = {
   },
 };
 
+export function applyRuntimePolicyOverrides(
+  settings: Settings,
+  profile: RuntimeProfile,
+  defaultSettings: Settings = DEFAULT_SETTINGS
+): Settings {
+  if (!profile.openAccessEnabled && !profile.premiumBypassEnabled && !profile.enforceDeveloperMode) {
+    return settings;
+  }
+
+  const flags = settings.flags || defaultSettings.flags!;
+  const credits = settings.credits || defaultSettings.credits!;
+
+  return {
+    ...settings,
+    // Preserve explicit user choice; open-access should unlock modes, not force a mode.
+    mode: settings.mode || defaultSettings.mode,
+    isPro: profile.openAccessEnabled || profile.premiumBypassEnabled ? true : settings.isPro,
+    flags: {
+      ...flags,
+      aiModeEnabled: true,
+      byokEnabled: true,
+      trialEnabled: true,
+      developerMode: profile.enforceDeveloperMode ? true : Boolean(flags.developerMode),
+    },
+    credits: profile.openAccessEnabled || profile.premiumBypassEnabled
+      ? {
+        ...credits,
+        remaining: Math.max(credits.remaining || 0, 999999),
+        total: Math.max(credits.total || 0, 999999),
+      }
+      : credits,
+  };
+}
+
 // =============================================================================
 // Storage Interface
 // =============================================================================
@@ -84,32 +118,7 @@ const DEFAULT_SETTINGS: Settings = {
 export class Storage {
   private static applyRuntimeOverrides(settings: Settings): Settings {
     const profile = getRuntimeProfile();
-    if (!profile.openAccessEnabled && !profile.premiumBypassEnabled && !profile.enforceDeveloperMode) {
-      return settings;
-    }
-
-    const flags = settings.flags || DEFAULT_SETTINGS.flags!;
-    const credits = settings.credits || DEFAULT_SETTINGS.credits!;
-
-    return {
-      ...settings,
-      mode: profile.openAccessEnabled || profile.premiumBypassEnabled || profile.useMockMonetization ? 'ai' : settings.mode,
-      isPro: profile.openAccessEnabled || profile.premiumBypassEnabled ? true : settings.isPro,
-      flags: {
-        ...flags,
-        aiModeEnabled: true,
-        byokEnabled: true,
-        trialEnabled: true,
-        developerMode: profile.enforceDeveloperMode ? true : Boolean(flags.developerMode),
-      },
-      credits: profile.openAccessEnabled || profile.premiumBypassEnabled
-        ? {
-          ...credits,
-          remaining: Math.max(credits.remaining || 0, 999999),
-          total: Math.max(credits.total || 0, 999999),
-        }
-        : credits,
-    };
+    return applyRuntimePolicyOverrides(settings, profile, DEFAULT_SETTINGS);
   }
 
   // ---------------------------------------------------------------------------
