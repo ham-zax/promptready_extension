@@ -324,9 +324,6 @@ export class OfflineModeManager {
       const selectionHash = await this.generateCacheKey(cacheSourceHtml, url, config);
       const metadata = this.generateMetadata(title, url, selectionHash);
       processedMarkdown = this.normalizeUnicodeWhitespace(processedMarkdown);
-      processedMarkdown = this.sanitizeRiskyMarkdown(processedMarkdown, warnings);
-      processedMarkdown = this.stripResidualUiNoiseLines(processedMarkdown, warnings);
-      processedMarkdown = this.ensurePrimaryHeading(processedMarkdown, metadata.title);
       if (!processedMarkdown || processedMarkdown.trim().length === 0) {
         const sparseFallback = this.buildSparseContentFallback(extractionHtml, warnings);
         if (sparseFallback) {
@@ -336,7 +333,7 @@ export class OfflineModeManager {
           throw new Error('No HTML content provided');
         }
       }
-      processedMarkdown = this.insertCiteFirstBlock(processedMarkdown, metadata);
+      processedMarkdown = this.canonicalizeDeliveredMarkdown(processedMarkdown, metadata, warnings);
 
       // Step 5: Quality assessment
       const qualityScore = this.assessQuality(processedMarkdown, extractionHtml, warnings, errors);
@@ -1903,6 +1900,76 @@ export class OfflineModeManager {
     }
 
     return citationHeader + result;
+  }
+
+  /**
+   * Canonicalize markdown before delivery:
+   * - removes stale citation headers
+   * - sanitizes risky remnants
+   * - strips residual UI noise lines
+   * - ensures a primary heading exists
+   * - inserts canonical cite-first metadata block
+   */
+  static canonicalizeDeliveredMarkdown(
+    markdown: string,
+    metadata: ExportMetadata,
+    warnings: string[] = []
+  ): string {
+    const normalizedMetadata: ExportMetadata = {
+      title: metadata?.title || 'Untitled Page',
+      url: metadata?.url || '',
+      capturedAt: metadata?.capturedAt || new Date().toISOString(),
+      selectionHash: metadata?.selectionHash || 'N/A',
+    };
+
+    let result = this.normalizeUnicodeWhitespace(markdown || '');
+    result = this.stripLeadingCitationBlock(result);
+    result = this.sanitizeRiskyMarkdown(result, warnings);
+    result = this.stripResidualUiNoiseLines(result, warnings);
+    result = this.ensurePrimaryHeading(result, normalizedMetadata.title);
+
+    if (!result || result.trim().length === 0) {
+      result = `# ${normalizedMetadata.title}`;
+    }
+
+    return this.insertCiteFirstBlock(result, normalizedMetadata);
+  }
+
+  private static stripLeadingCitationBlock(markdown: string): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    let index = 0;
+
+    while (index < lines.length && lines[index].trim() === '') {
+      index++;
+    }
+
+    if (index >= lines.length || !/^>\s*source:/i.test(lines[index])) {
+      return markdown;
+    }
+
+    index++;
+    while (index < lines.length) {
+      const line = lines[index];
+      if (!/^\s*>/.test(line)) {
+        break;
+      }
+      const text = line.replace(/^\s*>\s?/, '').trim().toLowerCase();
+      if (!text || text.startsWith('captured:') || text.startsWith('hash:')) {
+        index++;
+        continue;
+      }
+      break;
+    }
+
+    while (index < lines.length && lines[index].trim() === '') {
+      index++;
+    }
+
+    return lines.slice(index).join('\n');
   }
 
   // =============================================================================

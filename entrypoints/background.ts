@@ -4,10 +4,12 @@
 import { browser } from 'wxt/browser';
 import { Storage } from '../lib/storage.js';
 import { getRuntimeProfile, validateRuntimeProfile, assertRuntimeProfileSafe } from '../lib/runtime-profile.js';
+import type { ExportMetadata } from '../lib/types.js';
 
 import { ErrorHandler } from '../core/error-handler.js';
 import { ContentQualityValidator } from '../core/content-quality-validator.js';
 import { SessionMetricsStore } from '../core/metrics-session-store.js';
+import { OfflineModeManager } from '../core/offline-mode-manager.js';
 
 export default defineBackground(() => {
   const runtimeProfile = getRuntimeProfile();
@@ -489,38 +491,37 @@ class EnhancedContentProcessor {
    */
   async handleProcessingComplete(message: any): Promise<void> {
     try {
-      const { exportMd, exportJson, metadata, stats, warnings, originalHtml } = message.payload;
+      const { exportMd, exportJson, metadata, stats, warnings: payloadWarnings, originalHtml } = message.payload;
+      const warnings: string[] = Array.isArray(payloadWarnings) ? [...payloadWarnings] : [];
 
       // BMAD TRACE: log what we received from offscreen before any insertion
       console.log('[BMAD_TRACE] Background received from offscreen:', (exportMd || '').substring(0, 100));
 
-      // Ensure a canonical citation block exists at the top-level of the final markdown.
-      // Some pipeline paths (bypass from offscreen) may return markdown that never had
-      // the background's canonical citation inserted. Enforce it here so every final
-      // output delivered to tabs/popup contains the standardized cite-first block.
-      let finalMd = exportMd;
+      const sourceMetadata = (metadata || exportJson?.metadata || {}) as Partial<ExportMetadata>;
+      const canonicalMetadata: ExportMetadata = {
+        title: typeof sourceMetadata.title === 'string' && sourceMetadata.title.trim()
+          ? sourceMetadata.title.trim()
+          : 'Untitled Page',
+        url: typeof sourceMetadata.url === 'string' && sourceMetadata.url.trim()
+          ? sourceMetadata.url.trim()
+          : 'Unknown URL',
+        capturedAt: typeof sourceMetadata.capturedAt === 'string' && sourceMetadata.capturedAt.trim()
+          ? sourceMetadata.capturedAt
+          : new Date().toISOString(),
+        selectionHash: typeof sourceMetadata.selectionHash === 'string' && sourceMetadata.selectionHash.trim()
+          ? sourceMetadata.selectionHash
+          : `bg-${Date.now()}`,
+      };
 
-      // Insert canonical citation block if missing
-      if (finalMd && !finalMd.startsWith('> Source:')) {
-        const url = message.payload?.metadata?.url || message.payload?.exportJson?.metadata?.url || 'Unknown';
-        const selectionHash = message.payload?.metadata?.selectionHash || message.payload?.exportJson?.metadata?.selectionHash || 'N/A';
-
-        const citationBlock = [
-          `> Source: ${url}`,
-          `> Captured: ${new Date().toISOString()}`,
-          `> Hash: ${selectionHash}`,
-        ].join('\n');
-
-        finalMd = citationBlock + '\n\n' + finalMd;
-        console.log('[BMAD_TRACE] Inserted canonical citation block');
-      }
+      // Enforce one canonical finalization path for every delivery route.
+      const finalMd = OfflineModeManager.canonicalizeDeliveredMarkdown(exportMd || '', canonicalMetadata, warnings);
 
       // BMAD TRACE: log the finalized markdown after insertion (or unchanged)
       console.log('[BMAD_TRACE] Background after cite block insertion:', (finalMd || '').substring(0, 100));
 
       // If we have a selectionHash -> tabId mapping, forward the raw markdown to that tab's content script.
       try {
-        const selectionHash = message.payload?.metadata?.selectionHash || message.payload?.exportJson?.metadata?.selectionHash;
+        const selectionHash = sourceMetadata.selectionHash;
         if (selectionHash) {
           const tabId = this.pendingCaptureMap.get(selectionHash);
           if (tabId) {
@@ -593,7 +594,7 @@ class EnhancedContentProcessor {
       await this.setCurrentExportData({
         markdown: finalMd,
         json: exportJson,
-        metadata,
+        metadata: canonicalMetadata,
         qualityReport,
       });
 
@@ -603,7 +604,7 @@ class EnhancedContentProcessor {
         payload: {
           exportMd: finalMd,
           exportJson,
-          metadata,
+          metadata: canonicalMetadata,
           stats,
           warnings,
           qualityReport,

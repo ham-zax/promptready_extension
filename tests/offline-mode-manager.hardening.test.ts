@@ -195,6 +195,34 @@ describe('OfflineModeManager hardening regressions', () => {
     expect(result.markdown).not.toContain('Accept all 500 tracking cookies to continue');
   });
 
+  it('canonicalizes delivery markdown by replacing stale cite block and stripping residual UI noise', () => {
+    const warnings: string[] = [];
+    const markdown = `
+> Source: https://legacy.example.com/article
+> Captured: 2024-01-01
+> Hash: legacy-hash
+
+ANNOYING POPUP AD Accept all 500 tracking cookies to continue.
+
+Cleaner input. Better model output.
+`;
+
+    const canonical = OfflineModeManager.canonicalizeDeliveredMarkdown(markdown, {
+      title: 'PromptReady — One-click clean Markdown from any page',
+      url: 'https://promptready.app/',
+      capturedAt: '2026-02-25T19:00:36.136Z',
+      selectionHash: 'promptready-hash',
+    }, warnings);
+
+    expect((canonical.match(/^> Source:/gm) || []).length).toBe(1);
+    expect(canonical).toContain('> Source: [PromptReady — One-click clean Markdown from any page](https://promptready.app/)');
+    expect(canonical).toContain('> Captured: 2026-02-25T19:00:36.136Z');
+    expect(canonical).toContain('# PromptReady — One-click clean Markdown from any page');
+    expect(canonical).not.toContain('legacy.example.com/article');
+    expect(canonical).not.toContain('ANNOYING POPUP AD');
+    expect(canonical).not.toContain('Accept all 500 tracking cookies to continue');
+  });
+
   it('records non-negative timing and closes failed session state', async () => {
     const result = await OfflineModeManager.processContent(
       '',

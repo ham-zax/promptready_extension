@@ -29,13 +29,7 @@ export interface ProviderChainResult {
 }
 
 function ensureCitationBlock(markdown: string, metadata: ExportMetadata): string {
-  if (markdown.startsWith('> Source:')) return markdown;
-  const citeBlock = [
-    `> Source: [${metadata.title}](${metadata.url})`,
-    `> Captured: ${metadata.capturedAt}`,
-    `> Hash: ${metadata.selectionHash}`,
-  ].join('\n');
-  return `${citeBlock}\n\n${markdown}`;
+  return OfflineModeManager.canonicalizeDeliveredMarkdown(markdown, metadata);
 }
 
 async function fetchTrafilaturaFallback(
