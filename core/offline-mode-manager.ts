@@ -1104,10 +1104,11 @@ export class OfflineModeManager {
     }
 
     let sanitized = markdown
-      .replace(/\b(?:annoying\s+)?popup\s*ad\s*accept\s+all[^\n]{0,160}?cookies?\s+to\s+continue\.?/gi, '')
-      .replace(/\baccept\s+all[^\n]{0,160}?tracking\s+cookies?\s+to\s+continue\.?/gi, '')
+      .replace(/\b(?:annoying\s+)?popup\s*ad\s*accept\s*all(?:\s+\d+)?[\s\S]{0,180}?cookies?\s+to\s+continue\.?/gi, '')
+      .replace(/\baccept\s*all(?:\s+\d+)?[\s\S]{0,180}?(?:tracking\s+)?cookies?\s+to\s+continue\.?/gi, '')
       .replace(/\bsubscribe\s+to\s+our\s+newsletter\s*\|\s*related\s+links\s*\|\s*footer\s+text\b/gi, '')
-      .replace(/#?```json```/gi, '');
+      .replace(/\bsource:\s*example\.com\/[^\s•]+(?:\s*•?\s*captured:\s*\d{4}-\d{2}-\d{2}[^\n]*)?/gi, '')
+      .replace(/#?\\?`{3}\s*json\s*\\?`{3}/gi, '');
 
     const lines = sanitized.split('\n');
     const filtered = lines.filter((line) => {
@@ -1124,7 +1125,8 @@ export class OfflineModeManager {
         (
           /accept all .*cookies?|manage (cookie|privacy) preferences|allow all cookies/.test(normalized) ||
           /subscribe to (our )?newsletter|join (the )?waitlist|sign up (for|to)/.test(normalized) ||
-          /popup ad|tracking cookies? to continue|related links \| footer text/.test(normalized)
+          /popup ad|popup adaccept|tracking cookies? to continue|related links \| footer text/.test(normalized) ||
+          /source:\s*example\.com\/|captured:\s*\d{4}-\d{2}-\d{2}t\d{2}/.test(normalized)
         );
 
       return !isUiNoise;

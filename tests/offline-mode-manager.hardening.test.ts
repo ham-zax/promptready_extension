@@ -223,6 +223,47 @@ Cleaner input. Better model output.
     expect(canonical).not.toContain('Accept all 500 tracking cookies to continue');
   });
 
+  it('removes merged popup-noise and inline demo citation fragments from copied markdown', () => {
+    const warnings: string[] = [];
+    const pasted = `> Source: [PromptReady — One-click clean Markdown from any page](https://promptready.app/)
+> Captured: 2026-02-25T18:54:42.222Z
+> Hash: https://promptready.app/-b346117786c56015-3683995a368dd981
+
+Cleaner input. Better model output.
+
+PromptReady extracts the useful parts, preserves structure, and gives you citation-ready text in one click.
+
+**No cleanup loops.**
+
+ANNOYING POPUP ADAccept all 500 tracking cookies to continue.#\`\`\`json\`\`\`
+
+Preserves code fences
+Adds clean citations
+Privacy-first local parsing
+
+### PromptReady Output
+\\# Retrieval-Augmented Generation in Production
+
+Source: example.com/rag-guide•Captured: 2026-02-24T18:40Z`;
+
+    const canonical = OfflineModeManager.canonicalizeDeliveredMarkdown(
+      pasted,
+      {
+        title: 'PromptReady — One-click clean Markdown from any page',
+        url: 'https://promptready.app/',
+        capturedAt: '2026-02-25T18:54:42.222Z',
+        selectionHash: 'https://promptready.app/-b346117786c56015-3683995a368dd981',
+      },
+      warnings
+    );
+
+    expect(canonical).not.toContain('ANNOYING POPUP AD');
+    expect(canonical).not.toContain('tracking cookies to continue');
+    expect(canonical).not.toContain('```json```');
+    expect(canonical).not.toContain('Source: example.com/rag-guide');
+    expect(canonical).toContain('Cleaner input. Better model output.');
+  });
+
   it('records non-negative timing and closes failed session state', async () => {
     const result = await OfflineModeManager.processContent(
       '',

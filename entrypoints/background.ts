@@ -121,6 +121,28 @@ class EnhancedContentProcessor {
     }
   }
 
+  private buildCanonicalMetadata(
+    sourceMetadata: Partial<ExportMetadata> | undefined,
+    fallback?: Partial<ExportMetadata>
+  ): ExportMetadata {
+    const source = sourceMetadata || {};
+    const fallbackSource = fallback || {};
+    return {
+      title: typeof source.title === 'string' && source.title.trim()
+        ? source.title.trim()
+        : (fallbackSource.title || 'Untitled Page'),
+      url: typeof source.url === 'string' && source.url.trim()
+        ? source.url.trim()
+        : (fallbackSource.url || 'Unknown URL'),
+      capturedAt: typeof source.capturedAt === 'string' && source.capturedAt.trim()
+        ? source.capturedAt
+        : (fallbackSource.capturedAt || new Date().toISOString()),
+      selectionHash: typeof source.selectionHash === 'string' && source.selectionHash.trim()
+        ? source.selectionHash
+        : (fallbackSource.selectionHash || `bg-${Date.now()}`),
+    };
+  }
+
   /**
    * Handle keyboard shortcut activation
    */
@@ -498,20 +520,7 @@ class EnhancedContentProcessor {
       console.log('[BMAD_TRACE] Background received from offscreen:', (exportMd || '').substring(0, 100));
 
       const sourceMetadata = (metadata || exportJson?.metadata || {}) as Partial<ExportMetadata>;
-      const canonicalMetadata: ExportMetadata = {
-        title: typeof sourceMetadata.title === 'string' && sourceMetadata.title.trim()
-          ? sourceMetadata.title.trim()
-          : 'Untitled Page',
-        url: typeof sourceMetadata.url === 'string' && sourceMetadata.url.trim()
-          ? sourceMetadata.url.trim()
-          : 'Unknown URL',
-        capturedAt: typeof sourceMetadata.capturedAt === 'string' && sourceMetadata.capturedAt.trim()
-          ? sourceMetadata.capturedAt
-          : new Date().toISOString(),
-        selectionHash: typeof sourceMetadata.selectionHash === 'string' && sourceMetadata.selectionHash.trim()
-          ? sourceMetadata.selectionHash
-          : `bg-${Date.now()}`,
-      };
+      const canonicalMetadata = this.buildCanonicalMetadata(sourceMetadata);
 
       // Enforce one canonical finalization path for every delivery route.
       const finalMd = OfflineModeManager.canonicalizeDeliveredMarkdown(exportMd || '', canonicalMetadata, warnings);
@@ -704,10 +713,19 @@ class EnhancedContentProcessor {
         throw new Error('No content provided for clipboard copy');
       }
 
-      console.log('[Background] Handling clipboard copy request, content length:', content.length);
+      const currentExportData = await this.getCurrentExportData();
+      const canonicalMetadata = this.buildCanonicalMetadata(
+        (currentExportData?.metadata || message.payload?.metadata || {}) as Partial<ExportMetadata>
+      );
+      const normalizedContent = OfflineModeManager.canonicalizeDeliveredMarkdown(
+        content,
+        canonicalMetadata
+      );
+
+      console.log('[Background] Handling clipboard copy request, content length:', normalizedContent.length);
 
       // Enhanced clipboard copy with better error handling
-      await this.copyToClipboardEnhanced(content);
+      await this.copyToClipboardEnhanced(normalizedContent);
 
       // Send success response back to popup
       await this.broadcastMessage({
@@ -732,25 +750,29 @@ class EnhancedContentProcessor {
    */
   async processFallbackResult(result: any, originalPayload: any): Promise<void> {
     try {
+      const canonicalMetadata = this.buildCanonicalMetadata(
+        undefined,
+        {
+          title: originalPayload.title || 'Untitled Page',
+          url: originalPayload.url || 'Unknown URL',
+          capturedAt: new Date().toISOString(),
+          selectionHash: originalPayload.selectionHash || `fallback-${Date.now()}`,
+        }
+      );
+      const canonicalMarkdown = OfflineModeManager.canonicalizeDeliveredMarkdown(
+        result || 'Content extraction failed',
+        canonicalMetadata
+      );
+
       // Create minimal export data from fallback result
       const exportData = {
-        markdown: result || 'Content extraction failed',
+        markdown: canonicalMarkdown,
         json: {
           version: '1.0',
-          metadata: {
-            title: originalPayload.title || 'Untitled',
-            url: originalPayload.url || '',
-            timestamp: new Date().toISOString(),
-            source: 'fallback-processor',
-          },
-          content: result || 'Content extraction failed',
+          metadata: canonicalMetadata,
+          content: canonicalMarkdown,
         },
-        metadata: {
-          title: originalPayload.title || 'Untitled',
-          url: originalPayload.url || '',
-          timestamp: new Date().toISOString(),
-          source: 'fallback-processor',
-        },
+        metadata: canonicalMetadata,
       };
 
       await this.setCurrentExportData(exportData);
