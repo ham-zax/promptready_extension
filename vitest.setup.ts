@@ -6,6 +6,7 @@ import { JSDOM } from 'jsdom';
 const dom = new JSDOM();
 globalThis.DOMParser = dom.window.DOMParser;
 globalThis.document = dom.window.document;
+(globalThis as any).JSDOM = JSDOM;
 
 
 // Minimal mock for wxt/browser storage used in lib/storage

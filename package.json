@@ -14,6 +14,8 @@
     "compile": "tsc --noEmit",
     "test": "vitest run",
     "test:ui": "vitest",
+    "test:smoke": "vitest run tests/hooks.test.tsx tests/ByokSettings.test.tsx tests/offline-processor.test.ts tests/ai-proxy.byok-cors.test.ts tests/runtime-profile.test.ts",
+    "verify:dev": "npm run compile && npm run test:smoke",
     "postinstall": "wxt prepare",
     "lint": "npx eslint . --ext .ts,.tsx || true",
     "lint:fix": "npx eslint . --ext .ts,.tsx --fix",

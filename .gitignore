@@ -41,9 +41,6 @@ node_modules/
 .vscode
 # OS specific
 
-# Task files
-# tasks.json
-# tasks/ 
 gemini.md
 # Test files and temporary files
 test-byok.js
@@ -51,3 +48,7 @@ SESSION_CHECKPOINT_*.md
 MVP_INTEGRATION_TEST_REPORT.md
 .serena*
 .claude*
+
+# Task files
+# tasks.json
+# tasks/ 
