@@ -1,0 +1,21 @@
+{
+	"meta": {
+		"generatedAt": "2026-02-25T21:18:02.910Z",
+		"tasksAnalyzed": 1,
+		"totalTasks": 18,
+		"analysisCount": 1,
+		"thresholdScore": 8,
+		"projectName": "Task Master",
+		"usedResearch": false
+	},
+	"complexityAnalysis": [
+		{
+			"taskId": 18,
+			"taskTitle": "Extraction V3: single-pass orchestration and robust cross-site retention",
+			"complexityScore": 8,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Decompose remaining work into four implementation tracks: (1) stabilize candidate orchestration by formalizing a single candidate model and deterministic score/tie-break rules in `core/offline-mode-manager.ts` (`fallbackContentExtraction`, `resolveReadabilityCandidate`, `computeCandidateSelectionScore`); (2) harden boilerplate suppression with conservative structural/link-density signals and regression-safe thresholds (no site-specific branches); (3) upgrade metadata retention to confidence-ranked publish/update/byline selection and validate cite-header rendering paths (`extractSourceMetadataSignals`, `extractJsonLdMetadataSignals`, `insertCiteFirstBlock`); (4) expand deterministic regression gates to include cross-publisher news fixtures (including TOI-style time markers) in offline corpus tests and iteration scripts, then run compile + focused offline suites to lock the baseline.",
+			"reasoning": "Codebase analysis shows the architectural base is partly complete: capture-side normalization and single-owner handoff already exist (`lib/capture-contract.ts`, `entrypoints/background.ts`, `entrypoints/offscreen/enhanced-processor.ts`). The main complexity is concentrated in a large, tightly-coupled extraction core (`core/offline-mode-manager.ts`) where ranking, fallback selection, pruning, metadata extraction, and markdown canonicalization interact. This creates high regression risk when tuning ranking/boilerplate heuristics because quality changes on one site class can degrade another (PromptReady/MindsDB/docs/forums/news). Existing tests are strong but still uneven for the stated acceptance target: regression coverage exists in `tests/offline-fixture-regression.test.ts` and metadata assertions in `tests/offline-mode-manager.hardening.test.ts`, while additional news fixtures are present under `tests/fixtures/offline-corpus/news` and need stronger deterministic assertions for timestamp retention. Net effort is high due to algorithm tuning + cross-fixture validation, but not maximal because the V2/V3 scaffolding and major plumbing are already in place."
+		}
+	]
+}

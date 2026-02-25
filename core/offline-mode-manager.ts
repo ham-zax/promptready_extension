@@ -46,6 +46,18 @@ export interface OfflineProcessingResult {
   errors: string[];
 }
 
+interface CandidateAnalysis {
+  textLength: number;
+  headingCoverage: number;
+  sectionCount: number;
+  hasNoiseSignals: boolean;
+  leadHeadingPresent: boolean;
+  anchorCount: number;
+  repeatedItemBlocks: number;
+  formLikeBlocks: number;
+  containsVectorNoise: boolean;
+}
+
 export class OfflineModeManager {
 
   // Performance metrics instance for real-time tracking
@@ -225,16 +237,13 @@ export class OfflineModeManager {
             () => ReadabilityConfigManager.extractContent(doc, url, readabilityConfig)
           );
           extractedContent = extractionResult.content;
-          if (config.fallbacks.enableReadabilityFallback && this.shouldFallbackForCoverage(extractedContent, extractionHtml)) {
-            const fallbackCandidate = await this.fallbackContentExtraction(extractionHtml);
-            if (this.shouldAdoptFallbackCandidate(extractionHtml, extractedContent, fallbackCandidate)) {
-              extractedContent = fallbackCandidate;
-              fallbacksUsed.push('readability-low-coverage-fallback');
-              warnings.push('Readability extraction coverage low; used fallback content extraction');
-            } else {
-              warnings.push('Readability extraction coverage low; retained readability candidate after quality check');
-            }
-          }
+          extractedContent = await this.resolveReadabilityCandidate(
+            extractionHtml,
+            extractedContent,
+            fallbacksUsed,
+            warnings,
+            config
+          );
           console.log('[OfflineModeManager] Readability extraction successful');
         } else {
           throw new Error('No suitable Readability configuration found');
@@ -322,7 +331,7 @@ export class OfflineModeManager {
 
       // Step 4: Generate metadata and insert cite-first block
       const selectionHash = await this.generateCacheKey(cacheSourceHtml, url, config);
-      const metadata = this.generateMetadata(title, url, selectionHash);
+      const metadata = this.generateMetadata(title, url, selectionHash, html);
       processedMarkdown = this.normalizeUnicodeWhitespace(processedMarkdown);
       if (!processedMarkdown || processedMarkdown.trim().length === 0) {
         const sparseFallback = this.buildSparseContentFallback(extractionHtml, warnings);
@@ -603,14 +612,31 @@ export class OfflineModeManager {
       '[aria-modal="true"]',
       '[role="dialog"]',
       '[role="alertdialog"]',
+      '[role="search"]',
       'dialog',
+      'svg',
+      'path',
+      'symbol',
+      'defs',
+      'clipPath',
+      'mask',
+      'canvas',
       'form[action*="subscribe"]',
       'form[id*="subscribe"]',
       'form[class*="subscribe"]',
+      'form[action*="search"]',
+      '#search',
+      '.search',
+      '.search-form',
+      '.sidebar',
+      '.side',
+      '[class*="sidebar"]',
+      '[id*="sidebar"]',
       'iframe',
     ]);
 
     this.removeHiddenOrMarkedElements(body);
+    this.removeVisualNoiseElements(body);
     this.removeKeywordNoiseBlocks(body);
     this.cleanupEmptyContainers(body);
 
@@ -696,6 +722,17 @@ export class OfflineModeManager {
 
     for (const el of whitespaceOnly) {
       el.remove();
+    }
+  }
+
+  private static removeVisualNoiseElements(root: HTMLElement): void {
+    const vectorElements = Array.from(
+      root.querySelectorAll('svg, path, symbol, defs, clipPath, mask, canvas')
+    );
+    for (const el of vectorElements) {
+      if (!el.closest('pre, code')) {
+        el.remove();
+      }
     }
   }
 
@@ -896,10 +933,100 @@ export class OfflineModeManager {
   }
 
   private static selectCoverageRoot(doc: Document): HTMLElement {
-    const preferred = doc.querySelector(
-      'main, article, [role="main"], #content, .content, .main-content'
-    ) as HTMLElement | null;
-    return preferred ?? (doc.body as HTMLElement);
+    const body = doc.body as HTMLElement | null;
+    if (!body) {
+      return doc.documentElement as HTMLElement;
+    }
+
+    const bodyTextLength = this.normalizeInputText(body.textContent || '').length || 1;
+    const candidateSelectors =
+      'main, article, [role="main"], #content, .content, .main-content, .post-content, .article-body, .article-content';
+    const candidates = Array.from(doc.querySelectorAll(candidateSelectors)) as HTMLElement[];
+
+    let bestCandidate: HTMLElement | null = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    for (const candidate of candidates) {
+      if (!candidate || !candidate.isConnected) {
+        continue;
+      }
+
+      const textLength = this.normalizeInputText(candidate.textContent || '').length;
+      if (textLength < 80) {
+        continue;
+      }
+
+      const classAndId = `${candidate.className || ''} ${candidate.id || ''}`.toLowerCase();
+      const linkDensity = this.calculateLinkDensity(candidate);
+      const repeatedItemBlocks = this.countRepeatedItemBlocks(candidate);
+      const formLikeBlocks = this.countFormLikeBlocks(candidate);
+      const role = (candidate.getAttribute('role') || '').toLowerCase();
+      const tag = candidate.tagName.toLowerCase();
+      const isPrimarySemantic = tag === 'main' || tag === 'article' || role === 'main';
+      const isLikelySidebar = /(sidebar|^side$|\\bside\\b|search|filter|menu|nav|footer|header|widget|promo)/i.test(classAndId);
+      const isTinyVsBody = textLength < bodyTextLength * 0.08;
+
+      if (isLikelySidebar && !isPrimarySemantic && textLength < bodyTextLength * 0.7) {
+        continue;
+      }
+
+      let score = 0;
+      score += Math.min(1800, textLength);
+      score += isPrimarySemantic ? 520 : 0;
+      score += repeatedItemBlocks * 140;
+      score -= linkDensity * 360;
+      score -= formLikeBlocks * 220;
+      score -= isTinyVsBody ? 600 : 0;
+      score -= isLikelySidebar ? 380 : 0;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestCandidate = candidate;
+      }
+    }
+
+    return bestCandidate ?? body;
+  }
+
+  private static countRepeatedItemBlocks(root: HTMLElement): number {
+    const candidates = Array.from(
+      root.querySelectorAll('article, [role="article"], li, .thing, .post, .story, .card, .feed-item')
+    ) as HTMLElement[];
+    let count = 0;
+
+    for (const item of candidates) {
+      const textLength = this.normalizeInputText(item.textContent || '').length;
+      if (textLength < 40 || textLength > 1600) {
+        continue;
+      }
+      if (item.querySelectorAll('a').length === 0) {
+        continue;
+      }
+      count++;
+      if (count >= 40) {
+        return count;
+      }
+    }
+
+    return count;
+  }
+
+  private static countFormLikeBlocks(root: HTMLElement): number {
+    return root.querySelectorAll(
+      'form, input, select, textarea, [role="search"], .search, .search-form'
+    ).length;
+  }
+
+  private static isLikelyFeedCandidate(details: CandidateAnalysis, linkDensity: number): boolean {
+    const maxExpectedFormControls = Math.max(12, details.repeatedItemBlocks * 8);
+    if (
+      details.repeatedItemBlocks >= 4 &&
+      details.anchorCount >= 10 &&
+      details.formLikeBlocks <= maxExpectedFormControls
+    ) {
+      return true;
+    }
+    return details.repeatedItemBlocks >= 6 && linkDensity >= 0.45;
   }
 
   private static collectMeaningfulHeadings(root: HTMLElement): string[] {
@@ -977,12 +1104,57 @@ export class OfflineModeManager {
         return false;
       }
       const linkDensity = this.calculateLinkDensity(container);
+      const repeatedItemBlocks = this.countRepeatedItemBlocks(container);
+      if (repeatedItemBlocks >= 3 && linkDensity <= 0.85) {
+        return true;
+      }
       return linkDensity <= 0.5;
     }).length;
   }
 
   private static containsUiNoiseSignals(text: string): boolean {
-    return /(subscribe|newsletter|related links|accept all .*cookie|cookie settings|join waitlist|sign up|tracking cookies?|popup ad|manage preferences|allow all cookies)/i.test(text);
+    return /(subscribe|newsletter|related links|accept all .*cookie|cookie settings|join waitlist|sign up for (our )?newsletter|tracking cookies?|popup ad|manage preferences|allow all cookies|limit my search|advanced search: by author|search faq)/i.test(text);
+  }
+
+  private static async resolveReadabilityCandidate(
+    extractionHtml: string,
+    readabilityContent: string,
+    fallbacksUsed: string[],
+    warnings: string[],
+    config: OfflineModeConfig
+  ): Promise<string> {
+    if (!config.fallbacks.enableReadabilityFallback) {
+      return readabilityContent;
+    }
+
+    const fallbackCandidate = await this.fallbackContentExtraction(extractionHtml);
+    if (!fallbackCandidate || this.normalizeInputText(extractTextContent(fallbackCandidate)).length === 0) {
+      return readabilityContent;
+    }
+
+    const coverageLow = this.shouldFallbackForCoverage(readabilityContent, extractionHtml);
+    const shouldAdopt = this.shouldAdoptFallbackCandidate(
+      extractionHtml,
+      readabilityContent,
+      fallbackCandidate
+    );
+
+    if (shouldAdopt) {
+      if (coverageLow) {
+        fallbacksUsed.push('readability-low-coverage-fallback');
+        warnings.push('Readability extraction coverage low; used fallback content extraction');
+      } else {
+        fallbacksUsed.push('readability-ranked-fallback');
+        warnings.push('Selected higher-quality fallback candidate over readability output');
+      }
+      return fallbackCandidate;
+    }
+
+    if (coverageLow) {
+      warnings.push('Readability extraction coverage low; retained readability candidate after quality check');
+    }
+
+    return readabilityContent;
   }
 
   private static shouldAdoptFallbackCandidate(
@@ -996,9 +1168,39 @@ export class OfflineModeManager {
 
     const readabilityAnalysis = this.analyzeExtractionCandidate(originalHtml, readabilityContent);
     const fallbackAnalysis = this.analyzeExtractionCandidate(originalHtml, fallbackContent);
+    const readabilityScore = this.computeCandidateSelectionScore(
+      originalHtml,
+      readabilityContent,
+      readabilityAnalysis
+    );
+    const fallbackScore = this.computeCandidateSelectionScore(
+      originalHtml,
+      fallbackContent,
+      fallbackAnalysis
+    );
+    if (typeof process !== 'undefined' && (process as any)?.env?.OFFLINE_DEBUG_CANDIDATES === '1') {
+      console.log('[OfflineModeManager] Candidate adoption diagnostics', {
+        readabilityScore,
+        fallbackScore,
+        readabilityAnalysis,
+        fallbackAnalysis,
+      });
+    }
 
     if (fallbackAnalysis.textLength < Math.min(200, readabilityAnalysis.textLength * 0.55)) {
       return false;
+    }
+
+    if (readabilityAnalysis.textLength < 220 && fallbackAnalysis.textLength >= 1200) {
+      return true;
+    }
+
+    if (fallbackAnalysis.hasNoiseSignals && !readabilityAnalysis.hasNoiseSignals) {
+      return fallbackScore >= readabilityScore + 14;
+    }
+
+    if (fallbackScore >= readabilityScore + 10) {
+      return true;
     }
 
     if (readabilityAnalysis.hasNoiseSignals && !fallbackAnalysis.hasNoiseSignals) {
@@ -1025,19 +1227,83 @@ export class OfflineModeManager {
       }
     }
 
-    return false;
+    return fallbackScore >= readabilityScore + 6;
+  }
+
+  private static computeCandidateSelectionScore(
+    originalHtml: string,
+    candidateHtml: string,
+    analysis?: CandidateAnalysis
+  ): number {
+    const details = analysis ?? this.analyzeExtractionCandidate(originalHtml, candidateHtml);
+    const sourceTextLength = Math.max(1, this.normalizeInputText(extractTextContent(originalHtml)).length);
+    const textCoverage = Math.min(1, details.textLength / sourceTextLength);
+    const sectionScore = Math.min(1, details.sectionCount / 6);
+    const candidateRoot = this.extractCandidateRoot(candidateHtml);
+    const linkDensity = candidateRoot ? this.calculateLinkDensity(candidateRoot) : 0;
+    const boilerplatePenalty = this.calculateBoilerplatePenalty(candidateHtml);
+    const feedLike = this.isLikelyFeedCandidate(details, linkDensity);
+    const formSidebarLike = details.formLikeBlocks >= 3 && details.repeatedItemBlocks < 4;
+
+    let score = 0;
+    score += details.headingCoverage * 34;
+    score += textCoverage * 24;
+    score += sectionScore * 14;
+    score += details.leadHeadingPresent ? 16 : 0;
+    score += feedLike ? 10 : 0;
+    score -= details.hasNoiseSignals ? 14 : 0;
+    score -= formSidebarLike ? 22 : 0;
+    score -= details.containsVectorNoise ? 18 : 0;
+
+    const densityThreshold = feedLike ? 0.78 : 0.45;
+    if (linkDensity > densityThreshold) {
+      score -= Math.min(18, (linkDensity - densityThreshold) * 60);
+    }
+    score -= boilerplatePenalty;
+
+    return Math.max(0, Math.min(100, score));
+  }
+
+  private static extractCandidateRoot(candidateHtml: string): HTMLElement | null {
+    const doc = safeParseHTML(candidateHtml);
+    if (!doc || !doc.body) {
+      return null;
+    }
+    return this.selectCoverageRoot(doc);
+  }
+
+  private static calculateBoilerplatePenalty(candidateHtml: string): number {
+    const text = this.normalizeInputText(extractTextContent(candidateHtml)).toLowerCase();
+    if (!text) {
+      return 20;
+    }
+
+    let penalty = 0;
+    if (/(subscribe|newsletter|cookie settings|accept all|related links|all rights reserved|privacy policy|terms of service)/i.test(text)) {
+      penalty += 6;
+    }
+    if (/(raw copy|copy-paste|before ?\/ ?after|example\.com\/)/i.test(text)) {
+      penalty += 8;
+    }
+    if (/(limit my search|advanced search: by author|see the search faq|view more:|join reddit|ad-free experience)/i.test(text)) {
+      penalty += 12;
+    }
+    if (/<path d=|stroke-width=|transform=\"translate\(|<\/svg>/i.test(candidateHtml)) {
+      penalty += 24;
+    }
+
+    const escapedTagCount = (candidateHtml.match(/&lt;\/?(?:div|footer|header|nav|section|article|main|p|h[1-6])\b/gi) || []).length;
+    if (escapedTagCount >= 6) {
+      penalty += Math.min(12, Math.floor(escapedTagCount / 3));
+    }
+
+    return penalty;
   }
 
   private static analyzeExtractionCandidate(
     originalHtml: string,
     candidateHtml: string
-  ): {
-    textLength: number;
-    headingCoverage: number;
-    sectionCount: number;
-    hasNoiseSignals: boolean;
-    leadHeadingPresent: boolean;
-  } {
+  ): CandidateAnalysis {
     const sourceDoc = safeParseHTML(originalHtml);
     const candidateDoc = safeParseHTML(candidateHtml);
 
@@ -1049,6 +1315,10 @@ export class OfflineModeManager {
         sectionCount: 0,
         hasNoiseSignals: this.containsUiNoiseSignals(candidateText),
         leadHeadingPresent: false,
+        anchorCount: 0,
+        repeatedItemBlocks: 0,
+        formLikeBlocks: 0,
+        containsVectorNoise: /<path d=|stroke-width=|transform=\"translate\(|<\/svg>/i.test(candidateHtml),
       };
     }
 
@@ -1072,6 +1342,10 @@ export class OfflineModeManager {
       sectionCount: this.countSubstantialSections(candidateRoot),
       hasNoiseSignals: this.containsUiNoiseSignals(candidateText),
       leadHeadingPresent,
+      anchorCount: candidateRoot.querySelectorAll('a').length,
+      repeatedItemBlocks: this.countRepeatedItemBlocks(candidateRoot),
+      formLikeBlocks: this.countFormLikeBlocks(candidateRoot),
+      containsVectorNoise: /<path d=|stroke-width=|transform=\"translate\(|<\/svg>/i.test(candidateHtml),
     };
   }
 
@@ -1107,12 +1381,18 @@ export class OfflineModeManager {
       .replace(/\b(?:annoying\s+)?popup\s*ad\s*accept\s*all(?:\s+\d+)?[\s\S]{0,180}?cookies?\s+to\s+continue\.?/gi, '')
       .replace(/\baccept\s*all(?:\s+\d+)?[\s\S]{0,180}?(?:tracking\s+)?cookies?\s+to\s+continue\.?/gi, '')
       .replace(/\bsubscribe\s+to\s+our\s+newsletter\s*\|\s*related\s+links\s*\|\s*footer\s+text\b/gi, '')
+      .replace(/\bwelcome to reddit,\s*the front page of the internet\.[\s\S]{0,120}?communities\./gi, '')
       .replace(/\bsource:\s*example\.com\/[^\s•]+(?:\s*•?\s*captured:\s*\d{4}-\d{2}-\d{2}[^\n]*)?/gi, '')
-      .replace(/#?\\?`{3}\s*json\s*\\?`{3}/gi, '');
+      .replace(/#?\\?`{3}\s*json\s*\\?`{3}/gi, '')
+      .replace(/!\[[^\]]*]\(data:image\/svg\+xml,[^)]+\)/gi, '')
+      .replace(/^\s*-\s*\[(save|share)\]\(#\)\s*$/gim, '')
+      .replace(/^\s*-\s*(hide|report)\s*$/gim, '')
+      .replace(/!\[@[^\]]*]\(https?:\/\/avatars\.githubusercontent\.com\/[^)]+\)/gi, '');
 
     const lines = sanitized.split('\n');
     const filtered = lines.filter((line) => {
       const normalized = this.normalizeInputText(line).toLowerCase();
+      const trimmed = line.trim();
       if (!normalized) {
         return true;
       }
@@ -1126,10 +1406,26 @@ export class OfflineModeManager {
           /accept all .*cookies?|manage (cookie|privacy) preferences|allow all cookies/.test(normalized) ||
           /subscribe to (our )?newsletter|join (the )?waitlist|sign up (for|to)/.test(normalized) ||
           /popup ad|popup adaccept|tracking cookies? to continue|related links \| footer text/.test(normalized) ||
-          /source:\s*example\.com\/|captured:\s*\d{4}-\d{2}-\d{2}t\d{2}/.test(normalized)
+          /source:\s*example\.com\/|captured:\s*\d{4}-\d{2}-\d{2}t\d{2}/.test(normalized) ||
+          /limit my search to|advanced search: by author|see the search faq|join reddit|view more:/.test(normalized) ||
+          /welcome to reddit.*front page of the internet/.test(normalized)
         );
+      const isInlineDataUriNoise =
+        /data:image\/svg\+xml/.test(normalized) ||
+        /svg\"><g d=\"m [\d\s\.\-lcz]+/.test(normalized);
+      const isCounterNoise = /^\d{1,6}$/.test(trimmed) || /^links from:?$/i.test(trimmed) || /^past (hour|24 hours|week|month|year|all time)$/i.test(trimmed);
+      const isRedditTimeFilterLine =
+        /^\[(past hour|past 24 hours|past week|past month|past year|all time)\]\([^)]+\)$/i.test(trimmed);
+      const isVectorPathLine =
+        /<path d=|stroke-width=|stroke-linecap=|stroke-linejoin=|transform=\"translate\(/i.test(trimmed) ||
+        /<\/svg>/i.test(trimmed);
+      const isGithubChromeLine =
+        /^\[skip to content\]\(#start-of-content\)$/i.test(trimmed) ||
+        /^\[(sponsor|star)\]\(/i.test(trimmed) ||
+        /^\]\(\/[^)]+\)\[?$/.test(trimmed) ||
+        /^built by\s*\[?$/i.test(trimmed);
 
-      return !isUiNoise;
+      return !(isUiNoise || isInlineDataUriNoise || isCounterNoise || isRedditTimeFilterLine || isVectorPathLine || isGithubChromeLine);
     });
 
     if (filtered.length !== lines.length) {
@@ -1137,6 +1433,248 @@ export class OfflineModeManager {
     }
     sanitized = filtered.join('\n');
     return sanitized;
+  }
+
+  private static stripUiNoiseCodeBlocks(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let removedBlocks = 0;
+    let index = 0;
+
+    const isFence = (line: string): boolean => /^```/.test(line.trim());
+    const languageLike = (value: string): boolean => /^[a-z0-9_.#+-]{1,20}$/i.test(value);
+
+    while (index < lines.length) {
+      const line = lines[index];
+      if (!isFence(line)) {
+        output.push(line);
+        index++;
+        continue;
+      }
+
+      const blockLines: string[] = [line];
+      const startFenceRaw = line.trim().slice(3).trim();
+      let cursor = index + 1;
+      while (cursor < lines.length) {
+        blockLines.push(lines[cursor]);
+        if (isFence(lines[cursor])) {
+          cursor++;
+          break;
+        }
+        cursor++;
+      }
+
+      const bodyLines = blockLines.slice(1, -1);
+      if (startFenceRaw && !languageLike(startFenceRaw)) {
+        bodyLines.unshift(startFenceRaw);
+      }
+      const normalizedBlock = this.normalizeInputText(bodyLines.join(' ')).toLowerCase();
+
+      const uiSignalCount = [
+        /(donate|create account|log in|privacy policy|about wikipedia)/.test(normalizedBlock),
+        /(cookie settings|accept all .*cookies?|tracking cookies?)/.test(normalizedBlock),
+        /(subscribe|newsletter|join waitlist|related links)/.test(normalizedBlock),
+        /(front page of the internet|limit my search|advanced search)/.test(normalizedBlock),
+        /(raw copy|copy-paste|raw input|selecting main content|contents\s*\[hide]|from wikipedia)/.test(normalizedBlock),
+      ].filter(Boolean).length;
+
+      const programmingSignalCount = [
+        /\b(import|export|function|const|let|var|class|interface|type)\b/.test(normalizedBlock),
+        /\b(fetch|curl|npm|pnpm|yarn|pip|python|node|typescript|javascript)\b/.test(normalizedBlock),
+        /\b(select\s+.+\s+from|insert\s+into|update\s+\w+\s+set|delete\s+from|create\s+table)\b/.test(normalizedBlock),
+        /[{}`;$]|=>/.test(bodyLines.join('\n')),
+      ].filter(Boolean).length;
+
+      const previousLine = output.length > 0 ? output[output.length - 1].trim().toLowerCase() : '';
+      const precededByRawLabel =
+        /^raw (input|copy[- ]paste|copy-paste|source)/.test(previousLine) ||
+        /^promptready (output|pass)$/.test(previousLine);
+
+      const hasNonLanguageFenceHeader = !!startFenceRaw && !languageLike(startFenceRaw);
+      const shouldDropBlock =
+        normalizedBlock.length >= 20 &&
+        programmingSignalCount === 0 &&
+        (
+          uiSignalCount >= 2 ||
+          (uiSignalCount >= 1 && (precededByRawLabel || hasNonLanguageFenceHeader))
+        );
+
+      if (shouldDropBlock) {
+        removedBlocks++;
+        if (precededByRawLabel) {
+          output.pop();
+        }
+      } else {
+        output.push(...blockLines);
+      }
+
+      index = cursor;
+    }
+
+    if (removedBlocks > 0) {
+      warnings.push('Removed UI-noise demo code blocks from markdown');
+    }
+
+    return output.join('\n');
+  }
+
+  private static stripLowSignalMediaArtifacts(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    const filtered: string[] = [];
+    let removedCount = 0;
+
+    for (const rawLine of lines) {
+      let line = rawLine;
+      line = line.replace(/\s+Built by\s*\[\s*$/i, '').trimEnd();
+      line = line.replace(/^\s*\]\([^)]+\)\s*/, '');
+      line = line.replace(/\s+\[\s*]\([^)]+\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trimEnd();
+
+      const trimmed = line.trim();
+      if (!trimmed) {
+        filtered.push(line);
+        continue;
+      }
+
+      if (
+        /^\[\s*]\([^)]+\)\s*$/.test(trimmed) ||
+        /^\[\s*$/.test(trimmed) ||
+        /^\]\([^)]+\)\s*\[?\s*$/.test(trimmed) ||
+        /^[-•]\s*$/.test(trimmed)
+      ) {
+        removedCount++;
+        continue;
+      }
+
+      const imageMatch = trimmed.match(/^!\[([^\]]*)]\(([^)\s]+)\)$/);
+      if (imageMatch) {
+        const altText = this.normalizeInputText(imageMatch[1] || '');
+        const imageUrl = (imageMatch[2] || '').toLowerCase();
+        const looksLikeHashedAlt =
+          /^[A-Za-z0-9_-]{10,}$/.test(altText) ||
+          (/^[A-Za-z0-9_-]{12,}$/.test(altText.replace(/\s+/g, '')) && !/\s/.test(altText));
+        const genericAlt = /^(image|photo|picture|logo|icon|avatar)$/i.test(altText);
+        const decorativeHost =
+          /framerusercontent\.com|avatars\.githubusercontent\.com|gravatar\.com/.test(imageUrl);
+        const lowSignalAlt = !altText || looksLikeHashedAlt || genericAlt;
+        if (decorativeHost || lowSignalAlt) {
+          removedCount++;
+          continue;
+        }
+      }
+
+      filtered.push(line);
+    }
+
+    if (removedCount > 0) {
+      warnings.push('Removed low-signal media/link artifacts from markdown');
+    }
+
+    return filtered.join('\n');
+  }
+
+  private static stripTerminalFooterCluster(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    if (lines.length < 40) {
+      return markdown;
+    }
+
+    const footerSignal = /(privacy policy|cookie policy|legal documents|cookies settings|all rights reserved|terms|contact us|careers|press and media|community|company|products|solutions|industries|events|slack)/i;
+    const lookbackStart = Math.max(0, lines.length - 140);
+    let firstSignalLine = -1;
+    let signalCount = 0;
+
+    for (let i = lookbackStart; i < lines.length; i++) {
+      const normalized = this.normalizeInputText(lines[i]).toLowerCase();
+      if (!normalized) {
+        continue;
+      }
+      const isSignal = footerSignal.test(normalized) || /^©\s*\d{4}/.test(normalized);
+      if (!isSignal) {
+        continue;
+      }
+      signalCount++;
+      if (firstSignalLine === -1) {
+        firstSignalLine = i;
+      }
+    }
+
+    if (signalCount < 5 || firstSignalLine < 0) {
+      return markdown;
+    }
+
+    warnings.push('Removed terminal footer/legal cluster from markdown');
+    return lines.slice(0, firstSignalLine).join('\n').trimEnd();
+  }
+
+  private static collapseFragmentedWordRuns(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let collapsedRunCount = 0;
+
+    const isJoinableTokenLine = (line: string): boolean => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        return false;
+      }
+      if (/^(>|#|-|\*|\d+\.)/.test(trimmed)) {
+        return false;
+      }
+      if (/\[[^\]]+\]\([^)]+\)/.test(trimmed)) {
+        return false;
+      }
+      if (trimmed.length < 2 || trimmed.length > 24) {
+        return false;
+      }
+      return /^[A-Za-z][A-Za-z0-9&+\-\/]*$/.test(trimmed);
+    };
+
+    let index = 0;
+    while (index < lines.length) {
+      if (!isJoinableTokenLine(lines[index])) {
+        output.push(lines[index]);
+        index++;
+        continue;
+      }
+
+      const run: string[] = [];
+      let cursor = index;
+      while (cursor < lines.length && isJoinableTokenLine(lines[cursor])) {
+        run.push(lines[cursor].trim());
+        cursor++;
+      }
+
+      if (run.length >= 5) {
+        output.push(run.join(' '));
+        collapsedRunCount++;
+        index = cursor;
+        continue;
+      }
+
+      output.push(lines[index]);
+      index++;
+    }
+
+    if (collapsedRunCount > 0) {
+      warnings.push('Collapsed fragmented word-run lines in markdown');
+    }
+
+    return output.join('\n');
   }
 
   private static ensurePrimaryHeading(markdown: string, title: string): string {
@@ -1322,8 +1860,8 @@ export class OfflineModeManager {
    * Process content in chunks for large documents
    */
   static async processLargeContent(
-    html: string,
-    url: string,
+    html: string, 
+    url: string, 
     title: string,
     config?: Partial<OfflineModeConfig>
   ): Promise<OfflineProcessingResult> {
@@ -1349,6 +1887,82 @@ export class OfflineModeManager {
     return this.combineChunkResults(results, title, url);
   }
 
+  private static collectFeedCandidates(doc: Document): Array<{ source: string; html: string }> {
+    const body = doc.body as HTMLElement | null;
+    if (!body) {
+      return [];
+    }
+
+    const selectorCandidates: Array<{ source: string; element: HTMLElement }> = [];
+    const selectors = [
+      '#siteTable',
+      '.sitetable',
+      '.linklisting',
+      '[role="feed"]',
+      '[data-testid*="feed"]',
+      '[data-testid*="post-list"]',
+      '.post-list',
+      '.posts',
+      '.feed',
+      '.story-list',
+      '[class*="feed"]',
+      '[class*="listing"]',
+    ];
+
+    for (const selector of selectors) {
+      const elements = Array.from(doc.querySelectorAll(selector)) as HTMLElement[];
+      for (const element of elements) {
+        selectorCandidates.push({ source: `feed:${selector}`, element });
+      }
+    }
+
+    for (const child of Array.from(body.children)) {
+      if (!(child instanceof HTMLElement)) {
+        continue;
+      }
+      const classAndId = `${child.className || ''} ${child.id || ''}`.toLowerCase();
+      if (/(side|sidebar|search|nav|menu|footer|header)/i.test(classAndId)) {
+        continue;
+      }
+      selectorCandidates.push({ source: 'feed:top-level', element: child });
+    }
+
+    const seen = new Set<string>();
+    const results: Array<{ source: string; html: string }> = [];
+
+    for (const candidate of selectorCandidates) {
+      const { element } = candidate;
+      const key = `${element.tagName}:${element.id || ''}:${element.className || ''}:${element.children.length}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+
+      const classAndId = `${element.className || ''} ${element.id || ''}`.toLowerCase();
+      if (/(side|sidebar|search|nav|menu|footer|header|cookie|consent)/i.test(classAndId)) {
+        continue;
+      }
+
+      const textLength = this.normalizeInputText(element.textContent || '').length;
+      const anchorCount = element.querySelectorAll('a').length;
+      const repeatedItemBlocks = this.countRepeatedItemBlocks(element);
+      const formLikeBlocks = this.countFormLikeBlocks(element);
+      if (textLength < 350 || anchorCount < 8) {
+        continue;
+      }
+      if (repeatedItemBlocks < 3 && anchorCount < 18) {
+        continue;
+      }
+      if (formLikeBlocks >= 6 && repeatedItemBlocks < 5) {
+        continue;
+      }
+
+      results.push({ source: candidate.source, html: element.innerHTML });
+    }
+
+    return results;
+  }
+
   /**
    * Fallback content extraction when Readability fails
    * Now uses ScoringEngine for better heuristic-based selection
@@ -1361,7 +1975,7 @@ export class OfflineModeManager {
     if (!doc) {
       return html;
     }
-  
+
     // For npm pages, look for README specifically
     if (doc.querySelector('[data-testid="readme"]')) {
       const readme = doc.querySelector('[data-testid="readme"]');
@@ -1369,8 +1983,25 @@ export class OfflineModeManager {
         return readme.innerHTML;
       }
     }
-  
-    // Try ScoringEngine first for better boilerplate pruning
+
+    const candidatePool: Array<{ source: string; html: string }> = [];
+    const primaryRoot = doc.querySelector('main, article, [role="main"], #content, .content, .main-content') as HTMLElement | null;
+    if (primaryRoot && this.normalizeInputText(primaryRoot.textContent || '').length > 120) {
+      candidatePool.push({
+        source: 'primary-root',
+        html: this.sanitizeFallbackCandidateHtml(primaryRoot.innerHTML)
+      });
+    }
+
+    const feedCandidates = this.collectFeedCandidates(doc);
+    candidatePool.push(
+      ...feedCandidates.map((candidate) => ({
+        source: candidate.source,
+        html: this.sanitizeFallbackCandidateHtml(candidate.html)
+      }))
+    );
+
+    // Try ScoringEngine candidate
     try {
       const { ScoringEngine } = await import('./scoring/scoring-engine.js');
       const body = doc.body as HTMLElement | null;
@@ -1380,39 +2011,119 @@ export class OfflineModeManager {
           console.log(`[OfflineModeManager] Using ScoringEngine result with score: ${bestCandidate.score}`);
           const selectedContainer = this.expandScoringCandidate(bestCandidate.element, body);
           const pruned = ScoringEngine.pruneNode(selectedContainer);
-          if (this.normalizeInputText(extractTextContent(pruned.innerHTML)).length === 0) {
-            return selectedContainer.innerHTML;
-          }
-          return pruned.innerHTML;
+          const scoringHtml = this.normalizeInputText(extractTextContent(pruned.innerHTML)).length === 0
+            ? selectedContainer.innerHTML
+            : pruned.innerHTML;
+          candidatePool.push({
+            source: 'scoring-engine',
+            html: this.sanitizeFallbackCandidateHtml(scoringHtml)
+          });
         }
       }
     } catch (error) {
       console.warn('[OfflineModeManager] ScoringEngine fallback failed:', error);
     }
 
-    // Try semantic extraction after heuristic scoring
+    // Try semantic extraction
     const semanticContent = extractSemanticContent(doc, 500);
     if (semanticContent) {
-      return semanticContent;
+      candidatePool.push({
+        source: 'semantic',
+        html: this.sanitizeFallbackCandidateHtml(semanticContent)
+      });
     }
-  
-    // Final fallback to body
+
+    // Candidate from cleaned body
     const body = doc.body;
     if (body) {
       removeUnwantedElements(body, [
-        '.ad', 
+        '.ad',
         '.advertisement',
+        'aside',
         'nav',
         'header',
         'footer',
+        'svg',
+        'path',
+        'symbol',
+        'defs',
+        'clipPath',
+        'mask',
+        'canvas',
+        '.search',
+        '.search-form',
+        '#search',
+        '.sidebar',
+        '.side',
         '[role="navigation"]',
         '[role="banner"]',
-        '[role="contentinfo"]'
+        '[role="contentinfo"]',
+        '[role="search"]'
       ]);
-      return body.innerHTML;
+      this.removeVisualNoiseElements(body);
+      this.cleanupEmptyContainers(body);
+      candidatePool.push({
+        source: 'body',
+        html: this.sanitizeFallbackCandidateHtml(body.innerHTML)
+      });
     }
-  
+
+    const ranked = candidatePool
+      .map((candidate) => ({
+        ...candidate,
+        textLength: this.normalizeInputText(extractTextContent(candidate.html)).length,
+      }))
+      .filter((candidate) => candidate.textLength > 0)
+      .filter((candidate) => {
+        const sourceTextLength = this.normalizeInputText(extractTextContent(prepared.html)).length;
+        const minLengthThreshold = Math.min(220, Math.max(80, Math.floor(sourceTextLength * 0.08)));
+        return candidate.textLength >= minLengthThreshold;
+      })
+      .map((candidate) => ({
+        ...candidate,
+        score: this.computeCandidateSelectionScore(prepared.html, candidate.html),
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    if (typeof process !== 'undefined' && (process as any)?.env?.OFFLINE_DEBUG_CANDIDATES === '1') {
+      console.log('[OfflineModeManager] Fallback candidate ranking', ranked.map((entry) => ({
+        source: entry.source,
+        score: entry.score,
+        length: this.normalizeInputText(extractTextContent(entry.html)).length,
+      })));
+    }
+
+    if (ranked.length > 0) {
+      return ranked[0].html;
+    }
+
     return prepared.html;
+  }
+
+  private static sanitizeFallbackCandidateHtml(candidateHtml: string): string {
+    const doc = safeParseHTML(candidateHtml);
+    if (!doc || !doc.body) {
+      return candidateHtml;
+    }
+
+    removeUnwantedElements(doc.body, [
+      'aside',
+      'nav',
+      'header',
+      'footer',
+      '.sidebar',
+      '.side',
+      '.search',
+      '.search-form',
+      '#search',
+      '[role="navigation"]',
+      '[role="banner"]',
+      '[role="contentinfo"]',
+      '[role="search"]'
+    ]);
+    this.removeVisualNoiseElements(doc.body);
+    this.cleanupEmptyContainers(doc.body);
+    return doc.body.innerHTML;
   }
 
   private static expandScoringCandidate(candidate: HTMLElement, body: HTMLElement): HTMLElement {
@@ -1429,18 +2140,23 @@ export class OfflineModeManager {
       const linkDensity = this.calculateLinkDensity(current);
       const headingCount = current.querySelectorAll('h1, h2, h3, h4').length;
       const sectionCount = current.querySelectorAll('section, article').length;
+      const substantialSections = this.countSubstantialSections(current);
       const role = (current.getAttribute('role') || '').toLowerCase();
       const isPrimaryContainer =
         current.tagName.toLowerCase() === 'main' ||
         current.tagName.toLowerCase() === 'article' ||
         role === 'main';
 
-      const expandsMeaningfully = currentTextLength >= selectedTextLength * 1.5;
-      const gainsStructure = headingCount >= 2 || sectionCount >= 2;
+      const isCompositeContainer = substantialSections >= 2 || sectionCount >= 2;
+      const expansionThreshold = isCompositeContainer ? 1.2 : 1.5;
+      const expandsMeaningfully = currentTextLength >= selectedTextLength * expansionThreshold;
+      const gainsStructure = headingCount >= 2 || sectionCount >= 2 || substantialSections >= 2;
       const withinReasonableBounds = isPrimaryContainer
-        ? currentTextLength <= bodyTextLength * 1.02
+        ? currentTextLength <= bodyTextLength * 1.1
         : currentTextLength <= bodyTextLength * 0.95;
-      const acceptableDensity = isPrimaryContainer ? linkDensity <= 0.55 : linkDensity <= 0.42;
+      const acceptableDensity = isPrimaryContainer
+        ? linkDensity <= (isCompositeContainer ? 0.75 : 0.62)
+        : linkDensity <= 0.42;
 
       if (
         !isLikelyNoiseContainer &&
@@ -1544,13 +2260,368 @@ export class OfflineModeManager {
   /**
    * Generate metadata for processed content
    */
-  private static generateMetadata(title: string, url: string, selectionHash: string): ExportMetadata {
-    return {
+  private static generateMetadata(
+    title: string,
+    url: string,
+    selectionHash: string,
+    sourceHtml?: string
+  ): ExportMetadata {
+    const metadata: ExportMetadata = {
       title: title || 'Untitled',
       url,
       capturedAt: new Date().toISOString(),
       selectionHash,
     };
+
+    if (!sourceHtml) {
+      return metadata;
+    }
+
+    const sourceSignals = this.extractSourceMetadataSignals(sourceHtml);
+    return {
+      ...metadata,
+      ...sourceSignals,
+    };
+  }
+
+  private static extractSourceMetadataSignals(html: string): Partial<ExportMetadata> {
+    const doc = safeParseHTML(html);
+    if (!doc) {
+      return {};
+    }
+
+    const readMetaContent = (selector: string): string | undefined => {
+      const value = doc.querySelector(selector)?.getAttribute('content');
+      if (!value) return undefined;
+      const normalized = this.normalizeInputText(value);
+      return normalized || undefined;
+    };
+
+    const datePublishedCandidates: string[] = [];
+    const dateModifiedCandidates: string[] = [];
+    const bylineCandidates: string[] = [];
+
+    const pushCandidate = (bucket: string[], value?: string | null): void => {
+      if (!value) return;
+      const normalized = this.normalizeInputText(value);
+      if (!normalized) return;
+      if (normalized.length > 120) return;
+      bucket.push(normalized);
+    };
+
+    const publishedMetaSelectors = [
+      'meta[property="article:published_time"]',
+      'meta[property="og:published_time"]',
+      'meta[name="article:published_time"]',
+      'meta[name="publishdate"]',
+      'meta[name="pubdate"]',
+      'meta[name="date"]',
+      'meta[itemprop="datePublished"]',
+    ];
+    for (const selector of publishedMetaSelectors) {
+      pushCandidate(datePublishedCandidates, readMetaContent(selector));
+    }
+
+    const modifiedMetaSelectors = [
+      'meta[property="article:modified_time"]',
+      'meta[property="og:updated_time"]',
+      'meta[name="lastmod"]',
+      'meta[itemprop="dateModified"]',
+    ];
+    for (const selector of modifiedMetaSelectors) {
+      pushCandidate(dateModifiedCandidates, readMetaContent(selector));
+    }
+
+    const authorMetaSelectors = [
+      'meta[name="author"]',
+      'meta[property="article:author"]',
+      'meta[itemprop="author"]',
+    ];
+    for (const selector of authorMetaSelectors) {
+      pushCandidate(bylineCandidates, readMetaContent(selector));
+    }
+
+    const timeElements = Array.from(
+      doc.querySelectorAll(
+        'time, [datetime], [itemprop="datePublished"], [itemprop="dateModified"], .dateline, .byline, [class*="timestamp"], [class*="publish"], [class*="update"], [class*="date"], [class*="time"], [id*="date"], [id*="time"], [data-time], [data-timestamp], [data-date], [data-published], [data-updated]'
+      )
+    ) as HTMLElement[];
+    for (const element of timeElements) {
+      const datetimeAttr = element.getAttribute('datetime');
+      if (datetimeAttr) {
+        const isModified = /modified|updated|update/i.test(
+          `${element.getAttribute('itemprop') || ''} ${element.className || ''}`
+        );
+        if (isModified) {
+          pushCandidate(dateModifiedCandidates, datetimeAttr);
+        } else {
+          pushCandidate(datePublishedCandidates, datetimeAttr);
+        }
+      }
+      const text = this.normalizeInputText(element.textContent || '');
+      if (this.looksLikeTimestamp(text)) {
+        const isModified = /modified|updated|update/i.test(
+          `${element.getAttribute('itemprop') || ''} ${element.className || ''}`
+        );
+        if (isModified) {
+          pushCandidate(dateModifiedCandidates, text);
+        } else {
+          pushCandidate(datePublishedCandidates, text);
+        }
+      }
+      if (/byline|author/i.test(element.className || '') && text.length > 2 && text.length <= 80) {
+        pushCandidate(bylineCandidates, text.replace(/^by\s+/i, ''));
+      }
+    }
+
+    const jsonLdSignals = this.extractJsonLdMetadataSignals(doc);
+    datePublishedCandidates.push(...jsonLdSignals.publishedCandidates);
+    dateModifiedCandidates.push(...jsonLdSignals.updatedCandidates);
+    bylineCandidates.push(...jsonLdSignals.bylineCandidates);
+
+    const published = this.pickBestTimestamp(datePublishedCandidates);
+    const updated = this.pickBestTimestamp(dateModifiedCandidates);
+    const byline = this.pickBestByline(bylineCandidates);
+
+    const result: Partial<ExportMetadata> = {};
+    if (published) {
+      if (published.iso) {
+        result.publishedAt = published.iso;
+      }
+      result.publishedAtText = published.text;
+    }
+    if (updated) {
+      if (updated.iso) {
+        result.updatedAt = updated.iso;
+      }
+      result.updatedAtText = updated.text;
+    }
+    if (byline) {
+      result.byline = byline;
+    }
+
+    return result;
+  }
+
+  private static extractJsonLdMetadataSignals(doc: Document): {
+    publishedCandidates: string[];
+    updatedCandidates: string[];
+    bylineCandidates: string[];
+  } {
+    const publishedCandidates: string[] = [];
+    const updatedCandidates: string[] = [];
+    const bylineCandidates: string[] = [];
+
+    const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
+    const visitNode = (node: unknown): void => {
+      if (!node) return;
+
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          visitNode(item);
+        }
+        return;
+      }
+
+      if (typeof node !== 'object') {
+        return;
+      }
+
+      const obj = node as Record<string, unknown>;
+      if (typeof obj.datePublished === 'string') {
+        publishedCandidates.push(this.normalizeInputText(obj.datePublished));
+      }
+      if (typeof obj.dateModified === 'string') {
+        updatedCandidates.push(this.normalizeInputText(obj.dateModified));
+      }
+
+      const author = obj.author;
+      if (typeof author === 'string') {
+        bylineCandidates.push(this.normalizeInputText(author));
+      } else if (author && typeof author === 'object') {
+        const authorObj = author as Record<string, unknown>;
+        if (typeof authorObj.name === 'string') {
+          bylineCandidates.push(this.normalizeInputText(authorObj.name));
+        }
+      } else if (Array.isArray(author)) {
+        for (const entry of author) {
+          if (typeof entry === 'string') {
+            bylineCandidates.push(this.normalizeInputText(entry));
+            continue;
+          }
+          if (entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>).name === 'string') {
+            bylineCandidates.push(this.normalizeInputText((entry as Record<string, string>).name));
+          }
+        }
+      }
+
+      for (const value of Object.values(obj)) {
+        visitNode(value);
+      }
+    };
+
+    for (const script of scripts) {
+      const raw = script.textContent;
+      if (!raw) continue;
+      try {
+        visitNode(JSON.parse(raw));
+      } catch {
+        // Ignore malformed JSON-LD blocks.
+      }
+    }
+
+    return {
+      publishedCandidates,
+      updatedCandidates,
+      bylineCandidates,
+    };
+  }
+
+  private static looksLikeTimestamp(value: string): boolean {
+    if (!value) {
+      return false;
+    }
+    const normalized = this.normalizeInputText(value);
+    if (normalized.length < 4 || normalized.length > 80) {
+      return false;
+    }
+    if (/\d{4}-\d{2}-\d{2}/.test(normalized)) {
+      return true;
+    }
+    if (/\b\d{1,2}:\d{2}\b/.test(normalized)) {
+      return true;
+    }
+    if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b/i.test(normalized) && /\d{1,4}/.test(normalized)) {
+      return true;
+    }
+    return /\b\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4}\b/.test(normalized);
+  }
+
+  private static pickBestTimestamp(candidates: string[]): { text: string; iso?: string } | undefined {
+    const unique = Array.from(new Set(candidates.map((value) => this.normalizeInputText(value)).filter(Boolean)));
+    let best: { parsed: { text: string; iso?: string }; score: number } | undefined;
+
+    for (const candidate of unique) {
+      const parsed = this.parseTimestampCandidate(candidate);
+      if (!parsed) {
+        continue;
+      }
+      const score = this.scoreTimestampCandidate(parsed);
+      if (!best || score > best.score || (score === best.score && this.isTimestampCandidateMoreRecent(parsed, best.parsed))) {
+        best = { parsed, score };
+      }
+    }
+
+    return best?.parsed;
+  }
+
+  private static parseTimestampCandidate(candidate: string): { text: string; iso?: string } | undefined {
+    if (!candidate) {
+      return undefined;
+    }
+    const normalized = this.normalizeInputText(candidate);
+    if (!normalized || !this.looksLikeTimestamp(normalized)) {
+      return undefined;
+    }
+
+    const epochMatch = normalized.match(/^\d{10,13}$/);
+    if (epochMatch) {
+      const epoch = Number(epochMatch[0]);
+      const millis = epochMatch[0].length === 13 ? epoch : epoch * 1000;
+      const date = new Date(millis);
+      if (!Number.isNaN(date.getTime())) {
+        return { text: normalized, iso: date.toISOString() };
+      }
+      return { text: normalized };
+    }
+
+    const parsed = new Date(normalized);
+    if (!Number.isNaN(parsed.getTime())) {
+      return { text: normalized, iso: parsed.toISOString() };
+    }
+
+    return { text: normalized };
+  }
+
+  private static scoreTimestampCandidate(candidate: { text: string; iso?: string }): number {
+    const normalized = this.normalizeInputText(candidate.text).toLowerCase();
+    let score = 0;
+
+    if (/\b\d{1,2}:\d{2}\b/.test(normalized)) {
+      score += 30;
+    }
+    if (/[+-]\d{2}:?\d{2}\b/.test(normalized) || /\b(?:utc|gmt|ist|pst|pdt|est|edt|cet|cest|bst)\b/.test(normalized)) {
+      score += 12;
+    }
+    if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b/.test(normalized)) {
+      score += 10;
+    }
+    if (/\b\d{4}\b/.test(normalized)) {
+      score += 8;
+    }
+    if (/\b(?:updated|modified|published|posted)\b/.test(normalized)) {
+      score += 6;
+    }
+    if (normalized.length >= 8 && normalized.length <= 48) {
+      score += 4;
+    }
+
+    if (candidate.iso) {
+      score += 10;
+      const parsed = new Date(candidate.iso);
+      if (!Number.isNaN(parsed.getTime())) {
+        const year = parsed.getUTCFullYear();
+        const currentYear = new Date().getUTCFullYear();
+        if (year >= currentYear - 2 && year <= currentYear + 1) {
+          score += 14;
+        } else if (year < currentYear - 10) {
+          score -= 18;
+        }
+        if (year < 1970 || year > currentYear + 2) {
+          score -= 20;
+        }
+      }
+    }
+
+    if (normalized.length > 80) {
+      score -= 10;
+    }
+
+    return score;
+  }
+
+  private static isTimestampCandidateMoreRecent(
+    candidate: { text: string; iso?: string },
+    incumbent: { text: string; iso?: string }
+  ): boolean {
+    if (candidate.iso && incumbent.iso) {
+      const candidateTime = new Date(candidate.iso).getTime();
+      const incumbentTime = new Date(incumbent.iso).getTime();
+      if (!Number.isNaN(candidateTime) && !Number.isNaN(incumbentTime)) {
+        return candidateTime > incumbentTime;
+      }
+    }
+    if (candidate.iso && !incumbent.iso) {
+      return true;
+    }
+    if (!candidate.iso && incumbent.iso) {
+      return false;
+    }
+    return candidate.text.length > incumbent.text.length;
+  }
+
+  private static pickBestByline(candidates: string[]): string | undefined {
+    const unique = Array.from(new Set(candidates.map((value) => this.normalizeInputText(value)).filter(Boolean)));
+    for (const candidate of unique) {
+      if (/^(staff|news|editorial)$/i.test(candidate)) {
+        continue;
+      }
+      if (candidate.length < 2 || candidate.length > 80) {
+        continue;
+      }
+      return candidate.replace(/^by\s+/i, '');
+    }
+    return undefined;
   }
 
   /**
@@ -1560,23 +2631,60 @@ export class OfflineModeManager {
     let score = 100;
 
     // Penalize for errors and warnings
-    score -= errors.length * 20;
-    score -= warnings.length * 3;
+    score -= Math.min(60, errors.length * 20);
+    score -= Math.min(22, warnings.length * 2);
 
-    // Check content preservation
-    const reductionRatio = markdown.length / originalHtml.length;
-    if (reductionRatio < 0.1) score -= 30;
-    else if (reductionRatio < 0.3) score -= 15;
+    const sourceTextLength = this.normalizeInputText(extractTextContent(originalHtml)).length;
+    const markdownTextLength = this.normalizeInputText(markdown).length;
+    const textRetentionRatio = sourceTextLength > 0 ? markdownTextLength / sourceTextLength : 1;
+
+    // Check content preservation using text retention (not raw HTML-size ratio)
+    if (markdownTextLength < 120) score -= 30;
+    else if (markdownTextLength < 240) score -= 15;
+    if (sourceTextLength > 0) {
+      if (textRetentionRatio < 0.025) score -= 24;
+      else if (textRetentionRatio < 0.05) score -= 12;
+      else if (textRetentionRatio > 1.25) score -= 10; // noisy duplication / over-capture
+    }
 
     // Check structure preservation
     const headings = (markdown.match(/^#{1,6}\s/gm) || []).length;
     const originalHeadings = (originalHtml.match(/<h[1-6]/gi) || []).length;
-    if (headings < originalHeadings * 0.5) score -= 20;
+    if (originalHeadings > 0 && headings === 0) score -= 18;
+    else if (originalHeadings >= 4 && headings < Math.ceil(originalHeadings * 0.25)) score -= 10;
 
     // Check for markdown quality
-    if (markdown.includes('<') && markdown.includes('>')) score -= 15; // HTML tags present
+    const rawHtmlTagCount = (
+      markdown.match(/<\/?(?:div|span|section|article|main|header|footer|nav|aside|script|style|iframe|svg|path|form|button|input|textarea|select)\b[^>]*>/gi) ||
+      []
+    ).length;
+    if (rawHtmlTagCount > 0) score -= Math.min(12, rawHtmlTagCount);
+
+    const decorativeImageCount = (
+      markdown.match(/^!\[[^\]]*]\((?:https?:\/\/)?[^)\s]*(?:framerusercontent\.com|avatars\.githubusercontent\.com|gravatar\.com)[^)]+\)$/gim) ||
+      []
+    ).length;
+    if (decorativeImageCount > 0) score -= Math.min(12, decorativeImageCount * 2);
+
     if (markdown.match(/\n{4,}/)) score -= 10; // Excessive whitespace
     if (warnings.some(w => /hidden|invisible/i.test(w))) score -= 20;
+
+    // Penalize fragmented low-signal token lines (common in list/avatar chrome leaks)
+    const suspiciousTokenLines = markdown.split('\n').filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || /^(>|#|-|\*|\d+\.)/.test(trimmed)) {
+        return false;
+      }
+      if (trimmed.length < 2 || trimmed.length > 24) {
+        return false;
+      }
+      return /^[A-Za-z][A-Za-z-]*$/.test(trimmed);
+    }).length;
+    if (suspiciousTokenLines >= 12) {
+      score -= 12;
+    } else if (suspiciousTokenLines >= 6) {
+      score -= 6;
+    }
 
     return Math.max(0, Math.min(100, score));
   }
@@ -1891,10 +2999,28 @@ export class OfflineModeManager {
 
     const title = metadata.title || 'Untitled Page';
     const url = metadata.url || '';
-    const captured = metadata.capturedAt ? new Date(metadata.capturedAt).toISOString() : 'Unknown Date';
+    const captured = this.formatMetadataTimestamp(metadata.capturedAt) || 'Unknown Date';
+    const published = metadata.publishedAtText || this.formatMetadataTimestamp(metadata.publishedAt);
+    const updated = metadata.updatedAtText || this.formatMetadataTimestamp(metadata.updatedAt);
+    const byline = metadata.byline ? this.normalizeInputText(metadata.byline) : '';
     const hash = metadata.selectionHash || 'N/A';
 
-    const citationHeader = `> Source: [${title}](${url})\n> Captured: ${captured}\n> Hash: ${hash}\n\n`;
+    const citationLines = [
+      `> Source: [${title}](${url})`,
+      `> Captured: ${captured}`,
+    ];
+    if (published) {
+      citationLines.push(`> Published: ${published}`);
+    }
+    if (updated) {
+      citationLines.push(`> Updated: ${updated}`);
+    }
+    if (byline) {
+      citationLines.push(`> By: ${byline}`);
+    }
+    citationLines.push(`> Hash: ${hash}`);
+
+    const citationHeader = `${citationLines.join('\n')}\n\n`;
 
     const hasPrimaryHeading = /^#\s+/m.test(result);
     if (!hasPrimaryHeading) {
@@ -1922,12 +3048,22 @@ export class OfflineModeManager {
       url: metadata?.url || '',
       capturedAt: metadata?.capturedAt || new Date().toISOString(),
       selectionHash: metadata?.selectionHash || 'N/A',
+      publishedAt: metadata?.publishedAt,
+      publishedAtText: metadata?.publishedAtText,
+      updatedAt: metadata?.updatedAt,
+      updatedAtText: metadata?.updatedAtText,
+      byline: metadata?.byline,
     };
 
     let result = this.normalizeUnicodeWhitespace(markdown || '');
     result = this.stripLeadingCitationBlock(result);
     result = this.sanitizeRiskyMarkdown(result, warnings);
     result = this.stripResidualUiNoiseLines(result, warnings);
+    result = this.stripUiNoiseCodeBlocks(result, warnings);
+    result = this.stripLowSignalMediaArtifacts(result, warnings);
+    result = this.normalizeMarkdownSpacing(result);
+    result = this.collapseFragmentedWordRuns(result, warnings);
+    result = this.stripTerminalFooterCluster(result, warnings);
     result = this.ensurePrimaryHeading(result, normalizedMetadata.title);
 
     if (!result || result.trim().length === 0) {
@@ -1935,6 +3071,33 @@ export class OfflineModeManager {
     }
 
     return this.insertCiteFirstBlock(result, normalizedMetadata);
+  }
+
+  private static normalizeMarkdownSpacing(markdown: string): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    return markdown
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/^\s+$/gm, '')
+      .trim();
+  }
+
+  private static formatMetadataTimestamp(value?: string): string {
+    if (!value) {
+      return '';
+    }
+    const normalized = this.normalizeInputText(value);
+    if (!normalized) {
+      return '';
+    }
+    const parsed = new Date(normalized);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+    return normalized;
   }
 
   private static stripLeadingCitationBlock(markdown: string): string {
@@ -1960,7 +3123,14 @@ export class OfflineModeManager {
         break;
       }
       const text = line.replace(/^\s*>\s?/, '').trim().toLowerCase();
-      if (!text || text.startsWith('captured:') || text.startsWith('hash:')) {
+      if (
+        !text ||
+        text.startsWith('captured:') ||
+        text.startsWith('hash:') ||
+        text.startsWith('published:') ||
+        text.startsWith('updated:') ||
+        text.startsWith('by:')
+      ) {
         index++;
         continue;
       }

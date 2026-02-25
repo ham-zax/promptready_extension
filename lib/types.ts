@@ -94,6 +94,11 @@ export interface ExportMetadata {
   url: string;
   capturedAt: string; // ISO 8601 format
   selectionHash: string;
+  publishedAt?: string; // Normalized ISO 8601 when detected
+  publishedAtText?: string; // Raw source timestamp when normalization is not possible
+  updatedAt?: string; // Normalized ISO 8601 when detected
+  updatedAtText?: string; // Raw source timestamp when normalization is not possible
+  byline?: string;
 }
 
 export interface ContentBlock {

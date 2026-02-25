@@ -7,6 +7,7 @@ Use these commands during active development while the legacy quality/security s
 1. `npm run compile`
 2. `npm run test:smoke`
 3. `npm run verify:dev` (wrapper for 1 + 2)
+4. `npm run verify:dev:retry` (optional retry sanity: runs baseline twice)
 
 ## Smoke Scope
 The smoke suite intentionally focuses on currently maintained surfaces:

@@ -3,13 +3,14 @@
 ## Pre-Release
 
 1. Run `npm run verify:dev` and confirm all checks pass.
-2. Verify `functions/ai-proxy/index.ts` has no hardcoded provider keys and only uses request/env-sourced credentials.
-3. Confirm production runtime profile:
+2. Optional after interrupted sessions: run `npm run verify:dev:retry` to confirm repeated local smoke stability.
+3. Verify `functions/ai-proxy/index.ts` has no hardcoded provider keys and only uses request/env-sourced credentials.
+4. Confirm production runtime profile:
    - `premiumBypassEnabled=false`
    - `enforceDeveloperMode=false`
    - `useMockMonetization=false`
    - non-localhost API endpoints
-4. Confirm worker env vars:
+5. Confirm worker env vars:
    - `OPENROUTER_HTTP_REFERER=https://promptready.app`
    - `OPENROUTER_TITLE=PromptReady Extension`
    - production API keys sourced from secrets/env only

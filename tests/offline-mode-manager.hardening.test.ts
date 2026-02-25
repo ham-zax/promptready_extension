@@ -195,6 +195,39 @@ describe('OfflineModeManager hardening regressions', () => {
     expect(result.markdown).not.toContain('Accept all 500 tracking cookies to continue');
   });
 
+  it('adopts ranked fallback candidate even when readability coverage is not low', async () => {
+    const manager = OfflineModeManager as any;
+    const originalFallbackExtraction = manager.fallbackContentExtraction;
+    const originalCoverageCheck = manager.shouldFallbackForCoverage;
+    const originalAdoptionCheck = manager.shouldAdoptFallbackCandidate;
+
+    manager.fallbackContentExtraction = vi.fn().mockResolvedValue(
+      '<article><h1>Ranked Fallback Winner</h1><p>Better candidate content.</p></article>'
+    );
+    manager.shouldFallbackForCoverage = vi.fn().mockReturnValue(false);
+    manager.shouldAdoptFallbackCandidate = vi.fn().mockReturnValue(true);
+
+    try {
+      const fallbacksUsed: string[] = [];
+      const warnings: string[] = [];
+      const resolved = await manager.resolveReadabilityCandidate(
+        '<html><body><main><h1>Source Title</h1></main></body></html>',
+        '<article><h1>Readability Candidate</h1><p>Primary body.</p></article>',
+        fallbacksUsed,
+        warnings,
+        baseConfig
+      );
+
+      expect(resolved).toContain('Ranked Fallback Winner');
+      expect(fallbacksUsed).toContain('readability-ranked-fallback');
+      expect(warnings.some((w) => /higher-quality fallback candidate/i.test(w))).toBe(true);
+    } finally {
+      manager.fallbackContentExtraction = originalFallbackExtraction;
+      manager.shouldFallbackForCoverage = originalCoverageCheck;
+      manager.shouldAdoptFallbackCandidate = originalAdoptionCheck;
+    }
+  });
+
   it('canonicalizes delivery markdown by replacing stale cite block and stripping residual UI noise', () => {
     const warnings: string[] = [];
     const markdown = `
@@ -262,6 +295,187 @@ Source: example.com/rag-guide•Captured: 2026-02-24T18:40Z`;
     expect(canonical).not.toContain('```json```');
     expect(canonical).not.toContain('Source: example.com/rag-guide');
     expect(canonical).toContain('Cleaner input. Better model output.');
+  });
+
+  it('removes UI-noise demo code fences while preserving real programming code fences', () => {
+    const warnings: string[] = [];
+    const markdown = `Raw input
+\`\`\`Donate | Create account | Log in
+Contents [hide]
+From Wikipedia, the free encyclopedia
+Privacy policy | About Wikipedia
+Accept all 500 tracking cookies to continue.
+\`\`\`
+
+### SDK example
+\`\`\`ts
+import { OpenRouter } from '@openrouter/sdk';
+const completion = await openRouter.chat.send({ model: 'openai/gpt-5.2' });
+\`\`\``;
+
+    const canonical = OfflineModeManager.canonicalizeDeliveredMarkdown(
+      markdown,
+      {
+        title: 'PromptReady — One-click clean Markdown from any page',
+        url: 'https://promptready.app/',
+        capturedAt: '2026-02-25T22:27:57.577Z',
+        selectionHash: 'promptready-hash',
+      },
+      warnings
+    );
+
+    expect(canonical).not.toContain('Donate | Create account | Log in');
+    expect(canonical).not.toContain('Privacy policy | About Wikipedia');
+    expect(canonical).not.toContain('Raw input');
+    expect(canonical).toContain("import { OpenRouter } from '@openrouter/sdk';");
+  });
+
+  it('removes low-signal media and empty-link artifacts while preserving meaningful text', () => {
+    const warnings: string[] = [];
+    const noisy = `# Trending
+
+![toF23BrUnkTcleEFRGkss7jhJSw](https://framerusercontent.com/images/toF23BrUnkTcleEFRGkss7jhJSw.svg)
+Python [14,542](/D4Vinci/Scrapling/stargazers) Built by [
+](/D4Vinci)
+[](/AbdullahY36)
+
+Reliable extraction summary remains here.
+`;
+
+    const canonical = OfflineModeManager.canonicalizeDeliveredMarkdown(
+      noisy,
+      {
+        title: 'Trending repositories on GitHub today',
+        url: 'https://github.com/trending',
+        capturedAt: '2026-02-25T19:37:55.451Z',
+        selectionHash: 'github-trending-hash',
+      },
+      warnings
+    );
+
+    expect(canonical).toContain('Python [14,542](/D4Vinci/Scrapling/stargazers)');
+    expect(canonical).toContain('Reliable extraction summary remains here.');
+    expect(canonical).not.toContain('framerusercontent.com/images/');
+    expect(canonical).not.toContain('Built by [');
+    expect(canonical).not.toContain('[](/AbdullahY36)');
+  });
+
+  it('normalizes excessive markdown spacing during canonicalization', () => {
+    const warnings: string[] = [];
+    const noisySpacing = `# Heading
+
+
+
+Paragraph one.
+
+    
+
+Paragraph two.
+
+
+`;
+
+    const canonical = OfflineModeManager.canonicalizeDeliveredMarkdown(
+      noisySpacing,
+      {
+        title: 'Spacing Coverage',
+        url: 'https://example.com/spacing',
+        capturedAt: '2026-02-25T19:37:55.451Z',
+        selectionHash: 'spacing-hash',
+      },
+      warnings
+    );
+
+    expect(canonical).not.toMatch(/\n{4,}/);
+    expect(canonical).toContain('Paragraph one.');
+    expect(canonical).toContain('Paragraph two.');
+  });
+
+  it('extracts publish/update/byline metadata and surfaces them in cite header', async () => {
+    const html = `
+      <html>
+        <head>
+          <meta property="article:published_time" content="2026-02-25T14:43:00+05:30" />
+          <meta property="article:modified_time" content="2026-02-25T15:10:00+05:30" />
+          <meta name="author" content="News Desk" />
+        </head>
+        <body>
+          <article>
+            <h1>Metadata Coverage Story</h1>
+            <p>${'Important section content for metadata regression coverage. '.repeat(30)}</p>
+          </article>
+        </body>
+      </html>
+    `;
+
+    const result = await OfflineModeManager.processContent(
+      html,
+      'https://example.com/metadata-story',
+      'Metadata Coverage Story',
+      baseConfig,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.metadata.publishedAt).toBe(new Date('2026-02-25T14:43:00+05:30').toISOString());
+    expect(result.metadata.updatedAt).toBe(new Date('2026-02-25T15:10:00+05:30').toISOString());
+    expect(result.metadata.byline).toBe('News Desk');
+    expect(result.markdown).toContain('> Published: 2026-02-25T14:43:00+05:30');
+    expect(result.markdown).toContain('> Updated: 2026-02-25T15:10:00+05:30');
+    expect(result.markdown).toContain('> By: News Desk');
+  });
+
+  it('preserves non-ISO timestamp strings from source when normalization is not possible', async () => {
+    const html = `
+      <html>
+        <body>
+          <article>
+            <h1>Live Update Stream</h1>
+            <div class="dateline"><time>14:43 (IST) Feb 25</time></div>
+            <p>${'Live updates with significant details to keep extraction stable. '.repeat(25)}</p>
+          </article>
+        </body>
+      </html>
+    `;
+
+    const result = await OfflineModeManager.processContent(
+      html,
+      'https://example.com/live-stream',
+      'Live Update Stream',
+      baseConfig,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.metadata.publishedAtText).toBe('14:43 (IST) Feb 25');
+    expect(result.markdown).toContain('> Published: 14:43 (IST) Feb 25');
+  });
+
+  it('prefers live-update timestamp text over stale legacy metadata candidates', async () => {
+    const html = `
+      <html>
+        <head>
+          <meta property="article:published_time" content="2006-02-28T18:19:29+00:00" />
+        </head>
+        <body>
+          <article>
+            <h1>Live Coverage</h1>
+            <span class="live-time">14:43 (IST) Feb 25</span>
+            <p>${'Continuous update content that should keep extraction stable for ranking. '.repeat(24)}</p>
+          </article>
+        </body>
+      </html>
+    `;
+
+    const result = await OfflineModeManager.processContent(
+      html,
+      'https://example.com/live-coverage',
+      'Live Coverage',
+      baseConfig,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.metadata.publishedAtText).toBe('14:43 (IST) Feb 25');
+    expect(result.markdown).toContain('> Published: 14:43 (IST) Feb 25');
+    expect(result.markdown).not.toContain('> Published: 2006-02-28T18:19:29+00:00');
   });
 
   it('records non-negative timing and closes failed session state', async () => {

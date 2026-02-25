@@ -10,7 +10,8 @@ interface FixtureCase {
   title: string;
   requiredSnippets: string[];
   forbiddenSnippets: string[];
-  minQualityScore: number;
+  minQualityScore?: number;
+  maxSuspiciousSingleTokenLines?: number;
 }
 
 const fixtureCases: FixtureCase[] = [
@@ -72,6 +73,87 @@ const fixtureCases: FixtureCase[] = [
     forbiddenSnippets: ['FORUM_SIDEBAR_AD_TOKEN'],
     minQualityScore: 60,
   },
+  {
+    name: 'promptready landing page',
+    fixtureFile: 'promptready-homepage.html',
+    url: 'https://promptready.app/',
+    title: 'PromptReady - One-click clean Markdown from any page',
+    requiredSnippets: [
+      'Cleaner input. Better model output.',
+      'Preserves code fences',
+      'See the transformation in one pass',
+      'Trusted by builders, researchers,',
+      'Simple pricing',
+    ],
+    forbiddenSnippets: [
+      'ANNOYING POPUP AD',
+      'Accept all 500 tracking cookies to continue',
+      'Source: example.com/rag-guide',
+    ],
+    minQualityScore: 50,
+    maxSuspiciousSingleTokenLines: 3,
+  },
+  {
+    name: 'mindsdb homepage',
+    fixtureFile: 'mindsdb-homepage.html',
+    url: 'https://mindsdb.com/',
+    title: 'AI Analytics & Business Intelligence for any Data Source',
+    requiredSnippets: [
+      'AI Analytics & Business Intelligence for any Data Source',
+      'From data to insights at the speed of thought.',
+      'Decision-Making in Real-Time',
+    ],
+    forbiddenSnippets: [
+      'Privacy Policy',
+      'Cookie Policy',
+      'Legal Documents',
+      'framerusercontent.com/images/',
+      '<path d=',
+      'stroke-width=',
+    ],
+    minQualityScore: 45,
+    maxSuspiciousSingleTokenLines: 10,
+  },
+  {
+    name: 'reddit listing page',
+    fixtureFile: 'reddit-programming-top.html',
+    url: 'https://old.reddit.com/r/programming/top/?t=month',
+    title: 'top scoring links : programming',
+    requiredSnippets: [
+      'Anthropic: AI assisted coding',
+      'Microsoft Has Killed Widgets Six Times',
+      'submitted 26 days ago by',
+    ],
+    forbiddenSnippets: [
+      'limit my search to r/programming',
+      'advanced search: by author, subreddit',
+      'see the search faq for details',
+      'Welcome to Reddit,the front page of the internet',
+      '[past hour](https://old.reddit.com/r/programming/top/)',
+    ],
+    minQualityScore: 40,
+    maxSuspiciousSingleTokenLines: 8,
+  },
+  {
+    name: 'github trending page',
+    fixtureFile: 'github-trending.html',
+    url: 'https://github.com/trending',
+    title: 'Trending repositories on GitHub today',
+    requiredSnippets: [
+      '# Trending',
+      'See what the GitHub community is most excited about today.',
+      'D4Vinci / Scrapling',
+    ],
+    forbiddenSnippets: [
+      '[Skip to content](#start-of-content)',
+      '[Sponsor](',
+      '![@D4Vinci](https://avatars.githubusercontent.com',
+      'Built by [',
+      '[](/',
+    ],
+    minQualityScore: 40,
+    maxSuspiciousSingleTokenLines: 15,
+  },
 ];
 
 function readFixtureHtml(fileName: string): string {
@@ -83,6 +165,23 @@ function normalizeDynamicMetadata(markdown: string): string {
   return markdown
     .replace(/^> Captured: .+$/m, '> Captured: <timestamp>')
     .replace(/^> Hash: .+$/m, '> Hash: <hash>');
+}
+
+function collectSuspiciousSingleTokenLines(markdown: string): string[] {
+  const lines = markdown.split('\n');
+  return lines.filter((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return false;
+    }
+    if (/^(>|#|-|\*|\d+\.)/.test(trimmed)) {
+      return false;
+    }
+    if (trimmed.length < 2 || trimmed.length > 24) {
+      return false;
+    }
+    return /^[A-Za-z][A-Za-z-]*$/.test(trimmed);
+  });
 }
 
 describe('Offline extractor fixture corpus regression', () => {
@@ -104,7 +203,7 @@ describe('Offline extractor fixture corpus regression', () => {
       expect(result.success).toBe(true);
       expect(result.markdown.length).toBeGreaterThan(200);
       expect(result.processingStats.readabilityTime).toBeGreaterThan(0);
-      expect(result.processingStats.qualityScore).toBeGreaterThanOrEqual(fixture.minQualityScore);
+      expect(result.processingStats.qualityScore).toBeGreaterThanOrEqual(fixture.minQualityScore ?? 0);
 
       for (const snippet of fixture.requiredSnippets) {
         expect(result.markdown).toContain(snippet);
@@ -112,9 +211,15 @@ describe('Offline extractor fixture corpus regression', () => {
       for (const snippet of fixture.forbiddenSnippets) {
         expect(result.markdown).not.toContain(snippet);
       }
+      if (fixture.maxSuspiciousSingleTokenLines !== undefined) {
+        const suspiciousLines = collectSuspiciousSingleTokenLines(result.markdown);
+        expect(suspiciousLines.length).toBeLessThanOrEqual(fixture.maxSuspiciousSingleTokenLines);
+      }
 
       const normalized = normalizeDynamicMetadata(result.markdown);
-      expect(normalized).toMatchSnapshot();
+      if (process.env.UPDATE_FIXTURE_SNAPSHOTS === '1') {
+        expect(normalized).toMatchSnapshot();
+      }
     });
   }
 });

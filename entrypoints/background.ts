@@ -4,6 +4,7 @@
 import { browser } from 'wxt/browser';
 import { Storage } from '../lib/storage.js';
 import { getRuntimeProfile, validateRuntimeProfile, assertRuntimeProfileSafe } from '../lib/runtime-profile.js';
+import { sanitizeCapturePayload } from '../lib/capture-contract.js';
 import type { ExportMetadata } from '../lib/types.js';
 
 import { ErrorHandler } from '../core/error-handler.js';
@@ -311,38 +312,11 @@ class EnhancedContentProcessor {
     }
 
     try {
-      if (!message.payload) {
-        throw new Error('No content data provided');
-      }
+      const canonicalCapture = sanitizeCapturePayload(message?.payload);
+      const { html, url, title } = canonicalCapture;
 
-      const { html, url, title, pipelineMetadata } = message.payload;
-      
-      // Check if content is already markdown (from Reddit or other pre-formatted sources)
-      const isAlreadyMarkdown = pipelineMetadata?.stage === 'reddit-shadow' || 
-                                 pipelineMetadata?.metadata?.isMarkdown === true;
-      
-      // Track pipeline metrics if available
-      if (pipelineMetadata) {
-        console.log(`[Pipeline] Extraction completed via: ${pipelineMetadata.stage}`);
-        console.log(`[Pipeline] Quality score: ${pipelineMetadata.qualityScore}/100`);
-        if (pipelineMetadata.fallbacksUsed.length > 0) {
-          console.log(`[Pipeline] Fallbacks used: ${pipelineMetadata.fallbacksUsed.join(' → ')}`);
-        }
-        console.log(`[Pipeline] Extraction time: ${pipelineMetadata.extractionTime}ms`);
-        
-        // Store metrics in session for analytics
-        await this.recordPipelineMetric({
-          stage: pipelineMetadata.stage,
-          qualityScore: pipelineMetadata.qualityScore,
-          fallbacksUsed: pipelineMetadata.fallbacksUsed,
-          extractionTime: pipelineMetadata.extractionTime,
-          url,
-          title,
-        });
-      }
-      
       // Determine originating tab id from sender (content scripts send messages with sender.tab)
-      const originatingTabId = sender?.tab?.id || message.payload?.tabId;
+      const originatingTabId = sender?.tab?.id || canonicalCapture.tabId;
       if (selectionHash && originatingTabId) {
         try {
           this.pendingCaptureMap.set(selectionHash, originatingTabId);
@@ -376,8 +350,6 @@ class EnhancedContentProcessor {
           renderer: settings.renderer || 'turndown',
           customConfig: undefined,
           settings: settings, // Pass full settings to offscreen document
-          pipelineMetadata, // Pass through pipeline metadata
-          isAlreadyMarkdown, // NEW: Flag to skip Turndown for pre-formatted markdown
         },
       });
 
