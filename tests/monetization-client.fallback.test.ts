@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeProfile } from '@/lib/runtime-profile';
 
-const getRuntimeProfileMock = vi.fn<[], RuntimeProfile>();
+const getRuntimeProfileMock = vi.fn(() => makeProfile());
 
 vi.mock('@/lib/runtime-profile', () => ({
   getRuntimeProfile: () => getRuntimeProfileMock(),
