@@ -110,8 +110,8 @@ describe('GracefulDegradationPipeline', () => {
         }
       );
 
-      // Should either pass Stage 1 or fall back to Stage 2
-      expect(['semantic', 'readability']).toContain(result.stage);
+      // Stage 1 should fail for this fixture; Stage 2 may pass, otherwise Stage 3 is acceptable safety fallback.
+      expect(['semantic', 'readability', 'heuristic']).toContain(result.stage);
     });
 
     it('should report stage as readability when successful', async () => {

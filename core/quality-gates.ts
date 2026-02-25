@@ -24,28 +24,37 @@ export class QualityGateValidator {
    * Strict threshold: 60+ score required
    */
   static validateSemanticQuery(element: Element | null): QualityGateResult {
+    if (!element) {
+      return {
+        passed: false,
+        score: 0,
+        failureReasons: ['No semantic element found'],
+        metrics: this.createEmptyMetrics(),
+      };
+    }
+
     const metrics = this.calculateMetrics(element);
     const score = this.calculateScore(metrics);
-    const passed = score >= 60;
 
     const failureReasons: string[] = [];
-    if (metrics.characterCount < 500) {
-      failureReasons.push(`Low character count: ${metrics.characterCount} < 500`);
+    if (metrics.characterCount < 300) {
+      failureReasons.push(`Low character count: ${metrics.characterCount} < 300`);
     }
     if (metrics.paragraphCount < 2) {
       failureReasons.push(`Insufficient paragraphs: ${metrics.paragraphCount} < 2`);
     }
-    if (metrics.linkDensity > 0.4) {
-      failureReasons.push(`High link density: ${(metrics.linkDensity * 100).toFixed(1)}% > 40%`);
+    if (metrics.linkDensity > 0.45) {
+      failureReasons.push(`High link density: ${(metrics.linkDensity * 100).toFixed(1)}% > 45%`);
     }
-    if (metrics.structureScore < 30) {
-      failureReasons.push(`Poor structure score: ${metrics.structureScore} < 30`);
+    if (metrics.structureScore < 10) {
+      failureReasons.push(`Poor structure score: ${metrics.structureScore} < 10`);
     }
+    const passed = score >= 60 && failureReasons.length === 0;
 
     return {
       passed,
       score,
-      failureReasons: passed ? [] : failureReasons,
+      failureReasons,
       metrics,
     };
   }
@@ -71,20 +80,20 @@ export class QualityGateValidator {
     tempDiv.innerHTML = article.content;
     const metrics = this.calculateMetrics(tempDiv);
     const score = this.calculateScore(metrics);
-    const passed = score >= 40;
 
     const failureReasons: string[] = [];
-    if (metrics.characterCount < 300) {
-      failureReasons.push(`Low character count: ${metrics.characterCount} < 300`);
+    if (metrics.characterCount < 120) {
+      failureReasons.push(`Low character count: ${metrics.characterCount} < 120`);
     }
-    if (metrics.linkDensity > 0.5) {
-      failureReasons.push(`High link density: ${(metrics.linkDensity * 100).toFixed(1)}% > 50%`);
+    if (metrics.linkDensity > 0.4) {
+      failureReasons.push(`High link density: ${(metrics.linkDensity * 100).toFixed(1)}% > 40%`);
     }
+    const passed = score >= 40 && failureReasons.length === 0;
 
     return {
       passed,
       score,
-      failureReasons: passed ? [] : failureReasons,
+      failureReasons,
       metrics,
     };
   }
@@ -146,7 +155,12 @@ export class QualityGateValidator {
       htmlLength > 0 ? characterCount / htmlLength : 0;
 
     // Structure score (presence of semantic elements)
-    const semanticElements = element.querySelectorAll(
+    const isSemanticRoot = element.matches(
+      'article, main, section, [role="main"], [role="article"]'
+    )
+      ? 1
+      : 0;
+    const semanticElements = isSemanticRoot + element.querySelectorAll(
       'article, main, section, [role="main"], [role="article"]'
     ).length;
     const structureScore = Math.min(100, semanticElements * 20 + headingCount * 5);
@@ -166,6 +180,8 @@ export class QualityGateValidator {
    * Calculate overall quality score (0-100)
    */
   private static calculateScore(metrics: QualityMetrics): number {
+    if (metrics.characterCount <= 0) return 0;
+
     let score = 0;
 
     // Character count scoring (0-30 points)

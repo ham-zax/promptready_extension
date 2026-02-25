@@ -4,21 +4,13 @@
 import { browser } from 'wxt/browser';
 import { getUserId } from '../../lib/user';
 import { OfflineModeManager, OfflineModeConfig } from '../../core/offline-mode-manager.js';
+import { processWithProviderChain } from '../../core/extraction-provider.js';
 
 import { BYOKClient } from '../../pro/byok-client';
 import { Settings } from '../../lib/types';
 import { MarkdownPostProcessor } from '../../core/post-processor.js';
 import { PerformanceMetrics } from '../../core/performance-metrics.js';
-
-// ============= DEVELOPMENT MODE CONFIGURATION =============
-// Set to true to use hardcoded API credentials for testing
-const DEV_MODE = true;
-const DEV_API_CONFIG = {
-  apiBase: 'https://api.z.ai/api/coding/paas/v4',
-  apiKey: 'cead729df8374268918c14db2bddb43e.bObIHNe6TwmTefrR',
-  model: 'glm-4.6'
-};
-// ==========================================================
+import { getRuntimeProfile, validateRuntimeProfile, assertRuntimeProfileSafe } from '../../lib/runtime-profile.js';
 
 interface ProcessingMessage {
   type: 'ENHANCED_OFFSCREEN_PROCESS';
@@ -88,6 +80,13 @@ export class EnhancedOffscreenProcessor {
   }
 
   constructor() {
+    const runtimeProfile = getRuntimeProfile();
+    const runtimeValidation = validateRuntimeProfile(runtimeProfile);
+    if (runtimeValidation.warnings.length > 0) {
+      console.warn('[RuntimeProfile] Offscreen warnings:', runtimeValidation.warnings);
+    }
+    assertRuntimeProfileSafe(runtimeProfile);
+
     this.setupMessageListener();
   }
 
@@ -203,9 +202,19 @@ export class EnhancedOffscreenProcessor {
   ): Promise<ProcessingCompleteMessage['payload']> {
     this.sendProgress('Cleaning and preparing content...', 20, 'preprocessing');
 
-    const result = await OfflineModeManager.processContent(html, url, title, config);
+    const chain = await processWithProviderChain(html, url, title, config);
+    const result = chain.result;
     if (!result.success) {
       throw new Error(`Offline processing failed: ${result.errors.join(', ')}`);
+    }
+
+    if (!result.metadata) result.metadata = {} as any;
+    (result.metadata as any).extractionProvider = chain.decision.provider;
+    (result.metadata as any).extractionFallbackReason = chain.decision.fallbackReason;
+
+    if (result.processingStats) {
+      (result.processingStats as any).provider = chain.decision.provider;
+      (result.processingStats as any).providerFallbackReason = chain.decision.fallbackReason;
     }
 
     const exportJson = this.generateStructuredExport(result, url, title);
@@ -231,32 +240,30 @@ export class EnhancedOffscreenProcessor {
     this.sendProgress('Sending to AI for processing...', 30, 'ai-processing');
 
     try {
-      // DEV_MODE: Use hardcoded credentials for development/testing
-      let apiKey: string;
-      let apiBase: string;
-      let model: string;
+      const runtimeProfile = getRuntimeProfile();
+      const apiKey = settings.byok?.apiKey || '';
+      const apiBase = settings.byok?.apiBase || (runtimeProfile.isDevelopment ? 'https://openrouter.ai/api/v1' : '');
+      const model = settings.byok?.model || settings.byok?.selectedByokModel || 'arcee-ai/trinity-large-preview:free';
 
-      if (DEV_MODE) {
-        console.log('[AI Mode] DEV_MODE enabled - using hardcoded API credentials');
-        apiKey = DEV_API_CONFIG.apiKey;
-        apiBase = DEV_API_CONFIG.apiBase;
-        model = DEV_API_CONFIG.model;
-      } else {
-        // Production: Get API key from passed settings
-        apiKey = settings.byok?.apiKey || '';
-        apiBase = settings.byok?.apiBase || '';
-        model = settings.byok?.model || settings.byok?.selectedByokModel || 'anthropic/claude-3.5-sonnet';
-      }
-
-      if (!apiKey) {
+      if (!apiKey && !runtimeProfile.isDevelopment) {
         // No API key and no credit service available - inform user and fallback
         console.warn('[AI Mode] No API key configured and no credit service available. Falling back to offline mode.');
         this.sendProgress('No API key configured. Using offline mode...', 50, 'fallback');
         return await this.processOfflineMode(html, url, title, config);
       }
 
+      if (!apiBase) {
+        console.warn('[AI Mode] Missing BYOK API base. Falling back to offline mode.');
+        this.sendProgress('BYOK API base is missing. Using offline mode...', 50, 'fallback');
+        return await this.processOfflineMode(html, url, title, config);
+      }
+
       // Use BYOK client if API key is available
-      this.sendProgress('Using your API key for AI processing...', 40, 'byok-processing');
+      this.sendProgress(runtimeProfile.isDevelopment
+        ? 'Using local BYOK proxy for AI processing...'
+        : 'Using your API key for AI processing...',
+      40,
+      'byok-processing');
       const byokResult = await BYOKClient.makeRequest(
         { prompt: html, maxTokens: 4000, temperature: 0.7 }, // Use html as prompt
         {
@@ -344,7 +351,18 @@ export class EnhancedOffscreenProcessor {
   private readonly PROGRESS_THROTTLE_MS = 200;
 
   private sendProgress(message: string, progress: number, stage: string): void {
-    // ... (existing implementation)
+    const now = Date.now();
+    if (now - this.lastProgressTime < this.PROGRESS_THROTTLE_MS && progress < 100) {
+      return;
+    }
+
+    this.lastProgressTime = now;
+    browser.runtime.sendMessage({
+      type: 'PROCESSING_PROGRESS',
+      payload: { message, progress, stage },
+    }).catch((err) => {
+      console.warn('[EnhancedOffscreenProcessor] Failed to send progress:', err);
+    });
   }
 
   private sendComplete(
@@ -355,11 +373,32 @@ export class EnhancedOffscreenProcessor {
     warnings: string[],
     originalHtml: string
   ): void {
-    // ... (existing implementation)
+    browser.runtime.sendMessage({
+      type: 'PROCESSING_COMPLETE',
+      payload: {
+        exportMd: markdown,
+        exportJson,
+        metadata,
+        stats,
+        warnings,
+        originalHtml,
+      },
+    }).catch((err) => {
+      console.warn('[EnhancedOffscreenProcessor] Failed to send complete event:', err);
+    });
   }
 
   private sendError(error: string, stage: string, fallbackUsed = false): void {
-    // ... (existing implementation)
+    browser.runtime.sendMessage({
+      type: 'PROCESSING_ERROR',
+      payload: {
+        error,
+        stage,
+        fallbackUsed,
+      },
+    }).catch((err) => {
+      console.warn('[EnhancedOffscreenProcessor] Failed to send error event:', err);
+    });
   }
 
   async getProcessingStats(): Promise<{ isProcessing: boolean; cacheStats: any }> {

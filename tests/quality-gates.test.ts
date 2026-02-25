@@ -12,10 +12,10 @@ describe('QualityGateValidator', () => {
           <body>
             <article>
               <h1>Main Article</h1>
-              <p>Paragraph one with substantial content. Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
-              <p>Paragraph two with more content about the topic at hand.</p>
-              <p>Paragraph three continuing the discussion with valuable information.</p>
-              <p>Paragraph four providing additional context and details.</p>
+              <p>Paragraph one with substantial content. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
+              <p>Paragraph two with more content about the topic at hand, including detailed explanations, concrete examples, and extended discussion points to ensure sufficient semantic depth for quality gate validation.</p>
+              <p>Paragraph three continuing the discussion with valuable information, additional context, references to practical applications, and structured prose that mirrors long-form article writing.</p>
+              <p>Paragraph four providing additional context and details, elaborating key arguments and ensuring overall text length comfortably exceeds strict minimum character requirements.</p>
             </article>
           </body>
         </html>
