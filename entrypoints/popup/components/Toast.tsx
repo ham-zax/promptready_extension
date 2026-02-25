@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { CheckCircle2, XCircle, Info, Bell, X } from 'lucide-react';
 
 interface ToastProps {
   message: string;
@@ -19,7 +20,7 @@ export function Toast({ message, type, onClose }: ToastProps) {
       case 'error':
         return 'bg-red-50 border-red-200 text-red-800';
       case 'info':
-        return 'bg-blue-50 border-blue-200 text-blue-800';
+        return 'bg-brand-surface border-brand-primary text-brand-primary';
       default:
         return 'bg-gray-50 border-gray-200 text-gray-800';
     }
@@ -28,27 +29,27 @@ export function Toast({ message, type, onClose }: ToastProps) {
   const getIcon = () => {
     switch (type) {
       case 'success':
-        return '✅';
+        return <CheckCircle2 className="w-4 h-4" />;
       case 'error':
-        return '❌';
+        return <XCircle className="w-4 h-4" />;
       case 'info':
-        return 'ℹ️';
+        return <Info className="w-4 h-4" />;
       default:
-        return '📢';
+        return <Bell className="w-4 h-4" />;
     }
   };
 
   return (
     <div className="fixed bottom-4 left-4 right-4 z-50 animate-in slide-in-from-bottom duration-300 pointer-events-none select-none">
       <div className={`flex items-center p-3 rounded-lg border shadow-sm ${getToastStyles()} pointer-events-none`}>
-        <span className="mr-2 text-sm">{getIcon()}</span>
+        <span className="mr-2 flex items-center justify-center">{getIcon()}</span>
         <span className="flex-1 text-sm font-medium user-select-none">{message}</span>
         <button
           onClick={onClose}
           className="ml-2 text-gray-400 hover:text-gray-600 transition-colors pointer-events-auto"
           aria-label="Close"
         >
-          ✕
+          <X className="w-4 h-4" />
         </button>
       </div>
     </div>

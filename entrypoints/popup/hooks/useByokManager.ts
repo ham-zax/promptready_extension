@@ -196,7 +196,7 @@ export function useByokManager(): ByokState & ByokActions {
 
       setState(prev => ({
         ...prev,
-        validationMessage: '✅ Configuration saved successfully',
+        validationMessage: 'Configuration saved successfully',
       }));
     } catch (error) {
       setState(prev => ({

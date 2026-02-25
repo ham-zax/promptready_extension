@@ -3,6 +3,7 @@
 
 import React, { useState } from 'react';
 import { Settings } from '@/lib/types';
+import { Zap, Settings as SettingsIcon, Wrench, GraduationCap, MessageSquare, FileText, CheckCircle2, Circle, Info } from 'lucide-react';
 
 interface ProcessingProfile {
   id: string;
@@ -83,12 +84,6 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
     const profile = PROCESSING_PROFILES.find(p => p.id === profileId);
     if (!profile) return;
 
-    // 🔓 Pro features unlocked for testing/development
-    // if (profile.isPro && !settings.isPro) {
-    //   console.log('Pro feature - show upgrade modal');
-    //   return;
-    // }
-
     // Update settings with the selected profile
     onSettingsChange({
       processing: {
@@ -107,19 +102,19 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
 
   const getCategoryIcon = (category: string) => {
     switch (category) {
-      case 'technical': return '🔧';
-      case 'academic': return '🎓';
-      case 'social': return '💬';
-      default: return '📄';
+      case 'technical': return <Wrench className="w-5 h-5 text-gray-500" />;
+      case 'academic': return <GraduationCap className="w-5 h-5 text-gray-500" />;
+      case 'social': return <MessageSquare className="w-5 h-5 text-gray-500" />;
+      default: return <FileText className="w-5 h-5 text-gray-500" />;
     }
   };
 
   const getCategoryColor = (category: string) => {
     switch (category) {
-      case 'technical': return 'bg-blue-100 text-blue-700 border-blue-200';
-      case 'academic': return 'bg-purple-100 text-purple-700 border-purple-200';
-      case 'social': return 'bg-green-100 text-green-700 border-green-200';
-      default: return 'bg-gray-100 text-gray-700 border-gray-200';
+      case 'technical': return 'bg-brand-surface text-brand-primary border-brand-border';
+      case 'academic': return 'bg-brand-surface text-brand-primary border-brand-border';
+      case 'social': return 'bg-green-50 text-green-700 border-green-200';
+      default: return 'bg-gray-50 text-gray-700 border-gray-200';
     }
   };
 
@@ -127,17 +122,17 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <span className="text-sm">⚡</span>
-          <h4 className="font-medium text-gray-800">Processing Profiles</h4>
+          <Zap className="w-5 h-5 text-brand-primary" />
+          <h4 className="font-semibold text-foreground">Processing Profiles</h4>
           {!settings.isPro && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-purple-500 to-pink-500 text-white">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-amber-950 uppercase tracking-wider">
               Pro
             </span>
           )}
         </div>
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
-          className="text-xs text-blue-600 hover:text-blue-800"
+          className="text-xs text-brand-primary hover:text-brand-primary/80 font-medium transition-colors"
         >
           {showAdvanced ? 'Simple' : 'Advanced'}
         </button>
@@ -148,41 +143,34 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
         {PROCESSING_PROFILES.map((profile) => (
           <div
             key={profile.id}
-            className={`relative border rounded-lg p-3 cursor-pointer transition-all ${
+            className={`relative border rounded-xl p-3 cursor-pointer transition-all active:scale-[0.98] ${
               selectedProfile === profile.id
-                ? 'border-blue-500 bg-blue-50'
-                : 'border-gray-200 hover:border-gray-300'
-            } ${profile.isPro && !settings.isPro ? 'opacity-60' : ''}`}
+                ? 'border-brand-primary bg-brand-surface shadow-sm'
+                : 'border-border hover:border-brand-border bg-card text-card-foreground hover:bg-accent'
+            } ${profile.isPro && !settings.isPro ? 'opacity-60 grayscale-[0.5]' : ''}`}
             onClick={() => handleProfileChange(profile.id)}
           >
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex-shrink-0 text-muted-foreground">
+                {getCategoryIcon(profile.category)}
+              </div>
+              <div className="flex-1 min-w-0">
                 <div className="flex items-center space-x-2 mb-1">
-                  <span className="text-lg">{getCategoryIcon(profile.category)}</span>
-                  <h5 className="font-medium text-gray-900">{profile.name}</h5>
-                  {profile.isPro && (
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
-                      Pro
-                    </span>
-                  )}
+                  <h5 className="font-semibold text-sm text-foreground truncate">{profile.name}</h5>
                 </div>
-                <p className="text-sm text-gray-600 mb-2">{profile.description}</p>
-                <div className="flex items-center space-x-2">
-                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getCategoryColor(profile.category)}`}>
+                <p className="text-xs text-muted-foreground leading-snug mb-2">{profile.description}</p>
+                <div className="flex items-center space-x-2 mt-auto">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium border ${getCategoryColor(profile.category)}`}>
                     {profile.category}
                   </span>
                 </div>
               </div>
-              <div className="flex items-center">
-                <div className={`w-4 h-4 rounded-full border-2 ${
-                  selectedProfile === profile.id
-                    ? 'border-blue-500 bg-blue-500'
-                    : 'border-gray-300'
-                }`}>
-                  {selectedProfile === profile.id && (
-                    <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>
-                  )}
-                </div>
+              <div className="flex items-center justify-center h-full pt-1">
+                {selectedProfile === profile.id ? (
+                  <CheckCircle2 className="w-5 h-5 text-brand-primary" />
+                ) : (
+                  <Circle className="w-5 h-5 text-border" />
+                )}
               </div>
             </div>
           </div>
@@ -191,12 +179,15 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
 
       {/* Advanced Settings */}
       {showAdvanced && (
-        <div className="border-t pt-4 space-y-3">
-          <h5 className="font-medium text-gray-800">Advanced Configuration</h5>
+        <div className="border-t border-border pt-4 space-y-4">
+          <div className="flex items-center space-x-2">
+            <SettingsIcon className="w-4 h-4 text-muted-foreground" />
+            <h5 className="font-medium text-sm text-foreground">Advanced Configuration</h5>
+          </div>
           
           {/* Readability Preset */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-xs font-medium text-foreground mb-1.5">
               Content Extraction
             </label>
             <select
@@ -209,7 +200,7 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
                   } as any,
                 });
               }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 bg-background text-foreground border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition-all"
             >
               <option value="standard">Standard</option>
               <option value="technical-documentation">Technical Documentation</option>
@@ -217,14 +208,11 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
               <option value="social-media">Social Media</option>
               <option value="news-articles">News Articles</option>
             </select>
-            <p className="text-xs text-gray-500 mt-1">
-              How content is extracted from the webpage
-            </p>
           </div>
 
           {/* Turndown Preset */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-xs font-medium text-foreground mb-1.5">
               Markdown Formatting
             </label>
             <select
@@ -237,7 +225,7 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
                   } as any,
                 });
               }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 bg-background text-foreground border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition-all"
             >
               <option value="standard">Standard Markdown</option>
               <option value="github-flavored">GitHub Flavored</option>
@@ -246,16 +234,13 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
               <option value="academic">Academic</option>
               <option value="minimal">Minimal</option>
             </select>
-            <p className="text-xs text-gray-500 mt-1">
-              How HTML is converted to Markdown
-            </p>
           </div>
 
           {/* Custom Options */}
-          <div className="bg-gray-50 rounded-md p-3">
-            <h6 className="text-sm font-medium text-gray-700 mb-2">Custom Options</h6>
-            <div className="space-y-2">
-              <label className="flex items-center space-x-2">
+          <div className="bg-muted border border-border rounded-lg p-3">
+            <h6 className="text-xs font-semibold text-foreground mb-3">Data Retention</h6>
+            <div className="space-y-3">
+              <label className="flex items-center space-x-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={settings.processing?.customOptions?.preserveCodeBlocks ?? true}
@@ -270,11 +255,11 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
                       } as any,
                     });
                   }}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-border text-brand-primary focus:ring-brand-primary"
                 />
-                <span className="text-sm text-gray-600">Preserve code blocks</span>
+                <span className="text-sm text-foreground font-medium">Preserve code blocks</span>
               </label>
-              <label className="flex items-center space-x-2">
+              <label className="flex items-center space-x-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={settings.processing?.customOptions?.includeImages ?? true}
@@ -289,11 +274,11 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
                       } as any,
                     });
                   }}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-border text-brand-primary focus:ring-brand-primary"
                 />
-                <span className="text-sm text-gray-600">Include images</span>
+                <span className="text-sm text-foreground font-medium">Include images</span>
               </label>
-              <label className="flex items-center space-x-2">
+              <label className="flex items-center space-x-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={settings.processing?.customOptions?.preserveTables ?? true}
@@ -308,9 +293,9 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
                       } as any,
                     });
                   }}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-border text-brand-primary focus:ring-brand-primary"
                 />
-                <span className="text-sm text-gray-600">Preserve tables</span>
+                <span className="text-sm text-foreground font-medium">Preserve tables</span>
               </label>
             </div>
           </div>
@@ -319,14 +304,14 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
 
       {/* Profile Info */}
       {selectedProfile && (
-        <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-          <div className="flex items-start space-x-2">
-            <span className="text-blue-500 mt-0.5">ℹ️</span>
+        <div className="bg-brand-surface border border-brand-border rounded-lg p-3 mt-4">
+          <div className="flex items-start space-x-3">
+            <Info className="w-5 h-5 text-brand-primary mt-0.5" />
             <div>
-              <p className="text-sm text-blue-700 font-medium">
+              <p className="text-sm text-brand-primary font-semibold">
                 {PROCESSING_PROFILES.find(p => p.id === selectedProfile)?.name} Profile Active
               </p>
-              <p className="text-xs text-blue-600 mt-1">
+              <p className="text-xs text-brand-primary/80 mt-1 leading-snug">
                 This profile optimizes content extraction and formatting for your specific use case.
               </p>
             </div>

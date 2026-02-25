@@ -16,6 +16,7 @@ import { ProUpgradePrompt } from './components/ProUpgradePrompt';
 import { Storage } from '@/lib/storage';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { browser } from 'wxt/browser';
+import { LayoutTemplate, Settings as SettingsIcon, ClipboardCopy, Download, FileJson, Code2, Globe, CheckCircle2, X } from 'lucide-react';
 
 // Developer mode activation state
 let devKeySequence = '';
@@ -109,6 +110,29 @@ export default function RefactoredPopup() {
 
   const [showSettings, setShowSettings] = useState(false);
 
+  // Apply theme to document
+  useEffect(() => {
+    if (state.settings?.ui?.theme) {
+      const theme = state.settings.ui.theme;
+      const isDark = 
+        theme === 'dark' || 
+        (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    } else {
+      // Default to system
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    }
+  }, [state.settings?.ui?.theme]);
+
   // Developer mode activation via keyboard sequence
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
@@ -172,70 +196,68 @@ export default function RefactoredPopup() {
   };
 
   return (
-    <div className="relative w-96 bg-white">
+    <div className="relative w-96 max-h-[600px] bg-background text-foreground antialiased flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4">
+      <div className="bg-brand-primary text-brand-primary-foreground p-4 shadow-sm border-b border-brand-border z-20 relative shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <span className="text-xl">📋</span>
+            <LayoutTemplate className="w-6 h-6 text-brand-primary-foreground" />
             <div className="flex flex-col leading-tight">
               <h1 className="text-lg font-semibold">PromptReady</h1>
               <p className="text-[11px] opacity-90">Clean, structure, and cite web content for perfect prompts</p>
             </div>
             {state.isPro && <ProBadge />}
             {state.settings?.flags?.developerMode && (
-              <span className="ml-1 px-1.5 py-0.5 text-xs bg-yellow-500 text-black rounded font-medium">DEV</span>
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-yellow-500 text-black rounded font-bold uppercase tracking-wider">DEV</span>
             )}
           </div>
           <button
             onClick={() => setShowSettings(!showSettings)}
-            className="p-1 rounded hover:bg-white hover:bg-opacity-20 transition-colors"
+            className={`p-1.5 rounded-lg transition-all active:scale-95 ${showSettings ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-white/90 hover:text-white'}`}
             aria-label="Settings"
           >
-            ⚙️
+            <SettingsIcon className="w-5 h-5" />
           </button>
         </div>
 
         {/* Status + Mode Toggle */}
-        <div className="mt-3 grid grid-cols-1 gap-2">
-          <div className="flex items-center justify-between text-xs">
-            <div>
-              {state.settings?.flags?.developerMode ? (
-                <span className="text-yellow-300">Developer Mode Active</span>
-              ) : (
-                !state.isPro && state.trial && !state.trial.hasExhausted ? `You have ${state.credits?.remaining} credits left.` : ' '
-              )}
-            </div>
-            <div className="flex items-center">
-              <ModeToggle
-                mode={state.mode}
-                onChange={(m: Settings['mode']) => onSettingsChange({ mode: m })}
-                onUpgradePrompt={handleModeToggle}
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-between text-[11px] opacity-80">
-            <span className={state.mode === 'offline' ? 'font-semibold' : ''}>Offline</span>
-            <span className={state.mode === 'ai' ? 'font-semibold' : ''}>
-              {getAiLabel()}
-            </span>
-          </div>
+        <div className="mt-4">
+          <ModeToggle
+            mode={state.mode}
+            onChange={(m: Settings['mode']) => {
+              onSettingsChange({ mode: m });
+              setShowSettings(false);
+            }}
+            onUpgradePrompt={() => {
+              handleModeToggle();
+              setShowSettings(false);
+            }}
+          />
         </div>
       </div>
 
-      {/* Unified Settings Panel */}
-      <UnifiedSettings
-        isExpanded={showSettings}
-        settings={state.settings as Settings}
-        onSettingsChange={onSettingsChange}
-        isPro={state.isPro}
-        hasApiKey={byokManager.hasApiKey}
-      />
+      {/* Scrollable Container for Settings and Content */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col">
+        {/* Unified Settings Panel - Now scrolls underneath header */}
+        <div
+          className={`grid transition-[grid-template-rows,border-color] duration-300 ease-in-out shrink-0 ${
+            showSettings ? 'grid-rows-[1fr] border-b border-brand-border' : 'grid-rows-[0fr] border-transparent border-b-0'
+          }`}
+        >
+          <div className="overflow-hidden">
+            <UnifiedSettings
+              isExpanded={showSettings}
+              settings={state.settings as Settings}
+              onSettingsChange={onSettingsChange}
+              isPro={state.isPro}
+              hasApiKey={byokManager.hasApiKey}
+            />
+          </div>
+        </div>
 
-      {/* Main Content */}
-      <div className="p-4">
-        {/* Capture Button */}
+        {/* Main Content */}
+        <div className="p-4 flex-1 flex flex-col">
+          {/* Capture Button */}
         <PrimaryButton
           onClick={handleCapture}
           disabled={isProcessing || (state.credits?.remaining === 0 && !state.settings?.flags?.developerMode)}
@@ -247,12 +269,12 @@ export default function RefactoredPopup() {
 
         {/* Upgrade Prompt View */}
         {state.credits?.remaining === 0 && !state.settings?.flags?.developerMode && (
-          <div className="p-4 text-center">
-            <p className="text-lg font-semibold">You&apos;re out of free credits.</p>
-            <p className="text-sm text-gray-600 mb-4">Upgrade to continue using AI Mode.</p>
+          <div className="p-4 text-center mt-2 bg-amber-50 rounded-xl border border-amber-200">
+            <p className="text-sm font-semibold text-amber-900">You&apos;re out of free credits</p>
+            <p className="text-xs text-amber-700 mb-3 mt-1">Upgrade to continue using AI Mode.</p>
             <button
               onClick={handleShowSettings}
-              className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              className="w-full py-2 px-4 bg-amber-500 text-amber-950 font-medium rounded-lg hover:bg-amber-400 active:scale-[0.98] transition-all text-sm shadow-sm"
             >
               Upgrade with your API Key
             </button>
@@ -261,14 +283,14 @@ export default function RefactoredPopup() {
 
         {/* Processing Progress */}
         {isProcessing && state.processing.progress && (
-          <div className="mt-3">
-            <div className="bg-gray-200 rounded-full h-2">
+          <div className="mt-4">
+            <div className="bg-muted rounded-full h-1.5 overflow-hidden border border-border">
               <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                className="bg-brand-primary h-full rounded-full transition-all duration-300 ease-out"
                 style={{ width: `${state.processing.progress}%` }}
               ></div>
             </div>
-            <p className="text-xs text-gray-600 mt-1 text-center">
+            <p className="text-xs text-muted-foreground mt-2 text-center font-medium animate-pulse">
               {state.processing.message}
             </p>
           </div>
@@ -276,21 +298,23 @@ export default function RefactoredPopup() {
 
         {/* Export Options */}
         {hasContent && (
-          <div className="mt-4 space-y-3">
-            <div className="border-t pt-3">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Export Options</h3>
+          <div className="mt-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="border-t border-border pt-4">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Export Options</h3>
 
               <div className="grid grid-cols-2 gap-2">
                 {/* Copy Markdown (Card) */}
                 <button
                   onClick={() => handleCopy(state.exportData!.markdown)}
-                  className="group w-full rounded-lg border border-gray-200 hover:border-blue-500 hover:shadow-sm p-3 text-left transition"
+                  className="group w-full rounded-xl border border-border bg-card text-card-foreground hover:bg-brand-surface hover:border-brand-primary/30 active:scale-[0.98] shadow-sm hover:shadow p-3 text-left transition-all duration-200 ease-out"
                 >
-                  <div className="flex items-center space-x-2">
-                    <span className="text-lg">📋</span>
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 bg-brand-surface rounded-lg group-hover:bg-brand-primary group-hover:text-white transition-colors">
+                      <ClipboardCopy className="w-4 h-4 text-brand-primary group-hover:text-white transition-colors" />
+                    </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium">Copy Markdown</span>
-                      <span className="text-[11px] text-gray-500">Copy cleaned markdown to your clipboard</span>
+                      <span className="text-sm font-semibold text-foreground">Copy MD</span>
+                      <span className="text-[10px] text-muted-foreground">To clipboard</span>
                     </div>
                   </div>
                 </button>
@@ -298,13 +322,15 @@ export default function RefactoredPopup() {
                 {/* Save Markdown (Card) */}
                 <button
                   onClick={() => handleExport('md')}
-                  className="group w-full rounded-lg border border-gray-200 hover:border-blue-500 hover:shadow-sm p-3 text-left transition"
+                  className="group w-full rounded-xl border border-border bg-card text-card-foreground hover:bg-brand-surface hover:border-brand-primary/30 active:scale-[0.98] shadow-sm hover:shadow p-3 text-left transition-all duration-200 ease-out"
                 >
-                  <div className="flex items-center space-x-2">
-                    <span className="text-lg">💾</span>
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 bg-brand-surface rounded-lg group-hover:bg-brand-primary group-hover:text-white transition-colors">
+                      <Download className="w-4 h-4 text-brand-primary group-hover:text-white transition-colors" />
+                    </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium">Save Markdown</span>
-                      <span className="text-[11px] text-gray-500">Download as a .md file</span>
+                      <span className="text-sm font-semibold text-foreground">Save MD</span>
+                      <span className="text-[10px] text-muted-foreground">Download file</span>
                     </div>
                   </div>
                 </button>
@@ -313,13 +339,15 @@ export default function RefactoredPopup() {
               {/* Copy JSON (Full-width Card) */}
               <button
                 onClick={() => handleCopy(JSON.stringify(state.exportData!.json, null, 2))}
-                className="w-full mt-2 rounded-lg border border-gray-200 hover:border-purple-500 hover:shadow-sm p-3 text-left transition"
+                className="group w-full mt-2 rounded-xl border border-border bg-card text-card-foreground hover:bg-brand-surface hover:border-brand-primary/30 active:scale-[0.98] shadow-sm hover:shadow p-3 text-left transition-all duration-200 ease-out"
               >
-                <div className="flex items-center space-x-2">
-                  <span className="text-lg">📄</span>
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-brand-surface rounded-lg group-hover:bg-brand-primary group-hover:text-white transition-colors">
+                    <FileJson className="w-4 h-4 text-brand-primary group-hover:text-white transition-colors" />
+                  </div>
                   <div className="flex flex-col">
-                    <span className="text-sm font-medium">Copy JSON</span>
-                    <span className="text-[11px] text-gray-500">Copy the structured export (for tools and automation)</span>
+                    <span className="text-sm font-semibold text-foreground">Copy JSON</span>
+                    <span className="text-[10px] text-muted-foreground">Structured data for automation</span>
                   </div>
                 </div>
               </button>
@@ -327,29 +355,31 @@ export default function RefactoredPopup() {
 
             {/* Quality Report */}
             {state.exportData?.qualityReport && (
-              <div className="border-t pt-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-600">Quality Score</span>
-                  <span
-                    className={`text-xs font-medium ${
-                      state.exportData.qualityReport.overallScore >= 80
-                        ? 'text-green-600'
-                        : state.exportData.qualityReport.overallScore >= 60
-                        ? 'text-yellow-600'
-                        : 'text-red-600'
-                    }`}
-                  >
-                    {state.exportData.qualityReport.overallScore}/100
-                  </span>
+              <div className="border-t border-border pt-3">
+                <div className="flex items-center justify-between bg-muted rounded-lg p-2.5 border border-border">
+                  <span className="text-xs font-medium text-foreground">Quality Score</span>
+                  <div className="flex items-center space-x-1.5">
+                    <span
+                      className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                        state.exportData.qualityReport.overallScore >= 80
+                          ? 'bg-green-100 text-green-700'
+                          : state.exportData.qualityReport.overallScore >= 60
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}
+                    >
+                      {state.exportData.qualityReport.overallScore}/100
+                    </span>
+                  </div>
                 </div>
               </div>
             )}
 
             {/* Developer Info */}
             {state.settings?.flags?.developerMode && state.exportData && (
-              <div className="border-t pt-3">
-                <h4 className="text-xs font-medium text-gray-700 mb-1">Developer Info</h4>
-                <div className="text-xs text-gray-600 space-y-1">
+              <div className="border-t border-border pt-3">
+                <h4 className="text-xs font-medium text-foreground mb-1">Developer Info</h4>
+                <div className="text-xs text-muted-foreground space-y-1">
                   <div>Pipeline: {state.exportData.pipelineUsed || 'standard'}</div>
                   <div>Chars: {(state.exportData.markdown || '').length}</div>
                   {state.exportData.stats && (
@@ -361,28 +391,28 @@ export default function RefactoredPopup() {
 
             {/* Developer Export Options */}
             {state.settings?.flags?.developerMode && hasContent && (
-              <div className="border-t pt-3">
-                <h4 className="text-xs font-medium text-gray-700 mb-2">Developer Exports</h4>
+              <div className="border-t border-border pt-3">
+                <h4 className="text-xs font-medium text-foreground mb-2">Developer Exports</h4>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => handleCopy(state.exportData!.markdown)}
-                    className="flex items-center justify-center space-x-1 py-1 px-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors text-xs"
+                    className="flex items-center justify-center space-x-1 py-1 px-2 bg-muted text-foreground border border-border rounded hover:bg-accent active:scale-[0.98] transition-all text-xs"
                   >
-                    <span>📋</span>
+                    <ClipboardCopy className="w-4 h-4" />
                     <span>Raw MD</span>
                   </button>
                   <button
                     onClick={() => handleCopy(JSON.stringify(state.exportData!.json, null, 2))}
-                    className="flex items-center justify-center space-x-1 py-1 px-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors text-xs"
+                    className="flex items-center justify-center space-x-1 py-1 px-2 bg-muted text-foreground border border-border rounded hover:bg-accent active:scale-[0.98] transition-all text-xs"
                   >
-                    <span>📄</span>
+                    <FileJson className="w-4 h-4" />
                     <span>Raw JSON</span>
                   </button>
                   <button
                     onClick={() => handleCopy(state.exportData!.markdown.replace(/`/g, '\\`'))}
-                    className="flex items-center justify-center space-x-1 py-1 px-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors text-xs"
+                    className="flex items-center justify-center space-x-1 py-1 px-2 bg-muted text-foreground border border-border rounded hover:bg-accent active:scale-[0.98] transition-all text-xs"
                   >
-                    <span>💻</span>
+                    <Code2 className="w-4 h-4" />
                     <span>Code Block</span>
                   </button>
                   <button
@@ -390,9 +420,9 @@ export default function RefactoredPopup() {
                       const html = state.exportData!.json.export?.html || '';
                       handleCopy(html);
                     }}
-                    className="flex items-center justify-center space-x-1 py-1 px-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors text-xs"
+                    className="flex items-center justify-center space-x-1 py-1 px-2 bg-muted text-foreground border border-border rounded hover:bg-accent active:scale-[0.98] transition-all text-xs"
                   >
-                    <span>🌐</span>
+                    <Globe className="w-4 h-4" />
                     <span>HTML</span>
                   </button>
                 </div>
@@ -401,22 +431,25 @@ export default function RefactoredPopup() {
           </div>
         )}
       </div>
+      </div>
 
       {/* Processing complete notification */}
       {processingComplete && (
-        <div className="fixed top-4 right-4 bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-3">
-          <span>✔️</span>
-          <div>
-            <p className="font-medium">Content copied to clipboard!</p>
-            {autoCloseCountdown !== null && (
-              <p className="text-sm">Closing in {autoCloseCountdown}s...</p>
-            )}
+        <div className="absolute bottom-4 left-4 right-4 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl shadow-lg flex items-center justify-between animate-in slide-in-from-bottom-4 duration-300 z-50">
+          <div className="flex items-center space-x-3">
+            <CheckCircle2 className="w-5 h-5 text-green-600" />
+            <div>
+              <p className="font-semibold text-sm">Content copied!</p>
+              {autoCloseCountdown !== null && (
+                <p className="text-xs text-green-600/80 mt-0.5">Closing in {autoCloseCountdown}s...</p>
+              )}
+            </div>
           </div>
           <button
             onClick={() => setAutoCloseCountdown(null)}
-            className="ml-4 text-white hover:text-gray-200"
+            className="text-green-600/60 hover:text-green-800 active:scale-95 transition-all p-1"
           >
-            <span>❌</span>
+            <X className="w-4 h-4" />
           </button>
         </div>
       )}

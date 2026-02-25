@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings } from '@/lib/types';
 import { ProcessingProfiles } from './ProcessingProfiles';
 import { AppearanceSettings } from './AppearanceSettings';
@@ -6,6 +6,7 @@ import { PrivacySettings } from './PrivacySettings';
 import { ProStatusSettings } from './ProStatusSettings';
 import { SimplifiedByokSetup } from './SimplifiedByokSetup';
 import { ProUpgradePrompt } from './ProUpgradePrompt';
+import { Settings as SettingsIcon, Bot, CheckCircle2, AlertTriangle, ChevronLeft, MousePointerClick } from 'lucide-react';
 
 interface UnifiedSettingsProps {
   isExpanded: boolean;
@@ -27,7 +28,12 @@ export function UnifiedSettings({
   const [currentView, setCurrentView] = useState<View>('main');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
-  if (!isExpanded) return null;
+  useEffect(() => {
+    if (!isExpanded) {
+      const timer = setTimeout(() => setCurrentView('main'), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isExpanded]);
 
   const handleByokComplete = () => {
     setCurrentView('main');
@@ -42,14 +48,14 @@ export function UnifiedSettings({
   const renderMainSettings = () => (
     <div className="space-y-4">
       {/* AI Configuration Section */}
-      <div className="border border-gray-200 rounded-lg p-4 bg-white">
-        <div className="flex items-center justify-between mb-3">
+      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-2">
-            <span className="text-lg">🤖</span>
-            <h3 className="font-semibold text-gray-900">AI Configuration</h3>
+            <Bot className="w-5 h-5 text-brand-primary" />
+            <h3 className="font-semibold text-foreground">AI Configuration</h3>
           </div>
           {isPro && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-purple-500 to-pink-500 text-white">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-amber-950 uppercase tracking-wider">
               Pro
             </span>
           )}
@@ -57,10 +63,10 @@ export function UnifiedSettings({
 
         {hasApiKey ? (
           <div className="space-y-3">
-            <div className="bg-green-50 border border-green-200 rounded-md p-3">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
               <div className="flex items-center space-x-2">
-                <span className="text-green-600">✓</span>
-                <span className="text-sm text-green-700">
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                <span className="text-sm font-medium text-green-800">
                   API key configured ({settings.byok.provider})
                 </span>
               </div>
@@ -68,17 +74,17 @@ export function UnifiedSettings({
 
             <button
               onClick={() => setCurrentView('byok')}
-              className="w-full px-3 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors text-sm"
+              className="w-full px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 active:scale-[0.98] transition-all text-sm font-medium"
             >
               Manage API Configuration
             </button>
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
               <div className="flex items-center space-x-2">
-                <span className="text-yellow-600">⚠️</span>
-                <span className="text-sm text-yellow-700">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <span className="text-sm font-medium text-amber-800">
                   No API key configured
                 </span>
               </div>
@@ -87,13 +93,13 @@ export function UnifiedSettings({
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setCurrentView('byok')}
-                className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
+                className="px-3 py-2 bg-brand-surface text-brand-primary border border-brand-border rounded-lg hover:bg-brand-primary hover:text-white active:scale-[0.98] transition-all text-sm font-medium"
               >
                 Add API Key
               </button>
               <button
                 onClick={() => setShowUpgradeModal(true)}
-                className="px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm font-medium"
+                className="px-3 py-2 bg-brand-primary text-brand-primary-foreground rounded-lg hover:opacity-90 active:scale-[0.98] transition-all text-sm font-medium shadow-sm"
               >
                 Start Free Trial
               </button>
@@ -103,7 +109,7 @@ export function UnifiedSettings({
       </div>
 
       {/* Processing Profiles */}
-      <div className="border border-gray-200 rounded-lg p-4 bg-white">
+      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm">
         <ProcessingProfiles
           settings={settings}
           onSettingsChange={onSettingsChange}
@@ -111,7 +117,7 @@ export function UnifiedSettings({
       </div>
 
       {/* Appearance */}
-      <div className="border border-gray-200 rounded-lg p-4 bg-white">
+      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm">
         <AppearanceSettings
           settings={settings}
           onSettingsChange={onSettingsChange}
@@ -119,11 +125,14 @@ export function UnifiedSettings({
       </div>
 
       {/* Popup Behavior */}
-      <div className="border border-gray-200 rounded-lg p-4 bg-white">
-        <h3 className="font-semibold text-gray-900 mb-3">Popup Behavior</h3>
+      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm">
+        <div className="flex items-center space-x-2 mb-3">
+          <MousePointerClick className="w-5 h-5 text-muted-foreground" />
+          <h3 className="font-semibold text-foreground">Popup Behavior</h3>
+        </div>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <label htmlFor="keepPopupOpen" className="text-sm text-gray-700">Keep popup open after processing</label>
+            <label htmlFor="keepPopupOpen" className="text-sm text-foreground font-medium">Keep popup open after processing</label>
             <input
               id="keepPopupOpen"
               type="checkbox"
@@ -134,11 +143,12 @@ export function UnifiedSettings({
                   keepPopupOpen: e.target.checked
                 }
               })}
+              className="w-4 h-4 rounded border-gray-300 text-brand-primary focus:ring-brand-primary cursor-pointer"
             />
           </div>
           {!settings.ui?.keepPopupOpen && (
             <div className="flex items-center justify-between">
-              <label htmlFor="autoCloseDelay" className="text-sm text-gray-700">Auto-close delay (seconds)</label>
+              <label htmlFor="autoCloseDelay" className="text-sm text-foreground font-medium">Auto-close delay (seconds)</label>
               <input
                 id="autoCloseDelay"
                 type="number"
@@ -151,7 +161,7 @@ export function UnifiedSettings({
                     autoCloseDelay: parseInt(e.target.value) * 1000
                   }
                 })}
-                className="w-20 p-1 border border-gray-300 rounded-md text-sm"
+                className="w-20 p-1.5 border border-gray-300 rounded-lg text-sm focus:ring-brand-primary focus:border-brand-primary"
               />
             </div>
           )}
@@ -159,7 +169,7 @@ export function UnifiedSettings({
       </div>
 
       {/* Privacy */}
-      <div className="border border-gray-200 rounded-lg p-4 bg-white">
+      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm">
         <PrivacySettings
           settings={settings}
           onSettingsChange={onSettingsChange}
@@ -167,7 +177,7 @@ export function UnifiedSettings({
       </div>
 
       {/* Account Status */}
-      <div className="border border-gray-200 rounded-lg p-4 bg-white">
+      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm">
         <ProStatusSettings settings={settings} />
       </div>
     </div>
@@ -177,9 +187,10 @@ export function UnifiedSettings({
     <div>
       <button
         onClick={() => setCurrentView('main')}
-        className="mb-4 px-3 py-1 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+        className="mb-4 flex items-center space-x-1 px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground bg-card border border-border rounded-lg hover:bg-accent active:scale-[0.98] transition-all"
       >
-        ← Back to Settings
+        <ChevronLeft className="w-4 h-4" />
+        <span>Back to Settings</span>
       </button>
       <SimplifiedByokSetup
         settings={settings}
@@ -191,10 +202,10 @@ export function UnifiedSettings({
 
   return (
     <>
-      <div className="border-t border-gray-200 bg-gray-50 p-4">
-        <div className="flex items-center space-x-2 mb-4">
-          <span className="text-lg">⚙️</span>
-          <h3 className="font-semibold text-gray-900">
+      <div className="border-t border-brand-border bg-background p-4 shadow-inner inset-y-0 relative z-10 w-full">
+        <div className="flex items-center space-x-2 mb-5 pb-3 border-b border-border">
+          <SettingsIcon className="w-5 h-5 text-muted-foreground" />
+          <h3 className="font-semibold text-foreground text-lg">
             {currentView === 'byok' ? 'API Configuration' : 'Settings'}
           </h3>
         </div>

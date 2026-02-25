@@ -169,7 +169,12 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
       return {
         ...state,
         processing: { status: 'complete' },
-        exportData: { ...action.payload, pipelineUsed },
+        exportData: {
+          ...action.payload,
+          markdown: action.payload.markdown || (action.payload as any).exportMd,
+          json: action.payload.json || (action.payload as any).exportJson,
+          pipelineUsed 
+        },
         credits: newCredits,
         trial: {
           ...state.trial,

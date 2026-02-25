@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Settings } from '@/lib/types';
 import { Storage } from '@/lib/storage';
 import { validateApiKey } from '@/lib/api-validation';
+import { Globe, Wrench, Zap, Bot } from 'lucide-react';
 
 interface SimplifiedByokSetupProps {
   settings: Settings;
@@ -14,7 +15,7 @@ type Provider = 'openrouter' | 'manual' | 'z.ai';
 type ProviderInfo = {
   name: string;
   description: string;
-  icon: string;
+  icon: React.ReactNode;
   placeholder: string;
   defaultBase: string;
   fixedBase?: boolean;
@@ -24,21 +25,21 @@ const PROVIDERS: Record<Provider, ProviderInfo> = {
   openrouter: {
     name: 'OpenRouter',
     description: 'Access multiple AI models through one API',
-    icon: '🌐',
+    icon: <Globe className="w-5 h-5 text-blue-500" />,
     placeholder: 'sk-or-v1-...',
     defaultBase: 'https://openrouter.ai/api/v1',
   },
   manual: {
     name: 'OpenAI Compatible',
     description: 'Use any OpenAI-compatible API',
-    icon: '🔧',
+    icon: <Wrench className="w-5 h-5 text-gray-500" />,
     placeholder: 'sk-...',
     defaultBase: 'https://api.openai.com/v1',
   },
   'z.ai': {
     name: 'Z.AI',
     description: 'Fast and affordable AI API',
-    icon: '⚡',
+    icon: <Zap className="w-5 h-5 text-yellow-500" />,
     placeholder: 'Enter your Z.AI API key',
     defaultBase: 'https://api.z.ai/api/coding/paas/v4',
     fixedBase: true,
@@ -124,40 +125,42 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
   const currentProvider = PROVIDERS[provider];
 
   return (
-    <div className="bg-white rounded-lg p-6 max-w-md mx-auto shadow-lg">
+    <div className="bg-white rounded-xl p-6 max-w-md mx-auto shadow-sm border border-gray-100">
       {/* Header */}
       <div className="text-center mb-6">
-        <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center mx-auto mb-3">
-          <span className="text-xl">🤖</span>
+        <div className="w-12 h-12 bg-brand-surface text-brand-primary rounded-full flex items-center justify-center mx-auto mb-3 border border-brand-border">
+          <Bot className="w-6 h-6" />
         </div>
-        <h2 className="text-xl font-bold text-gray-900 mb-2">
+        <h2 className="text-lg font-bold text-gray-900 mb-1">
           Connect Your AI Provider
         </h2>
-        <p className="text-sm text-gray-600">
+        <p className="text-xs text-gray-500">
           Use your own API key for unlimited AI processing
         </p>
       </div>
 
       {/* Provider Selection */}
       <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-3">
-          Choose your AI provider
+        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-3">
+          Choose AI Provider
         </label>
-        <div className="grid grid-cols-1 gap-2">
+        <div className="grid grid-cols-1 gap-2.5">
           {Object.entries(PROVIDERS).map(([key, providerInfo]) => (
             <button
               key={key}
               onClick={() => setProvider(key as Provider)}
-              className={`p-3 rounded-lg border-2 transition-all text-left ${provider === key
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200 hover:border-gray-300'
+              className={`p-3 rounded-xl border transition-all text-left group ${provider === key
+                  ? 'border-brand-primary bg-brand-surface shadow-sm'
+                  : 'border-gray-200 hover:border-brand-primary/40 hover:bg-gray-50 active:scale-[0.98]'
                 }`}
             >
               <div className="flex items-center space-x-3">
-                <span className="text-lg">{providerInfo.icon}</span>
+                <div className={`p-2 rounded-lg ${provider === key ? 'bg-white' : 'bg-gray-100 group-hover:bg-white'} transition-colors`}>
+                  {providerInfo.icon}
+                </div>
                 <div>
-                  <div className="font-medium text-gray-900">{providerInfo.name}</div>
-                  <div className="text-xs text-gray-600">{providerInfo.description}</div>
+                  <div className={`font-semibold text-sm ${provider === key ? 'text-brand-primary' : 'text-gray-900'}`}>{providerInfo.name}</div>
+                  <div className="text-[11px] text-gray-500 mt-0.5">{providerInfo.description}</div>
                 </div>
               </div>
             </button>
@@ -169,7 +172,7 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
       <div className="space-y-4 mb-6">
         {/* API Key */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-xs font-medium text-gray-700 mb-1.5">
             API Key
           </label>
           <input
@@ -177,14 +180,14 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder={currentProvider.placeholder}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition-all shadow-sm"
           />
         </div>
 
         {/* API Base URL */}
         {!currentProvider.fixedBase && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">
               API Base URL
             </label>
             <input
@@ -192,14 +195,14 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
               value={apiBase}
               onChange={(e) => setApiBase(e.target.value)}
               placeholder={currentProvider.defaultBase}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition-all shadow-sm"
             />
           </div>
         )}
 
         {/* Validation Status */}
         {validationStatus && (
-          <div className={`p-3 rounded-md text-sm ${validationStatus.isValid
+          <div className={`p-3 rounded-lg text-sm font-medium animate-in fade-in duration-200 ${validationStatus.isValid
               ? 'bg-green-50 text-green-700 border border-green-200'
               : 'bg-red-50 text-red-700 border border-red-200'
             }`}>
@@ -209,35 +212,36 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
       </div>
 
       {/* Actions */}
-      <div className="flex space-x-3">
-        <button
-          onClick={onCancel}
-          className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
-        >
-          Cancel
-        </button>
-
-        <button
-          onClick={handleValidate}
-          disabled={!apiKey.trim() || isValidating}
-          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-        >
-          {isValidating ? 'Validating...' : 'Test Connection'}
-        </button>
-
+      <div className="flex flex-col space-y-2">
         <button
           onClick={handleSave}
           disabled={!validationStatus?.isValid}
-          className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          className="w-full py-2.5 bg-brand-primary text-brand-primary-foreground font-semibold rounded-lg hover:opacity-90 active:scale-[0.98] disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-all shadow-sm"
         >
           Connect & Start
         </button>
+
+        <div className="flex space-x-2">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2 bg-white border border-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-50 active:scale-[0.98] transition-all text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleValidate}
+            disabled={!apiKey.trim() || isValidating}
+            className="flex-1 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all text-sm"
+          >
+            {isValidating ? 'Validating...' : 'Test Connection'}
+          </button>
+        </div>
       </div>
 
       {/* Help Text */}
-      <div className="mt-4 text-center">
-        <p className="text-xs text-gray-500">
-          Your API key is stored locally and never shared with PromptReady servers
+      <div className="mt-5 pt-4 border-t border-gray-100 text-center">
+        <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">
+          Your API key is stored locally
         </p>
       </div>
     </div>

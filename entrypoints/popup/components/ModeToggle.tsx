@@ -3,6 +3,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Storage } from '@/lib/storage';
 import { authService } from '@/lib/auth-service';
 import type { Settings } from '@/lib/types';
+import { WifiOff, Sparkles } from 'lucide-react';
 
 interface ModeToggleProps {
   mode: Settings['mode'];
@@ -42,23 +43,21 @@ export function ModeToggle({ mode, onChange, onUpgradePrompt }: ModeToggleProps)
       type="single"
       value={mode}
       onValueChange={handleValueChange}
-      className="flex items-center justify-center space-x-4 py-3 transition-all duration-300 ease-in-out"
+      className="flex w-full bg-black/20 backdrop-blur-sm p-1.5 rounded-2xl shadow-inner border border-white/10"
       aria-label="Processing Mode"
     >
       <ToggleGroupItem
         value="offline"
         title="Free • Instant"
-        className="flex items-center space-x-3 px-6 py-4 rounded-xl transition-all duration-300 ease-in-out transform hover:scale-105 data-[state=on]:bg-blue-50 data-[state=on]:border-2 data-[state=on]:border-blue-500 data-[state=on]:text-blue-700 data-[state=on]:scale-105 data-[state=on]:shadow-lg bg-gray-50 border-2 border-gray-200 text-gray-600 hover:bg-gray-100"
+        className="flex-1 flex flex-col items-center justify-center py-2.5 rounded-xl transition-all duration-300 ease-in-out data-[state=on]:bg-white data-[state=on]:text-brand-primary data-[state=on]:shadow-md hover:bg-white/10 text-white/80 active:scale-95 border-0 data-[state=on]:scale-100"
         aria-label="Offline Mode"
       >
-        <div className="text-left">
-          <div className="font-semibold text-sm flex items-center space-x-2">
-            <span>🛰️</span>
-            <span>Offline</span>
-          </div>
-          <div className="text-xs text-gray-500 data-[state=on]:text-blue-600">
-            Free • Instant
-          </div>
+        <div className="flex items-center space-x-2 font-semibold text-sm">
+          <WifiOff className="w-4 h-4" />
+          <span>Offline</span>
+        </div>
+        <div className={`text-[10px] mt-0.5 font-medium tracking-wide ${mode === 'offline' ? 'text-brand-primary/80' : 'text-white/60'}`}>
+          FREE • INSTANT
         </div>
       </ToggleGroupItem>
 
@@ -68,45 +67,21 @@ export function ModeToggle({ mode, onChange, onUpgradePrompt }: ModeToggleProps)
         aria-disabled={aiDisabled}
         title={aiTooltip}
         className={
-          `flex items-center space-x-3 px-6 py-4 rounded-xl transition-all duration-300 ease-in-out transform hover:scale-105 relative
-           data-[state=on]:bg-gradient-to-r data-[state=on]:from-purple-50 data-[state=on]:to-pink-50
-           data-[state=on]:border-2 data-[state=on]:border-purple-500 data-[state=on]:text-purple-700
-           data-[state=on]:scale-105 data-[state=on]:shadow-lg
-           bg-gray-50 border-2 border-gray-200 text-gray-600 hover:bg-gray-100` +
-          (aiDisabled ? ' opacity-60 cursor-not-allowed hover:bg-gray-50 hover:scale-100' : '')
+          `flex-1 flex flex-col items-center justify-center py-2.5 rounded-xl transition-all duration-300 ease-in-out data-[state=on]:bg-white data-[state=on]:text-brand-primary data-[state=on]:shadow-md hover:bg-white/10 text-white/80 active:scale-95 border-0 data-[state=on]:scale-100 relative overflow-hidden ` +
+          (aiDisabled ? ' opacity-50 cursor-not-allowed hover:bg-transparent active:scale-100' : '')
         }
       >
-        <div className="text-left">
-          <div className="font-semibold text-sm flex items-center space-x-1">
-            <span>AI Mode</span>
-            {authState && (
-              <>
-                {authState.isDeveloperMode && (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-yellow-500 text-black">
-                    DEV
-                  </span>
-                )}
-                {authState.planType === 'pro' && !authState.isDeveloperMode && (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-purple-500 to-pink-500 text-white">
-                    PRO
-                  </span>
-                )}
-                {authState.planType === 'free' && (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-500 text-white">
-                    {authState.remainingCredits} credits
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-          <div className="text-xs text-gray-500 data-[state=on]:text-purple-600">
+        <div className="flex items-center space-x-2 font-semibold text-sm relative z-10">
+          <Sparkles className="w-4 h-4" />
+          <span>AI Mode</span>
+        </div>
+        <div className={`text-[10px] mt-0.5 font-medium tracking-wide flex items-center space-x-1 relative z-10 uppercase ${mode === 'ai' ? 'text-brand-primary/80' : 'text-white/60'}`}>
             {authState ? (
-              authState.isDeveloperMode ? 'Unlimited • Developer' :
-              authState.hasApiKey ? 'Enhanced • BYOK' :
-              authState.canUseAIMode ? 'Enhanced • Credits' :
-              'Limited • Upgrade'
+              authState.isDeveloperMode ? <span>Developer</span> :
+              authState.hasApiKey ? <span>BYOK</span> :
+              authState.canUseAIMode ? <span className="bg-brand-primary/10 px-1.5 py-0.5 rounded text-brand-primary font-bold">{authState.remainingCredits} Credits</span> :
+              <span>Upgrade</span>
             ) : 'Loading...'}
-          </div>
         </div>
       </ToggleGroupItem>
     </ToggleGroup>

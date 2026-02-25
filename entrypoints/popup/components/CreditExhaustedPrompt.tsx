@@ -13,7 +13,7 @@ export const CreditExhaustedPrompt: React.FC<CreditExhaustedPromptProps> = ({ on
       </p>
       <button
         onClick={onUpgrade}
-        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+        className="mt-4 px-4 py-2 bg-brand-primary text-brand-primary-foreground rounded-md hover:opacity-90 active:scale-95 transition-all"
       >
         Add Your API Key
       </button>

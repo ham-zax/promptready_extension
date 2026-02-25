@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Storage } from '@/lib/storage';
 import { MonetizationClient } from '@/pro/monetization-client';
+import { Rocket, CheckCircle2 } from 'lucide-react';
 
 interface ProUpgradePromptProps {
   isVisible: boolean;
@@ -67,8 +68,8 @@ export function ProUpgradePrompt({ isVisible, onClose, onUpgradeComplete }: ProU
           <>
             {/* Header */}
             <div className="text-center mb-4">
-              <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-2xl">🚀</span>
+              <div className="w-16 h-16 bg-brand-primary rounded-full flex items-center justify-center mx-auto mb-3 text-brand-primary-foreground">
+                <Rocket className="w-8 h-8" />
               </div>
               <h2 className="text-xl font-bold text-gray-900 mb-2">
                 Start Your 7-Day Free Trial
@@ -130,7 +131,7 @@ export function ProUpgradePrompt({ isVisible, onClose, onUpgradeComplete }: ProU
               <button
                 onClick={handleStartTrial}
                 disabled={isProcessing}
-                className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold py-3 px-4 rounded-lg hover:from-purple-600 hover:to-pink-600 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full bg-brand-primary text-brand-primary-foreground font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition-all duration-200 shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isProcessing ? 'Starting Trial...' : 'Start Free Trial'}
               </button>
@@ -149,8 +150,8 @@ export function ProUpgradePrompt({ isVisible, onClose, onUpgradeComplete }: ProU
       case 'processing':
         return (
           <div className="text-center py-8">
-            <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+            <div className="w-16 h-16 bg-brand-primary rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-primary-foreground"></div>
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               Setting Up Your Trial
@@ -164,8 +165,8 @@ export function ProUpgradePrompt({ isVisible, onClose, onUpgradeComplete }: ProU
       case 'complete':
         return (
           <div className="text-center py-8">
-            <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-2xl">✓</span>
+            <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4 text-white">
+              <CheckCircle2 className="w-8 h-8" />
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               Trial Activated!

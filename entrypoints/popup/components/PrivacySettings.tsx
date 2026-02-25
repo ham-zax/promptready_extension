@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { Settings } from '@/lib/types';
+import { Lock } from 'lucide-react';
 
 interface PrivacySettingsProps {
   settings: Settings;
@@ -16,23 +17,23 @@ export function PrivacySettings({
   return (
     <div className="space-y-3">
       <div className="flex items-center space-x-2">
-        <span className="text-sm">🔒</span>
-        <h4 className="font-medium text-gray-800">Privacy</h4>
+        <Lock className="w-4 h-4 text-gray-500" />
+        <h4 className="font-semibold text-gray-900">Privacy</h4>
       </div>
       
       <div className="pl-6">
-        <label className="flex items-center space-x-2">
+        <label className="flex items-center space-x-3 cursor-pointer">
           <input
             type="checkbox"
             checked={settings.privacy.telemetryEnabled}
             onChange={(e) => onSettingsChange({
               privacy: { ...settings.privacy, telemetryEnabled: e.target.checked }
             })}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className="w-4 h-4 rounded border-gray-300 text-brand-primary focus:ring-brand-primary"
           />
-          <span className="text-sm text-gray-700">Enable usage analytics</span>
+          <span className="text-sm font-medium text-gray-700">Enable usage analytics</span>
         </label>
-        <p className="text-xs text-gray-500 mt-1 ml-6">
+        <p className="text-xs text-gray-500 mt-1 ml-7 leading-snug">
           Help improve PromptReady with anonymous usage data. No content is ever collected.
         </p>
       </div>

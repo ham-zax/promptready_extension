@@ -25,7 +25,7 @@ export function PrimaryButton({
       className={`w-full py-3 px-4 rounded-lg font-medium text-sm transition-all ${
         disabled || loading
           ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-          : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm hover:shadow-md'
+          : 'bg-brand-primary hover:opacity-90 text-brand-primary-foreground shadow-sm hover:shadow-md active:scale-[0.98]'
       }`}
     >
       {loading ? (

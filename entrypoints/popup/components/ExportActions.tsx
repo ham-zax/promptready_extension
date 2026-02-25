@@ -23,7 +23,7 @@ export function ExportActions({ onExport, disabled = false }: ExportActionsProps
                 : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
             }`}
           >
-            📋 Copy
+            Copy
           </button>
           
           <button
@@ -75,7 +75,7 @@ export function ExportActions({ onExport, disabled = false }: ExportActionsProps
                 : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
             }`}
           >
-            💾 Download
+            Download
           </button>
           
           <button
