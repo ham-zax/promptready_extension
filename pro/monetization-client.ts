@@ -56,6 +56,21 @@ export class MonetizationClient {
     return getRuntimeProfile().useMockMonetization;
   }
 
+  private static shouldSuppressFallbackLog(status?: number): boolean {
+    const profile = getRuntimeProfile();
+    if (
+      profile.isDevelopment ||
+      profile.openAccessEnabled ||
+      profile.premiumBypassEnabled ||
+      profile.useMockMonetization
+    ) {
+      return true;
+    }
+
+    // These are expected when monetization endpoints are not wired for local/offline workflows.
+    return status === 401 || status === 403 || status === 404 || status === 405;
+  }
+
   private static unlimitedCredits(): CheckCreditsResponse {
     return { balance: this.DEV_BALANCE, weeklyCap: this.DEV_BALANCE };
   }
@@ -86,7 +101,9 @@ export class MonetizationClient {
       });
 
       if (!resp.ok) {
-        console.warn(`[MonetizationClient] checkCredits returned ${resp.status}`);
+        if (!this.shouldSuppressFallbackLog(resp.status)) {
+          console.warn(`[MonetizationClient] checkCredits returned ${resp.status}`);
+        }
         // Development-first fail-open behavior: backend issues must not paywall local workflows.
         return this.unlimitedCredits();
       }
@@ -99,7 +116,9 @@ export class MonetizationClient {
         weeklyCap: typeof data.weeklyCap === 'number' ? data.weeklyCap : 0,
       };
     } catch (err) {
-      console.error('[MonetizationClient] checkCredits error:', err);
+      if (!this.shouldSuppressFallbackLog()) {
+        console.error('[MonetizationClient] checkCredits error:', err);
+      }
       // Network/offline failures must not hard-lock the popup during development workflows.
       return this.unlimitedCredits();
     }
@@ -127,7 +146,9 @@ export class MonetizationClient {
       });
 
       if (!resp.ok) {
-        console.warn(`[MonetizationClient] processWithAI non-ok status ${resp.status}`);
+        if (!this.shouldSuppressFallbackLog(resp.status)) {
+          console.warn(`[MonetizationClient] processWithAI non-ok status ${resp.status}`);
+        }
         return this.passthroughAI(prompt);
       }
 
@@ -144,13 +165,17 @@ export class MonetizationClient {
       }
 
       if ('error' in data) {
-        console.warn(`[MonetizationClient] processWithAI returned error payload ${data.error}; using pass-through fallback`);
+        if (!this.shouldSuppressFallbackLog()) {
+          console.warn(`[MonetizationClient] processWithAI returned error payload ${data.error}; using pass-through fallback`);
+        }
         return this.passthroughAI(prompt);
       }
 
       return this.passthroughAI(prompt);
     } catch (err) {
-      console.error('[MonetizationClient] processWithAI error:', err);
+      if (!this.shouldSuppressFallbackLog()) {
+        console.error('[MonetizationClient] processWithAI error:', err);
+      }
       return this.passthroughAI(prompt);
     }
   }

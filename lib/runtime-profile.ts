@@ -45,6 +45,14 @@ function readString(name: string): string | undefined {
   return value ? value : undefined;
 }
 
+function resolveRuntimeDevelopmentFlag(): boolean {
+  const explicit = readBoolean('WXT_RUNTIME_DEVELOPMENT');
+  if (typeof explicit === 'boolean') {
+    return explicit;
+  }
+  return Boolean((import.meta as any)?.env?.DEV);
+}
+
 let cachedProfile: RuntimeProfile | null = null;
 
 function isLocalTarget(url: string): boolean {
@@ -63,7 +71,7 @@ function isLocalTarget(url: string): boolean {
 export function getRuntimeProfile(): RuntimeProfile {
   if (cachedProfile) return cachedProfile;
 
-  const isDevelopment = Boolean((import.meta as any)?.env?.DEV);
+  const isDevelopment = resolveRuntimeDevelopmentFlag();
 
   const openAccessEnabled = readBoolean('WXT_DEV_OPEN_ACCESS') ?? isDevelopment;
   const premiumBypassEnabled = readBoolean('WXT_DEV_FORCE_PREMIUM') ?? isDevelopment;
