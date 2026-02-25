@@ -100,7 +100,7 @@ describe('ByokSettings', () => {
     expect(callArg?.byok?.provider).toBe('openrouter');
 
     // After choosing provider the configuration view should be visible (API Key label)
-    expect(screen.getByText('API Key')).toBeTruthy();
+    expect(screen.getByText(/API Key/i)).toBeTruthy();
   });
 
   it('shows Remove Key button only when hasApiKey is true and confirms removal', () => {

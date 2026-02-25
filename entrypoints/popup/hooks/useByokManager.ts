@@ -22,7 +22,7 @@ export interface ByokActions {
   setApiKey: (apiKey: string) => void;
   setApiBase: (apiBase: string) => void;
   setSelectedModel: (model: string) => void;
-  validateConfiguration: () => Promise<void>;
+  validateConfiguration: () => Promise<boolean>;
   saveConfiguration: () => Promise<void>;
   clearConfiguration: () => Promise<void>;
   testCurrentConfiguration: () => Promise<void>;
@@ -31,7 +31,7 @@ export interface ByokActions {
 const DEFAULT_PROVIDERS = {
   openrouter: {
     apiBase: 'https://openrouter.ai/api/v1',
-    defaultModel: 'anthropic/claude-3.5-sonnet',
+    defaultModel: 'arcee-ai/trinity-large-preview:free',
   },
   manual: {
     apiBase: 'https://api.openai.com/v1',
@@ -143,7 +143,7 @@ export function useByokManager(): ByokState & ByokActions {
         isValid: false,
         validationMessage: 'Please enter an API key',
       }));
-      return;
+      return false;
     }
 
     setState(prev => ({
@@ -164,6 +164,7 @@ export function useByokManager(): ByokState & ByokActions {
         validationMessage: result.message,
         isValidationInProgress: false,
       }));
+      return result.isValid;
     } catch (error) {
       setState(prev => ({
         ...prev,
@@ -171,13 +172,14 @@ export function useByokManager(): ByokState & ByokActions {
         validationMessage: 'Validation failed. Please try again.',
         isValidationInProgress: false,
       }));
+      return false;
     }
-  }, [state.provider, state.apiKey, state.apiKey]);
+  }, [state.provider, state.apiKey, state.apiBase]);
 
   const saveConfiguration = useCallback(async () => {
-    if (!state.isValid) {
-      await validateConfiguration();
-      if (!state.isValid) return;
+    const isValid = state.isValid || await validateConfiguration();
+    if (!isValid) {
+      return;
     }
 
     try {

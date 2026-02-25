@@ -12,4 +12,7 @@ id = "placeholder_for_local_dev_2"
 
 [vars]
 SERVICE_SECRET = "local-secret-string"
-AI_API_KEY = "cead729df8374268918c14db2bddb43e.bObIHNe6TwmTefrR"
+AI_API_KEY = "replace-me-for-local-dev"
+OPENROUTER_HTTP_REFERER = "https://promptready.app"
+OPENROUTER_TITLE = "PromptReady Extension"
+ALLOWED_ORIGINS = "https://promptready.app,http://127.0.0.1:5173,http://localhost:5173"

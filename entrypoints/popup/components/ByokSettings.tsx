@@ -44,7 +44,7 @@ export function ByokSettings({
   );
 
   const DEFAULTS: Record<Provider, { apiBase: string; model: string }> = {
-    openrouter: { apiBase: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-3.5-sonnet' },
+    openrouter: { apiBase: 'https://openrouter.ai/api/v1', model: 'arcee-ai/trinity-large-preview:free' },
     manual: { apiBase: 'https://api.openai.com/v1', model: 'gpt-4' },
     'z.ai': { apiBase: 'https://api.z.ai/api/coding/paas/v4', model: 'z.ai-flash' },
   };

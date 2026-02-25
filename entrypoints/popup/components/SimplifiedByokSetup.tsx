@@ -97,7 +97,7 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
     }
 
     try {
-      const selectedModel = provider === 'openrouter' ? 'anthropic/claude-3.5-sonnet' :
+      const selectedModel = provider === 'openrouter' ? 'arcee-ai/trinity-large-preview:free' :
         provider === 'manual' ? 'gpt-4' : 'z.ai-flash';
 
       await Storage.updateSettings({
