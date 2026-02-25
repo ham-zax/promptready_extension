@@ -591,25 +591,25 @@ export class OfflineModeManager {
 
     removeUnwantedElements(body, [
       'template',
-      '[markdownload-hidden=\"true\"]',
+      '[markdownload-hidden="true"]',
       '[data-nosnippet]',
       '[data-ad]',
       '[data-ad-container]',
-      '[data-testid*=\"cookie\"]',
-      '[id*=\"cookie\"]',
-      '[class*=\"cookie\"]',
-      '[class*=\"consent\"]',
-      '[class*=\"newsletter\"]',
-      '[class*=\"subscribe\"]',
-      '[class*=\"popup\"]',
-      '[class*=\"modal\"]',
-      '[aria-modal=\"true\"]',
-      '[role=\"dialog\"]',
-      '[role=\"alertdialog\"]',
+      '[data-testid*="cookie"]',
+      '[id*="cookie"]',
+      '[class*="cookie"]',
+      '[class*="consent"]',
+      '[class*="newsletter"]',
+      '[class*="subscribe"]',
+      '[class*="popup"]',
+      '[class*="modal"]',
+      '[aria-modal="true"]',
+      '[role="dialog"]',
+      '[role="alertdialog"]',
       'dialog',
-      'form[action*=\"subscribe\"]',
-      'form[id*=\"subscribe\"]',
-      'form[class*=\"subscribe\"]',
+      'form[action*="subscribe"]',
+      'form[id*="subscribe"]',
+      'form[class*="subscribe"]',
       'iframe',
     ]);
 
@@ -675,7 +675,7 @@ export class OfflineModeManager {
   private static removeHiddenOrMarkedElements(root: HTMLElement): void {
     const hiddenElements = Array.from(
       root.querySelectorAll(
-        '[markdownload-hidden=\"true\"], [hidden], [aria-hidden=\"true\"], [style*=\"display:none\"], [style*=\"display: none\"], [style*=\"visibility:hidden\"], [style*=\"visibility: hidden\"]'
+        '[markdownload-hidden="true"], [hidden], [aria-hidden="true"], [style*="display:none"], [style*="display: none"], [style*="visibility:hidden"], [style*="visibility: hidden"]'
       )
     );
     for (const el of hiddenElements) {
@@ -1106,7 +1106,13 @@ export class OfflineModeManager {
       return markdown;
     }
 
-    const lines = markdown.split('\n');
+    let sanitized = markdown
+      .replace(/\b(?:annoying\s+)?popup\s*ad\s*accept\s+all[^\n]{0,160}?cookies?\s+to\s+continue\.?/gi, '')
+      .replace(/\baccept\s+all[^\n]{0,160}?tracking\s+cookies?\s+to\s+continue\.?/gi, '')
+      .replace(/\bsubscribe\s+to\s+our\s+newsletter\s*\|\s*related\s+links\s*\|\s*footer\s+text\b/gi, '')
+      .replace(/#?```json```/gi, '');
+
+    const lines = sanitized.split('\n');
     const filtered = lines.filter((line) => {
       const normalized = this.normalizeInputText(line).toLowerCase();
       if (!normalized) {
@@ -1130,7 +1136,8 @@ export class OfflineModeManager {
     if (filtered.length !== lines.length) {
       warnings.push('Removed residual UI-noise lines from markdown');
     }
-    return filtered.join('\n');
+    sanitized = filtered.join('\n');
+    return sanitized;
   }
 
   private static ensurePrimaryHeading(markdown: string, title: string): string {
@@ -1889,6 +1896,11 @@ export class OfflineModeManager {
     const hash = metadata.selectionHash || 'N/A';
 
     const citationHeader = `> Source: [${title}](${url})\n> Captured: ${captured}\n> Hash: ${hash}\n\n`;
+
+    const hasPrimaryHeading = /^#\s+/m.test(result);
+    if (!hasPrimaryHeading) {
+      result = `# ${title}\n\n${result.trimStart()}`;
+    }
 
     return citationHeader + result;
   }
