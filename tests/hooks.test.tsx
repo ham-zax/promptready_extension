@@ -252,6 +252,25 @@ describe('useErrorHandler', () => {
     expect(result.current.hasError).toBe(false);
     expect(result.current.error).toBe(null);
   });
+
+  it('should report retry action failure without throwing from hook', () => {
+    const { result } = renderHook(() => useErrorHandler());
+
+    act(() => {
+      result.current.setLastActionForRetry(() => {
+        throw new Error('retry failed');
+      }, 'failing action');
+    });
+
+    expect(() => {
+      act(() => {
+        result.current.retryLastAction();
+      });
+    }).not.toThrow();
+
+    expect(result.current.hasError).toBe(true);
+    expect(result.current.error?.context).toBe('retry_action');
+  });
 });
 
 describe('useToastManager', () => {

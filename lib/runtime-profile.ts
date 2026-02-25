@@ -1,5 +1,6 @@
 export interface RuntimeProfile {
   isDevelopment: boolean;
+  openAccessEnabled: boolean;
   premiumBypassEnabled: boolean;
   enforceDeveloperMode: boolean;
   useMockMonetization: boolean;
@@ -64,6 +65,7 @@ export function getRuntimeProfile(): RuntimeProfile {
 
   const isDevelopment = Boolean((import.meta as any)?.env?.DEV);
 
+  const openAccessEnabled = readBoolean('WXT_DEV_OPEN_ACCESS') ?? isDevelopment;
   const premiumBypassEnabled = readBoolean('WXT_DEV_FORCE_PREMIUM') ?? isDevelopment;
   const enforceDeveloperMode = readBoolean('WXT_DEV_FORCE_DEVELOPER_MODE') ?? isDevelopment;
   const useMockMonetization = readBoolean('WXT_USE_MOCK_MONETIZATION') ?? isDevelopment;
@@ -82,6 +84,7 @@ export function getRuntimeProfile(): RuntimeProfile {
 
   cachedProfile = {
     isDevelopment,
+    openAccessEnabled,
     premiumBypassEnabled,
     enforceDeveloperMode,
     useMockMonetization,
@@ -100,6 +103,9 @@ export function validateRuntimeProfile(
   const warnings: string[] = [];
 
   if (!profile.isDevelopment) {
+    if (profile.openAccessEnabled) {
+      errors.push('openAccessEnabled must be false outside development');
+    }
     if (profile.premiumBypassEnabled) {
       errors.push('premiumBypassEnabled must be false outside development');
     }
@@ -119,6 +125,9 @@ export function validateRuntimeProfile(
       errors.push('trafilaturaServiceUrl cannot target localhost outside development');
     }
   } else {
+    if (!profile.openAccessEnabled) {
+      warnings.push('openAccessEnabled is off in development; premium flows may require real credits');
+    }
     if (!profile.premiumBypassEnabled) {
       warnings.push('premiumBypassEnabled is off in development; premium UX may be gated');
     }

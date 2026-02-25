@@ -3,15 +3,24 @@
 
 import React from 'react';
 import { Settings } from '@/lib/types';
+import { browser } from 'wxt/browser';
 
 interface ProStatusSettingsProps {
   settings: Settings;
 }
 
 export function ProStatusSettings({ settings }: ProStatusSettingsProps) {
-  const handleUpgradeClick = () => {
-    // TODO: Implement upgrade flow
-    console.log('Upgrade to Pro clicked');
+  const handleUpgradeClick = async () => {
+    const upgradeUrl = 'https://promptready.app/';
+    try {
+      if (typeof browser !== 'undefined' && browser.tabs?.create) {
+        await browser.tabs.create({ url: upgradeUrl });
+        return;
+      }
+      window.open(upgradeUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error('Failed to open upgrade page:', error);
+    }
   };
 
   return (

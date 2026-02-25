@@ -4,7 +4,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Storage } from '@/lib/storage';
 import { validateApiKey, debouncedValidateApiKey } from '@/lib/api-validation';
-import type { Settings } from '@/lib/types';
 
 export interface ByokState {
   provider: 'openrouter' | 'manual' | 'z.ai';
@@ -165,7 +164,7 @@ export function useByokManager(): ByokState & ByokActions {
         isValidationInProgress: false,
       }));
       return result.isValid;
-    } catch (error) {
+    } catch {
       setState(prev => ({
         ...prev,
         isValid: false,

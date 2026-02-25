@@ -4,6 +4,7 @@ import { validateRuntimeProfile, type RuntimeProfile } from '@/lib/runtime-profi
 function makeProfile(overrides: Partial<RuntimeProfile> = {}): RuntimeProfile {
   const profile: RuntimeProfile = {
     isDevelopment: true,
+    openAccessEnabled: true,
     premiumBypassEnabled: true,
     enforceDeveloperMode: true,
     useMockMonetization: true,
@@ -31,7 +32,7 @@ describe('runtime profile validation', () => {
     expect(result.errors.join(' ')).toContain('outside development');
   });
 
-  it('rejects production profiles pointing at localhost endpoints', () => {
+  it('rejects production profiles with open access enabled', () => {
     const result = validateRuntimeProfile(
       makeProfile({
         isDevelopment: false,
@@ -40,6 +41,28 @@ describe('runtime profile validation', () => {
         useMockMonetization: false,
       }),
     );
+    expect(result.errors.some((e) => e.includes('openAccessEnabled'))).toBe(true);
+  });
+
+  it('rejects production profiles pointing at localhost endpoints', () => {
+    const result = validateRuntimeProfile(
+      makeProfile({
+        isDevelopment: false,
+        openAccessEnabled: false,
+        premiumBypassEnabled: false,
+        enforceDeveloperMode: false,
+        useMockMonetization: false,
+      }),
+    );
     expect(result.errors.some((e) => e.includes('localhost'))).toBe(true);
+  });
+
+  it('warns when open access is disabled in development', () => {
+    const result = validateRuntimeProfile(
+      makeProfile({
+        openAccessEnabled: false,
+      }),
+    );
+    expect(result.warnings.some((w) => w.includes('openAccessEnabled is off in development'))).toBe(true);
   });
 });

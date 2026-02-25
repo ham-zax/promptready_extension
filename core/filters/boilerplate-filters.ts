@@ -197,7 +197,7 @@ export const AGGRESSIVE_FILTER_RULES: FilterRule[] = [
  */
 export class BoilerplateFilter {
   
-  static applyRules(element: HTMLElement, rulesParam?: FilterRule[], mode: 'offline' | 'ai' = 'offline'): void {
+  static applyRules(element: HTMLElement, rulesParam?: FilterRule[], _mode: 'offline' | 'ai' = 'offline'): void {
     // Use provided rules if given; otherwise default to BOILERPLATE_FILTER_RULES
     const rules = (rulesParam && rulesParam.length) ? rulesParam : BOILERPLATE_FILTER_RULES;
     // Diagnostics collections to help identify which rules remove/unwrap important content

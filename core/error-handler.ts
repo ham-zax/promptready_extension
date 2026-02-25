@@ -1,7 +1,7 @@
 // Comprehensive error handling and fallback system
 // Provides robust recovery mechanisms for all processing stages
 
-import { safeParseHTML, extractTextContent, removeUnwantedElements, extractSemanticContent } from '../lib/dom-utils.js';
+import { safeParseHTML, extractTextContent, removeUnwantedElements } from '../lib/dom-utils.js';
 
 export interface ErrorContext {
   stage: ProcessingStage;
@@ -300,7 +300,7 @@ export class ErrorHandler {
       canHandle: (context) => 
         context.originalError.message.includes('memory') ||
         context.originalError.message.includes('Maximum call stack'),
-      execute: async (context) => {
+      execute: async (_context) => {
         try {
           // Force garbage collection if available (not in service worker)
           if (typeof globalThis !== 'undefined' && (globalThis as any).gc) {

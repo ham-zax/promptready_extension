@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { XMarkIcon, Cog6ToothIcon, ChartBarIcon, ClockIcon, CpuChipIcon } from '@heroicons/react/24/outline';
 
 interface PerformanceMetrics {
@@ -56,66 +56,63 @@ interface PerformanceDashboardProps {
 export function PerformanceDashboard({ isVisible, onClose, onSettingsClick }: PerformanceDashboardProps) {
   const [metrics, setMetrics] = useState<PerformanceMetrics | null>(null);
   const [analytics, setAnalytics] = useState<PerformanceAnalytics | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState(2000); // 2 seconds default
-
-  // Fetch performance metrics from background script
-  const fetchMetrics = useCallback(async () => {
-    try {
-      if (typeof browser !== 'undefined' && browser.runtime) {
-        const response = await browser.runtime.sendMessage({
-          type: 'GET_PERFORMANCE_ANALYTICS'
-        });
-
-        if (response && response.success) {
-          setAnalytics(response.data);
-        }
-      }
-    } catch (error) {
-      console.error('[PerformanceDashboard] Failed to fetch analytics:', error);
-    }
-  }, []);
-
-  // Fetch real-time metrics
-  const fetchRealTimeMetrics = useCallback(async () => {
-    try {
-      if (typeof browser !== 'undefined' && browser.runtime) {
-        const response = await browser.runtime.sendMessage({
-          type: 'GET_REAL_TIME_METRICS'
-        });
-
-        if (response && response.success) {
-          setMetrics(response.data);
-        }
-      }
-    } catch (error) {
-      console.error('[PerformanceDashboard] Failed to fetch metrics:', error);
-    }
-  }, []);
+  const isLoading = !metrics && !analytics;
 
   // Initialize data fetching
   useEffect(() => {
     if (!isVisible) return;
 
-    setIsLoading(true);
-    fetchMetrics();
-    fetchRealTimeMetrics();
+    let isCancelled = false;
+
+    const fetchAnalytics = async () => {
+      try {
+        if (typeof browser !== 'undefined' && browser.runtime) {
+          const response = await browser.runtime.sendMessage({
+            type: 'GET_PERFORMANCE_ANALYTICS'
+          });
+          if (!isCancelled && response?.success) {
+            setAnalytics(response.data);
+          }
+        }
+      } catch (error) {
+        console.error('[PerformanceDashboard] Failed to fetch analytics:', error);
+      }
+    };
+
+    const fetchRealTimeMetrics = async () => {
+      try {
+        if (typeof browser !== 'undefined' && browser.runtime) {
+          const response = await browser.runtime.sendMessage({
+            type: 'GET_REAL_TIME_METRICS'
+          });
+          if (!isCancelled && response?.success) {
+            setMetrics(response.data);
+          }
+        }
+      } catch (error) {
+        console.error('[PerformanceDashboard] Failed to fetch metrics:', error);
+      }
+    };
+
+    void Promise.all([fetchAnalytics(), fetchRealTimeMetrics()]);
 
     // Set up auto-refresh if enabled
-    let interval: NodeJS.Timeout | null = null;
+    let interval: ReturnType<typeof setInterval> | null = null;
     if (autoRefresh) {
       interval = setInterval(() => {
-        fetchRealTimeMetrics();
+        void fetchRealTimeMetrics();
       }, refreshInterval);
     }
 
     return () => {
+      isCancelled = true;
       if (interval) {
         clearInterval(interval);
       }
     };
-  }, [isVisible, autoRefresh, refreshInterval, fetchMetrics, fetchRealTimeMetrics]);
+  }, [isVisible, autoRefresh, refreshInterval]);
 
   // Close dashboard and cleanup
   const handleClose = () => {

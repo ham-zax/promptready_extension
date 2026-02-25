@@ -18,7 +18,7 @@ export interface TurndownOptions {
   fence?: string;
 }
 
-export async function renderWithTurndown(html: string, meta: { title?: string; url?: string }) {
+export async function renderWithTurndown(html: string, _meta: { title?: string; url?: string }) {
   const container = document.createElement('template');
   container.innerHTML = html;
 
@@ -29,7 +29,6 @@ export async function renderWithTurndown(html: string, meta: { title?: string; u
   } as any);
   // Load GFM plugin lazily to avoid bundler init order issues
   try {
-    // @ts-ignore
     const mod = await import('@joplin/turndown-plugin-gfm');
     const gfm = (mod as any).gfm;
     if (gfm) turndown.use(gfm);
@@ -108,9 +107,7 @@ function addImagesRule(tds: any) {
       const title = cleanAttr(node.getAttribute('title'));
       const titlePart = title ? ` "${title}"` : '';
       if (options.imageRefStyle === 'referenced') {
-        // @ts-ignore
         const id = this.references.length + 1;
-        // @ts-ignore
         this.references.push('[fig' + id + ']: ' + src + titlePart);
         return '![' + alt + '][fig' + id + ']';
       }
@@ -118,11 +115,8 @@ function addImagesRule(tds: any) {
     },
     references: [] as string[],
     append: function () {
-      // @ts-ignore
       if (!this.references.length) return '';
-      // @ts-ignore
       const refs = this.references.join('\n');
-      // @ts-ignore
       this.references = [];
       return `\n\n${refs}\n\n`;
     },

@@ -451,7 +451,7 @@ export class ContentQualityValidator {
     metrics: QualityMetrics,
     issues: QualityIssue[],
     recommendations: string[],
-    config: ValidationOptions
+    _config: ValidationOptions
   ): void {
     // Content preservation recommendations
     if (metrics.contentPreservation < 60) {

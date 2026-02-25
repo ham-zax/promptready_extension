@@ -1,7 +1,7 @@
 // Processing Profiles Component
 // Exposes the powerful preset system to users for customizable processing
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Settings } from '@/lib/types';
 
 interface ProcessingProfile {
@@ -76,14 +76,8 @@ const PROCESSING_PROFILES: ProcessingProfile[] = [
 ];
 
 export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingProfilesProps) {
-  const [selectedProfile, setSelectedProfile] = useState<string>('standard');
+  const selectedProfile = settings.processing?.profile || 'standard';
   const [showAdvanced, setShowAdvanced] = useState(false);
-
-  // Load current profile from settings
-  useEffect(() => {
-    const currentProfile = settings.processing?.profile || 'standard';
-    setSelectedProfile(currentProfile);
-  }, [settings]);
 
   const handleProfileChange = (profileId: string) => {
     const profile = PROCESSING_PROFILES.find(p => p.id === profileId);
@@ -94,8 +88,6 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
     //   console.log('Pro feature - show upgrade modal');
     //   return;
     // }
-
-    setSelectedProfile(profileId);
 
     // Update settings with the selected profile
     onSettingsChange({

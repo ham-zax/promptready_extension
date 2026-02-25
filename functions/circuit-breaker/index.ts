@@ -10,7 +10,7 @@ export default {
   async fetch(
     request: Request,
     env: Env,
-    ctx: ExecutionContext
+    _ctx: ExecutionContext
   ): Promise<Response> {
     try {
       // 1. Get the current weekly spend and the weekly cap from the KV store.

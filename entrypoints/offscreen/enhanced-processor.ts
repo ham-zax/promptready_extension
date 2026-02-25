@@ -2,7 +2,6 @@
 // Replaces the existing offscreen processing with optimized pipeline
 
 import { browser } from 'wxt/browser';
-import { getUserId } from '../../lib/user';
 import { OfflineModeManager, OfflineModeConfig } from '../../core/offline-mode-manager.js';
 import { processWithProviderChain } from '../../core/extraction-provider.js';
 
@@ -28,15 +27,6 @@ interface ProcessingMessage {
   };
 }
 
-interface ProcessingProgressMessage {
-  type: 'PROCESSING_PROGRESS';
-  payload: {
-    message: string;
-    progress: number;
-    stage: string;
-  };
-}
-
 interface ProcessingCompleteMessage {
   type: 'PROCESSING_COMPLETE';
   payload: {
@@ -46,24 +36,6 @@ interface ProcessingCompleteMessage {
     stats: any;
     warnings: string[];
     originalHtml: string; // Include original HTML for quality validation
-  };
-}
-
-interface AIErrorResponse {
-  error: string;
-}
-
-interface AISuccessResponse {
-  content: string;
-  remaining: number;
-}
-
-interface ProcessingErrorMessage {
-  type: 'PROCESSING_ERROR';
-  payload: {
-    error: string;
-    stage: string;
-    fallbackUsed?: boolean;
   };
 }
 
@@ -91,7 +63,7 @@ export class EnhancedOffscreenProcessor {
   }
 
   private setupMessageListener(): void {
-    browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.type === 'ENHANCED_OFFSCREEN_PROCESS') {
         this.handleProcessingRequest(message as ProcessingMessage)
           .then(result => sendResponse({ success: true, data: result }))

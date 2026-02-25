@@ -38,6 +38,17 @@ export interface Settings {
       preserveLinks: boolean;
     };
   };
+  flags?: FeatureFlags;
+  credits?: CreditsState;
+  user?: UserState;
+  trial?: TrialState;
+  ui?: {
+    theme: 'light' | 'dark' | 'auto';
+    animations: boolean;
+    compactMode: boolean;
+    keepPopupOpen: boolean;
+    autoCloseDelay: number; // milliseconds
+  };
 }
 
 // Feature flags for phased rollout
@@ -67,22 +78,6 @@ export interface TrialState {
   startedAt?: string;    // ISO 8601
   expiresAt?: string;    // ISO 8601
 }
-
-// Extend Settings with optional feature flags and Phase 2 state (interface merging)
-export interface Settings {
-  flags?: FeatureFlags;
-  credits?: CreditsState;
-  user?: UserState;
-  trial?: TrialState;
-  ui?: {
-    theme: 'light' | 'dark' | 'auto';
-    animations: boolean;
-    compactMode: boolean;
-    keepPopupOpen: boolean;
-    autoCloseDelay: number; // milliseconds
-  };
-}
-
 
 // =============================================================================
 // Export Data Models (PRD Section 14.1)

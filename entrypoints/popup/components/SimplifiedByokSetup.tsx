@@ -20,6 +20,30 @@ type ProviderInfo = {
   fixedBase?: boolean;
 };
 
+const PROVIDERS: Record<Provider, ProviderInfo> = {
+  openrouter: {
+    name: 'OpenRouter',
+    description: 'Access multiple AI models through one API',
+    icon: '🌐',
+    placeholder: 'sk-or-v1-...',
+    defaultBase: 'https://openrouter.ai/api/v1',
+  },
+  manual: {
+    name: 'OpenAI Compatible',
+    description: 'Use any OpenAI-compatible API',
+    icon: '🔧',
+    placeholder: 'sk-...',
+    defaultBase: 'https://api.openai.com/v1',
+  },
+  'z.ai': {
+    name: 'Z.AI',
+    description: 'Fast and affordable AI API',
+    icon: '⚡',
+    placeholder: 'Enter your Z.AI API key',
+    defaultBase: 'https://api.z.ai/api/coding/paas/v4',
+    fixedBase: true,
+  },
+};
 
 export function SimplifiedByokSetup({ settings, onComplete, onCancel }: SimplifiedByokSetupProps) {
   const [provider, setProvider] = useState<Provider>('openrouter');
@@ -31,33 +55,8 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
     message: string;
   } | null>(null);
 
-  const providers: Record<Provider, ProviderInfo> = {
-    openrouter: {
-      name: 'OpenRouter',
-      description: 'Access multiple AI models through one API',
-      icon: '🌐',
-      placeholder: 'sk-or-v1-...',
-      defaultBase: 'https://openrouter.ai/api/v1',
-    },
-    manual: {
-      name: 'OpenAI Compatible',
-      description: 'Use any OpenAI-compatible API',
-      icon: '🔧',
-      placeholder: 'sk-...',
-      defaultBase: 'https://api.openai.com/v1',
-    },
-    'z.ai': {
-      name: 'Z.AI',
-      description: 'Fast and affordable AI API',
-      icon: '⚡',
-      placeholder: 'Enter your Z.AI API key',
-      defaultBase: 'https://api.z.ai/api/coding/paas/v4',
-      fixedBase: true,
-    },
-  };
-
   useEffect(() => {
-    const currentProvider = providers[provider];
+    const currentProvider = PROVIDERS[provider];
     if (!currentProvider.fixedBase) {
       setApiBase(currentProvider.defaultBase);
     }
@@ -76,11 +75,11 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
       const result = await validateApiKey({
         provider,
         apiKey,
-        apiBase: provider === 'z.ai' ? providers['z.ai'].defaultBase : apiBase,
+        apiBase: provider === 'z.ai' ? PROVIDERS['z.ai'].defaultBase : apiBase,
       });
 
       setValidationStatus(result);
-    } catch (error) {
+    } catch {
       setValidationStatus({
         isValid: false,
         message: 'Validation failed. Please check your API key and connection.',
@@ -104,7 +103,7 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
         byok: {
           provider,
           apiKey,
-          apiBase: provider === 'z.ai' ? providers['z.ai'].defaultBase : apiBase,
+          apiBase: provider === 'z.ai' ? PROVIDERS['z.ai'].defaultBase : apiBase,
           model: selectedModel,
           selectedByokModel: selectedModel,
         },
@@ -122,7 +121,7 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
     }
   };
 
-  const currentProvider = providers[provider];
+  const currentProvider = PROVIDERS[provider];
 
   return (
     <div className="bg-white rounded-lg p-6 max-w-md mx-auto shadow-lg">
@@ -145,7 +144,7 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
           Choose your AI provider
         </label>
         <div className="grid grid-cols-1 gap-2">
-          {Object.entries(providers).map(([key, providerInfo]) => (
+          {Object.entries(PROVIDERS).map(([key, providerInfo]) => (
             <button
               key={key}
               onClick={() => setProvider(key as Provider)}

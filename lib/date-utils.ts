@@ -29,7 +29,6 @@ export interface LocaleInfo {
 export class DateUtils {
   private static readonly DEFAULT_LOCALE = 'en-US';
   private static readonly DEFAULT_TIMEZONE = 'UTC';
-  private static readonly ISO_8601_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSSxxx";
 
   /**
    * Format date according to specified options
@@ -128,7 +127,7 @@ export class DateUtils {
   /**
    * Format date with custom format string
    */
-  static formatCustom(date: Date, format: string, locale: string = 'en-US'): string {
+  static formatCustom(date: Date, format: string, _locale: string = 'en-US'): string {
     try {
       // Simple format string replacement (basic implementation)
       // Supports: yyyy, MM, dd, HH, mm, ss, SSS
@@ -161,18 +160,6 @@ export class DateUtils {
     try {
       // Use Intl API for timezone information
       const timeZone = timezone || this.getUserTimezone();
-      const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone,
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: 'numeric',
-        second: 'numeric',
-        timeZoneName: 'short'
-      });
-
-      const formattedDate = formatter.format(date);
 
       // Parse timezone offset
       const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
@@ -213,7 +200,6 @@ export class DateUtils {
   static getLocaleInfo(locale: string = 'en-US'): LocaleInfo {
     try {
       const localeParts = locale.split('-');
-      const language = localeParts[0];
       const region = localeParts[1] || '';
 
       const formatter = new Intl.DateTimeFormat(locale);
@@ -223,7 +209,7 @@ export class DateUtils {
         code: locale,
         name: locale,
         region,
-        dateFormat: resolved as any
+        dateFormat: resolved as unknown as Intl.DateTimeFormatOptions
       };
     } catch (error) {
       console.warn('[DateUtils] Failed to get locale info:', error);
@@ -254,19 +240,29 @@ export class DateUtils {
       });
 
       const parts = formatter.formatToParts(utcDate);
-      const dateParts = parts.reduce((acc, part) => {
-        if (part.type === 'year') acc.year = part.value;
+      type DatePartAccumulator = {
+        year?: number;
+        month?: number;
+        day?: number;
+        hour?: number;
+        minute?: number;
+      };
+      const dateParts = parts.reduce<DatePartAccumulator>((acc, part) => {
+        if (part.type === 'year') acc.year = parseInt(part.value, 10);
         if (part.type === 'month') acc.month = parseInt(part.value) - 1;
         if (part.type === 'day') acc.day = parseInt(part.value);
         if (part.type === 'hour') acc.hour = parseInt(part.value);
         if (part.type === 'minute') acc.minute = parseInt(part.value);
         return acc;
-      }, {} as any);
+      }, {});
 
+      const year = dateParts.year ?? utcDate.getUTCFullYear();
+      const month = dateParts.month ?? utcDate.getUTCMonth();
+      const day = dateParts.day ?? utcDate.getUTCDate();
       return new Date(Date.UTC(
-        dateParts.year,
-        dateParts.month,
-        dateParts.day,
+        year,
+        month,
+        day,
         dateParts.hour || 0,
         dateParts.minute || 0,
         0,
@@ -328,14 +324,6 @@ export class DateUtils {
     try {
       const january = new Date(date.getFullYear(), 0, 1);
       const july = new Date(date.getFullYear(), 6, 1);
-
-      const janFormatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: timezone,
-      });
-
-      const julyFormatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: timezone,
-      });
 
       const januaryOffset = this.getTimezoneOffset(january, timezone);
       const julyOffset = this.getTimezoneOffset(july, timezone);
@@ -402,19 +390,9 @@ export class DateUtils {
       }
 
       // Try common formats
-      const formats = [
-        'MM/dd/yyyy',
-        'dd/MM/yyyy',
-        'yyyy-MM-dd',
-        'MMM dd, yyyy',
-        'MMMM dd, yyyy'
-      ];
-
-      for (const format of formats) {
-        const parsed = new Date(dateString);
-        if (!isNaN(parsed.getTime())) {
-          return parsed;
-        }
+      const parsed = new Date(dateString);
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
       }
 
       return null;
@@ -461,7 +439,7 @@ export class DateUtils {
     try {
       Intl.DateTimeFormat('en-US', { timeZone: timezone });
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }

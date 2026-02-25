@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -7,6 +7,13 @@ import { ChevronsUpDown, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type Item = { id: string; name: string };
+type RuntimeMessage = {
+  type?: 'MODELS_RESULT' | 'ERROR' | string;
+  payload?: {
+    models?: Item[];
+    message?: string;
+  };
+};
 
 interface ModelSelectProps {
   value: string;
@@ -22,10 +29,28 @@ export function ModelSelect({ value, onChange, apiBase }: ModelSelectProps) {
 
   // Tests run in an environment where `browser` may be undefined or missing runtime APIs.
   // Guard all runtime/storage interactions so unit tests do not throw.
-  const hasBrowserRuntime = typeof browser !== 'undefined' && Boolean((browser as any).runtime && (browser as any).runtime.onMessage && (browser as any).runtime.sendMessage);
+  const hasBrowserRuntime =
+    typeof browser !== 'undefined' &&
+    Boolean(browser?.runtime?.onMessage && browser?.runtime?.sendMessage);
+
+  const fetchModels = useCallback(async () => {
+    if (!hasBrowserRuntime) {
+      setLoading(false);
+      return;
+    }
+    try {
+      setLoading(true);
+      await browser.runtime.sendMessage({
+        type: 'FETCH_MODELS',
+        payload: { provider: 'openrouter', apiBase }
+      });
+    } catch {
+      setLoading(false);
+    }
+  }, [apiBase, hasBrowserRuntime]);
 
   useEffect(() => {
-    const handler = (message: any) => {
+    const handler = (message: RuntimeMessage) => {
       if (message?.type === 'MODELS_RESULT') {
         const items = (message.payload?.models || []) as Item[];
         setModels(items);
@@ -38,45 +63,50 @@ export function ModelSelect({ value, onChange, apiBase }: ModelSelectProps) {
     };
     if (!hasBrowserRuntime) {
       // No browser runtime in this environment (tests); avoid registering listeners or fetching.
-      setLoading(false);
       return;
     }
 
-    (browser as any).runtime.onMessage.addListener(handler);
+    browser.runtime.onMessage.addListener(handler);
     (async () => {
       try {
-        const sess = await (browser as any).storage.session.get(['openrouter_models']);
-        const cached = (sess?.openrouter_models || []) as Item[];
+        const sess = await browser.storage.session.get('openrouter_models');
+        const cachedValue = sess?.openrouter_models;
+        const cached = Array.isArray(cachedValue)
+          ? cachedValue.filter(
+              (item): item is Item =>
+                Boolean(item) &&
+                typeof item === 'object' &&
+                typeof (item as Item).id === 'string' &&
+                typeof (item as Item).name === 'string'
+            )
+          : [];
         if (Array.isArray(cached) && cached.length) {
           setModels(cached);
           setLoading(false);
         } else {
-          await fetchModels();
+          await browser.runtime.sendMessage({
+            type: 'FETCH_MODELS',
+            payload: { provider: 'openrouter', apiBase }
+          });
         }
       } catch {
-        await fetchModels();
+        await browser.runtime.sendMessage({
+          type: 'FETCH_MODELS',
+          payload: { provider: 'openrouter', apiBase }
+        });
       }
     })();
-    return () => (browser as any).runtime.removeListener?.(handler);
-  }, []);
-
-  const fetchModels = async () => {
-    if (!hasBrowserRuntime) {
-      setLoading(false);
-      return;
-    }
-    try {
-      setLoading(true);
-      await (browser as any).runtime.sendMessage({ type: 'FETCH_MODELS', payload: { provider: 'openrouter', apiBase } });
-    } catch {
-      setLoading(false);
-    }
-  };
+    return () => browser.runtime.onMessage.removeListener(handler);
+  }, [apiBase, hasBrowserRuntime]);
 
   useEffect(() => {
-    if (hasBrowserRuntime) fetchModels();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiBase]);
+    if (hasBrowserRuntime) {
+      void browser.runtime.sendMessage({
+        type: 'FETCH_MODELS',
+        payload: { provider: 'openrouter', apiBase }
+      });
+    }
+  }, [apiBase, hasBrowserRuntime]);
 
   const options = useMemo(() => models, [models]);
   const selectedItem = useMemo(() => options.find(o => o.id === value), [options, value]);

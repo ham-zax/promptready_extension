@@ -2,14 +2,13 @@
 // Centralized error management with user-friendly feedback
 
 import { useState, useCallback, useEffect } from 'react';
-import type { Settings } from '@/lib/types';
 
 export interface ErrorState {
   hasError: boolean;
   error: {
     code?: string;
     message: string;
-    details?: any;
+    details?: unknown;
     context?: string;
     timestamp: string;
   } | null;
@@ -21,7 +20,7 @@ export interface ErrorState {
 }
 
 export interface ErrorActions {
-  showError: (message: string, code?: string, details?: any, context?: string) => void;
+  showError: (message: string, code?: string, details?: unknown, context?: string) => void;
   showSuccess: (message: string) => void;
   showInfo: (message: string) => void;
   clearError: () => void;
@@ -79,7 +78,7 @@ export function useErrorHandler(): ErrorState & ErrorActions {
   const getUserFriendlyMessage = useCallback((error: {
     code?: string;
     message: string;
-    details?: any;
+    details?: unknown;
   }): string => {
     // If we have a specific error code, use the friendly message
     if (error.code && ERROR_MESSAGES[error.code as keyof typeof ERROR_MESSAGES]) {
@@ -117,7 +116,7 @@ export function useErrorHandler(): ErrorState & ErrorActions {
   const showError = useCallback((
     message: string,
     code?: string,
-    details?: any,
+    details?: unknown,
     context?: string
   ) => {
     const error = {
@@ -177,17 +176,6 @@ export function useErrorHandler(): ErrorState & ErrorActions {
     }));
   }, []);
 
-  const retryLastAction = useCallback(() => {
-    if (lastAction) {
-      try {
-        lastAction.action();
-        clearError();
-      } catch (error) {
-        reportError(error as Error, 'retry_action');
-      }
-    }
-  }, [lastAction, clearError]);
-
   const reportError = useCallback((error: Error, context?: string) => {
     const errorObj = {
       code: ERROR_CODES.UNKNOWN_ERROR,
@@ -220,18 +208,24 @@ export function useErrorHandler(): ErrorState & ErrorActions {
       if (context !== 'development') {
         console.error('Error reported:', errorObj);
       }
-    } catch (e) {
-      console.warn('Failed to report error:', e);
+    } catch (reportingError) {
+      console.warn('Failed to report error:', reportingError);
     }
   }, [getUserFriendlyMessage]);
 
+  const retryLastAction = useCallback(() => {
+    if (lastAction) {
+      try {
+        lastAction.action();
+        clearError();
+      } catch (error) {
+        reportError(error as Error, 'retry_action');
+      }
+    }
+  }, [lastAction, clearError, reportError]);
+
   const setLastActionForRetry = useCallback((action: () => void, description: string) => {
     setLastAction({ action, description });
-  }, []);
-
-  // Expose a way to set last action for retry functionality
-  useEffect(() => {
-    // This could be enhanced to automatically track user actions
   }, []);
 
   return {
@@ -248,10 +242,10 @@ export function useErrorHandler(): ErrorState & ErrorActions {
 }
 
 // Helper function to categorize errors automatically
-export function categorizeError(error: any): string {
+export function categorizeError(error: unknown): string {
   if (!error) return ERROR_CODES.UNKNOWN_ERROR;
 
-  const message = error.message || error.toString() || '';
+  const message = error instanceof Error ? error.message : String(error);
   const lowerMessage = message.toLowerCase();
 
   if (lowerMessage.includes('network') || lowerMessage.includes('fetch') || lowerMessage.includes('connection')) {

@@ -2,7 +2,6 @@
 // Provides custom rules and presets for different output formats
 
 import TurndownService from '@joplin/turndown';
-import { gfm } from '@joplin/turndown-plugin-gfm';
 
 // Type definitions for TurndownService
 type TurndownOptions = {

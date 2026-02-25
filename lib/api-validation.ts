@@ -228,7 +228,7 @@ function isValidUrl(string: string): boolean {
   try {
     const url = new URL(string);
     return url.protocol === 'http:' || url.protocol === 'https:';
-  } catch (_) {
+  } catch {
     return false;
   }
 }
@@ -247,7 +247,7 @@ export function createDebouncedValidator(
         try {
           const result = await validator(request);
           resolve(result);
-        } catch (error) {
+        } catch {
           resolve({
             isValid: false,
             message: 'Validation failed. Please try again.',

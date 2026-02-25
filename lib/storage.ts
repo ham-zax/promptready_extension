@@ -21,7 +21,7 @@ const STORAGE_KEYS = {
 
 const runtimeProfile = getRuntimeProfile();
 const DEFAULT_SETTINGS: Settings = {
-  mode: runtimeProfile.premiumBypassEnabled || runtimeProfile.useMockMonetization ? 'ai' : 'offline',
+  mode: runtimeProfile.openAccessEnabled || runtimeProfile.premiumBypassEnabled || runtimeProfile.useMockMonetization ? 'ai' : 'offline',
   theme: 'system',
   templates: {
     bundles: [],
@@ -36,10 +36,10 @@ const DEFAULT_SETTINGS: Settings = {
   privacy: {
     telemetryEnabled: false,
   },
-  isPro: runtimeProfile.premiumBypassEnabled,
+  isPro: runtimeProfile.openAccessEnabled || runtimeProfile.premiumBypassEnabled,
   credits: {
-    remaining: runtimeProfile.premiumBypassEnabled ? 999999 : 10,
-    total: runtimeProfile.premiumBypassEnabled ? 999999 : 10,
+    remaining: runtimeProfile.openAccessEnabled || runtimeProfile.premiumBypassEnabled ? 999999 : 10,
+    total: runtimeProfile.openAccessEnabled || runtimeProfile.premiumBypassEnabled ? 999999 : 10,
     lastReset: new Date().toISOString(),
   },
   user: {
@@ -84,7 +84,7 @@ const DEFAULT_SETTINGS: Settings = {
 export class Storage {
   private static applyRuntimeOverrides(settings: Settings): Settings {
     const profile = getRuntimeProfile();
-    if (!profile.premiumBypassEnabled && !profile.enforceDeveloperMode) {
+    if (!profile.openAccessEnabled && !profile.premiumBypassEnabled && !profile.enforceDeveloperMode) {
       return settings;
     }
 
@@ -93,8 +93,8 @@ export class Storage {
 
     return {
       ...settings,
-      mode: profile.premiumBypassEnabled || profile.useMockMonetization ? 'ai' : settings.mode,
-      isPro: profile.premiumBypassEnabled ? true : settings.isPro,
+      mode: profile.openAccessEnabled || profile.premiumBypassEnabled || profile.useMockMonetization ? 'ai' : settings.mode,
+      isPro: profile.openAccessEnabled || profile.premiumBypassEnabled ? true : settings.isPro,
       flags: {
         ...flags,
         aiModeEnabled: true,
@@ -102,7 +102,7 @@ export class Storage {
         trialEnabled: true,
         developerMode: profile.enforceDeveloperMode ? true : Boolean(flags.developerMode),
       },
-      credits: profile.premiumBypassEnabled
+      credits: profile.openAccessEnabled || profile.premiumBypassEnabled
         ? {
           ...credits,
           remaining: Math.max(credits.remaining || 0, 999999),
@@ -236,11 +236,11 @@ export class Storage {
           current.byok?.selectedByokModel || current.byok?.model || DEFAULT_SETTINGS.byok.selectedByokModel,
       } as Settings['byok'];
       const profile = getRuntimeProfile();
-      // A user with a BYOK key is considered "Pro". In development, keep premium bypass on.
+      // A user with a BYOK key is considered "Pro". In development, keep profile open access on.
       const trial = { ...(current.trial || {}), hasExhausted: false, showUpgradePrompt: false };
       await browser.storage.local.set(
         {
-          [STORAGE_KEYS.SETTINGS]: { ...current, byok, trial, isPro: Boolean(apiKey) || profile.premiumBypassEnabled },
+          [STORAGE_KEYS.SETTINGS]: { ...current, byok, trial, isPro: Boolean(apiKey) || profile.openAccessEnabled || profile.premiumBypassEnabled },
         }
       );
       // Cleanup any legacy encrypted key artifacts

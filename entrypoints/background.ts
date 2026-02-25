@@ -42,7 +42,7 @@ export default defineBackground(() => {
  * Enhanced content processing pipeline with offline capabilities
  */
 class EnhancedContentProcessor {
-  private readonly offscreenPath: '/offscreen.html' = '/offscreen.html';
+  private readonly offscreenPath = '/offscreen.html' as const;
   private readonly EXPORT_DATA_KEY = 'currentExportData';
   private offscreenCreationPromise: Promise<void> | null = null;
   // Simple dedupe cache for COPY_TO_CLIPBOARD forwarding to avoid message storms
@@ -198,7 +198,7 @@ class EnhancedContentProcessor {
 
         case 'PROCESSING_PROGRESS':
           // Forward progress updates to popup with reduced retries for performance
-          this.broadcastMessage(message, 0).catch(error => {
+          this.broadcastMessage(message, 0).catch(_error => {
             // Silently ignore progress broadcast failures to avoid console spam
           });
           break;
@@ -350,7 +350,7 @@ class EnhancedContentProcessor {
           mode: settings.mode,
           useReadability: settings.useReadability !== false,
           renderer: settings.renderer || 'turndown',
-          customConfig: undefined, // TODO: Add offlineConfig to Settings interface if needed
+          customConfig: undefined,
           settings: settings, // Pass full settings to offscreen document
           pipelineMetadata, // Pass through pipeline metadata
           isAlreadyMarkdown, // NEW: Flag to skip Turndown for pre-formatted markdown
@@ -801,9 +801,17 @@ class EnhancedContentProcessor {
       try {
         const targetTab = await browser.tabs.get(targetTabId);
         if (targetTab?.windowId) {
-          try { await browser.windows.update(targetTab.windowId, { focused: true } as any); } catch (focusWinErr: any) { }
+          try {
+            await browser.windows.update(targetTab.windowId, { focused: true } as any);
+          } catch {
+            // Best-effort focus only; ignore failures.
+          }
         }
-        try { await browser.tabs.update(targetTabId, { active: true } as any); } catch (focusTabErr: any) { }
+        try {
+          await browser.tabs.update(targetTabId, { active: true } as any);
+        } catch {
+          // Best-effort focus only; ignore failures.
+        }
         // small delay to allow focus to settle
         await new Promise((r) => setTimeout(r, 200));
       } catch (focusErr: any) {

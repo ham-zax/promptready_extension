@@ -1,5 +1,9 @@
-/// <reference types="@cloudflare/workers-types" />
-import type { Queue } from '@cloudflare/workers-types';
+import type {
+  ExecutionContext,
+  Fetcher,
+  KVNamespace,
+  Queue,
+} from '@cloudflare/workers-types';
 
 export interface Env {
   CREDITS_KV: KVNamespace;
@@ -295,8 +299,8 @@ export default {
 
     // Credit status passthrough endpoint.
     if (url.pathname === '/user/status') {
-      const response = await env.CREDIT_SERVICE.fetch(request);
-      return withCors(response, corsHeaders);
+      const response = await env.CREDIT_SERVICE.fetch(request as any);
+      return withCors(response as any, corsHeaders);
     }
 
     // Legacy metered AI endpoint remains available at `/`.

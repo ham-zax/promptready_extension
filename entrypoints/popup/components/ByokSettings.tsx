@@ -1,7 +1,7 @@
 // BYOK (Bring Your Own Key) Settings Component
 // Handles AI configuration including API keys, models, and providers
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Settings } from '@/lib/types';
 import { ModelSelect } from './ModelSelect';
 import {

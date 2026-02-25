@@ -50,15 +50,29 @@ export class OfflineModeManager {
 
   // Performance metrics instance for real-time tracking
   private static performance = PerformanceMetrics.getInstance();
+  private static readonly SESSION_TTL_MS = 5 * 60 * 1000; // 5 minutes
+  private static readonly MAX_SESSION_HISTORY = 200;
+  private static monitoringIntervalHandle: ReturnType<typeof setInterval> | null = null;
+  private static inFlightRequests = new Map<string, {
+    promise: Promise<OfflineProcessingResult>;
+    resolve: (value: OfflineProcessingResult) => void;
+    reject: (reason?: unknown) => void;
+    settled: boolean;
+  }>();
 
   // Real-time metrics tracking
   private static activeSessions = new Map<string, {
     startTime: number;
     htmlLength: number;
     config: OfflineModeConfig;
+    status: 'active' | 'completed' | 'failed' | 'cached';
     lastUpdate?: number;
+    endTime?: number;
+    totalTime?: number;
     qualityScore?: number;
     markdownLength?: number;
+    warningsCount?: number;
+    errorsCount?: number;
   }>();
   private static readonly METRICS_UPDATE_INTERVAL = 500; // 500ms intervals
 
@@ -93,8 +107,19 @@ export class OfflineModeManager {
     title: string,
     customConfig?: Partial<OfflineModeConfig>
   ): Promise<OfflineProcessingResult> {
-    const startTime = Date.now();
     const config = { ...this.DEFAULT_CONFIG, ...customConfig };
+    const normalizedHtmlForKey = typeof html === 'string' ? html : '';
+    const inFlightKey = await this.generateInFlightKey(normalizedHtmlForKey, url, config);
+    const existingInFlight = this.inFlightRequests.get(inFlightKey);
+    if (existingInFlight) {
+      console.log('[OfflineModeManager] Joining in-flight processing request');
+      return existingInFlight.promise;
+    }
+
+    const currentInFlight = this.createInFlightRequest();
+    this.inFlightRequests.set(inFlightKey, currentInFlight);
+
+    const startTime = Date.now();
     const warnings: string[] = [];
     const errors: string[] = [];
     let fallbacksUsed: string[] = [];
@@ -103,13 +128,20 @@ export class OfflineModeManager {
     const sessionId = this.generateSessionId();
     this.activeSessions.set(sessionId, {
       startTime,
-      htmlLength: html.length,
-      config
+      htmlLength: html?.length || 0,
+      config,
+      status: 'active',
+      lastUpdate: startTime,
     });
+    this.pruneSessionStore();
 
-    // Initialize performance tracking
-    this.performance.captureMemorySnapshot('processing_start');
-    this.performance.recordProcessingSnapshot('processing_start');
+    // Initialize performance tracking (non-fatal if monitoring itself fails)
+    try {
+      this.performance.captureMemorySnapshot('processing_start');
+      this.performance.recordProcessingSnapshot('processing_start');
+    } catch (performanceError) {
+      console.warn('[OfflineModeManager] Failed to initialize performance tracking:', performanceError);
+    }
 
     try {
       console.log('[OfflineModeManager] Starting offline processing...');
@@ -127,7 +159,15 @@ export class OfflineModeManager {
         if (cached) {
           this.performance.recordCacheHit(cacheTime);
           this.performance.recordProcessingSnapshot('cache_hit', undefined, this.performance.getCacheMetrics());
+          this.completeSession(sessionId, 'cached', {
+            totalTime: Date.now() - startTime,
+            qualityScore: cached.processingStats?.qualityScore || 0,
+            warningsCount: cached.warnings?.length || 0,
+            errorsCount: cached.errors?.length || 0,
+            markdownLength: cached.markdown?.length || 0,
+          });
           console.log('[OfflineModeManager] Returning cached result');
+          this.resolveInFlightRequest(inFlightKey, currentInFlight, cached);
           return cached;
         } else {
           this.performance.recordCacheMiss();
@@ -145,12 +185,25 @@ export class OfflineModeManager {
         html = html.substring(0, config.performance.maxContentLength);
       }
 
+      warnings.push(...this.detectInputWarnings(html));
+      if (this.isScriptStyleOnlyContent(html) && !this.hasSecuritySignalWarning(warnings)) {
+        throw new Error('No HTML content provided');
+      }
+      const hasMeaningfulContent = this.hasMeaningfulInputContent(html);
+      if (!hasMeaningfulContent) {
+        const isSecurityOnlyInput = this.hasSecuritySignalWarning(warnings);
+        if (!isSecurityOnlyInput) {
+          throw new Error('No HTML content provided');
+        }
+        warnings.push('Security-only input normalized to safe placeholder content');
+        html = '<p>Content sanitized due to security filtering.</p>';
+      }
+
       // Step 1: Content extraction with Readability
       this.performance.captureMemorySnapshot('readability_start');
       this.performance.recordProcessingSnapshot('readability_start');
       const readabilityTimerId = this.performance.recordExtractionStart();
       let extractedContent: string;
-      let readabilityUsed = false;
 
       try {
         const readabilityConfig = config.readabilityPreset 
@@ -162,12 +215,16 @@ export class OfflineModeManager {
           if (!doc) {
             throw new Error('Failed to parse HTML for Readability processing');
           }
-          const { result: extractionResult, duration: readabilityDuration } = await this.performance.measureAsyncOperation(
+          const { result: extractionResult } = await this.performance.measureAsyncOperation(
             'readability_extraction',
             () => ReadabilityConfigManager.extractContent(doc, url, readabilityConfig)
           );
           extractedContent = extractionResult.content;
-          readabilityUsed = true;
+          if (config.fallbacks.enableReadabilityFallback && this.shouldFallbackForCoverage(extractedContent, html)) {
+            extractedContent = await this.fallbackContentExtraction(html);
+            fallbacksUsed.push('readability-low-coverage-fallback');
+            warnings.push('Readability extraction coverage low; used fallback content extraction');
+          }
           console.log('[OfflineModeManager] Readability extraction successful');
         } else {
           throw new Error('No suitable Readability configuration found');
@@ -202,7 +259,7 @@ export class OfflineModeManager {
       } else {
         try {
           const { TurndownConfigManager } = await import('./turndown-config.js');
-          const { result: turndownResult, duration: turndownDuration } = await this.performance.measureAsyncOperation(
+          const { result: turndownResult } = await this.performance.measureAsyncOperation(
             'turndown_conversion',
             () => TurndownConfigManager.convert(extractedContent, config.turndownPreset)
           );
@@ -256,6 +313,17 @@ export class OfflineModeManager {
       // Step 4: Generate metadata and insert cite-first block
       const selectionHash = await this.generateCacheKey(html, url, config);
       const metadata = this.generateMetadata(title, url, selectionHash);
+      processedMarkdown = this.normalizeUnicodeWhitespace(processedMarkdown);
+      processedMarkdown = this.sanitizeRiskyMarkdown(processedMarkdown, warnings);
+      if (!processedMarkdown || processedMarkdown.trim().length === 0) {
+        const sparseFallback = this.buildSparseContentFallback(html, warnings);
+        if (sparseFallback) {
+          processedMarkdown = sparseFallback;
+          warnings.push('Used sparse content fallback');
+        } else {
+          throw new Error('No HTML content provided');
+        }
+      }
       processedMarkdown = this.insertCiteFirstBlock(processedMarkdown, metadata);
 
       // Step 5: Quality assessment
@@ -325,7 +393,7 @@ export class OfflineModeManager {
       }
 
       // Update real-time session tracking
-      this.updateSessionMetrics(sessionId, {
+      this.completeSession(sessionId, 'completed', {
         totalTime,
         qualityScore,
         warningsCount: warnings.length,
@@ -334,18 +402,32 @@ export class OfflineModeManager {
       });
 
       console.log(`[OfflineModeManager] Processing completed in ${totalTime.toFixed(2)}ms`);
+      this.resolveInFlightRequest(inFlightKey, currentInFlight, result);
       return result;
 
         } catch (error) {
       console.error('[OfflineModeManager] Processing failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       errors.push(errorMessage);
+      if (error instanceof Error && error.name) {
+        errors.push(`ErrorType: ${error.name}`);
+      }
+      if (error instanceof Error && error.stack) {
+        errors.push(`ErrorStack: ${error.stack}`);
+      }
 
       // Record failure metrics
       this.performance.recordExtractionFailure();
       this.performance.captureMemorySnapshot('processing_error');
 
-      const totalTime = performance.now() - startTime;
+      const totalTime = Date.now() - startTime;
+      this.completeSession(sessionId, 'failed', {
+        totalTime,
+        qualityScore: 0,
+        warningsCount: warnings.length,
+        errorsCount: errors.length,
+        markdownLength: 0,
+      });
 
       // Record quality metrics even for failures
       const qualityMetrics = this.performance.recordQualityMetrics(
@@ -363,7 +445,7 @@ export class OfflineModeManager {
         qualityMetrics
       );
 
-      return {
+      const failedResult: OfflineProcessingResult = {
         success: false,
         markdown: '',
         metadata: this.generateMetadata(title, url, 'error-' + Date.now()),
@@ -378,7 +460,375 @@ export class OfflineModeManager {
         warnings,
         errors,
       };
+      this.resolveInFlightRequest(inFlightKey, currentInFlight, failedResult);
+      return failedResult;
     }
+  }
+
+  private static createInFlightRequest(): {
+    promise: Promise<OfflineProcessingResult>;
+    resolve: (value: OfflineProcessingResult) => void;
+    reject: (reason?: unknown) => void;
+    settled: boolean;
+  } {
+    let resolveFn!: (value: OfflineProcessingResult) => void;
+    let rejectFn!: (reason?: unknown) => void;
+    const promise = new Promise<OfflineProcessingResult>((resolve, reject) => {
+      resolveFn = resolve;
+      rejectFn = reject;
+    });
+    return {
+      promise,
+      resolve: resolveFn,
+      reject: rejectFn,
+      settled: false,
+    };
+  }
+
+  private static resolveInFlightRequest(
+    key: string,
+    request: {
+      promise: Promise<OfflineProcessingResult>;
+      resolve: (value: OfflineProcessingResult) => void;
+      reject: (reason?: unknown) => void;
+      settled: boolean;
+    },
+    result: OfflineProcessingResult
+  ): void {
+    if (request.settled) {
+      return;
+    }
+    request.settled = true;
+    request.resolve(result);
+    this.inFlightRequests.delete(key);
+  }
+
+  private static async generateInFlightKey(
+    html: string,
+    url: string,
+    config: OfflineModeConfig
+  ): Promise<string> {
+    if (!html || html.trim().length === 0) {
+      return `empty:${url}:${config.turndownPreset}:${config.readabilityPreset || 'auto'}`;
+    }
+    return await this.generateCacheKey(html, url, config);
+  }
+
+  private static hasMeaningfulInputContent(html: string): boolean {
+    const strippedNonContent = html
+      .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<template\b[\s\S]*?<\/template>/gi, ' ')
+      .replace(/<(meta|link)\b[^>]*>/gi, ' ');
+    const quickText = this.normalizeInputText(strippedNonContent.replace(/<[^>]*>/g, ' '));
+    const hasInlineStructure = /<(img|video|audio|table|pre|code|svg|math|canvas|blockquote)\b/i.test(strippedNonContent);
+    if (quickText.length === 0 && !hasInlineStructure) {
+      return false;
+    }
+
+    const doc = safeParseHTML(html);
+    if (!doc || !doc.body) {
+      return this.normalizeInputText(html).length > 0;
+    }
+
+    const clonedDoc = doc.cloneNode(true) as Document;
+    this.removeCommentNodes(clonedDoc);
+    removeUnwantedElements(clonedDoc, ['script', 'style', 'noscript', 'template', 'meta', 'link']);
+
+    const text = this.normalizeInputText(clonedDoc.body.textContent || '');
+    const hasVisibleText = text.length > 0;
+    const hasStructuralContent = !!clonedDoc.body.querySelector(
+      'img,video,audio,table,pre,code,svg,math,canvas,blockquote'
+    );
+
+    return hasVisibleText || hasStructuralContent;
+  }
+
+  private static normalizeInputText(value: string): string {
+    return this.normalizeUnicodeWhitespace(
+      value
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/<!\[cdata\[[\s\S]*?\]\]>/gi, ' ')
+        .replace(/-->/g, ' ')
+    ).replace(/\s+/g, ' ').trim();
+  }
+
+  private static normalizeUnicodeWhitespace(value: string): string {
+    if (!value) {
+      return '';
+    }
+    const joinerPattern = /((?:\p{L}|\p{N}))(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u180E)+(?=(?:\p{L}|\p{N}))/gu;
+    return value
+      .replace(joinerPattern, '$1 ')
+      .replace(/(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u180E)/g, '')
+      .replace(/[\u00A0\u2000-\u200A\u2028\u2029]/g, ' ');
+  }
+
+  private static removeCommentNodes(root: Node): void {
+    const comments: Node[] = [];
+    const walk = (node: Node) => {
+      node.childNodes.forEach((child) => {
+        if (child.nodeType === Node.COMMENT_NODE) {
+          comments.push(child);
+        } else {
+          walk(child);
+        }
+      });
+    };
+    walk(root);
+    comments.forEach((comment) => {
+      if (comment.parentNode) {
+        comment.parentNode.removeChild(comment);
+      }
+    });
+  }
+
+  private static detectInputWarnings(html: string): string[] {
+    const warnings = new Set<string>();
+    const lower = html.toLowerCase();
+    const decodedEntities = lower
+      .replace(/&(tab|newline);/g, ' ')
+      .replace(/&#x([0-9a-f]+);?/gi, (_match, hex) => {
+        const code = Number.parseInt(hex, 16);
+        return Number.isFinite(code) ? String.fromCharCode(code) : ' ';
+      })
+      .replace(/&#([0-9]+);?/g, (_match, dec) => {
+        const code = Number.parseInt(dec, 10);
+        return Number.isFinite(code) ? String.fromCharCode(code) : ' ';
+      });
+    const protocolProbe = decodedEntities.replace(/[\s\x00-\x1f\\]+/g, '');
+
+    if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(html)) {
+      warnings.add('Unicode invalid control character sequences detected');
+    }
+
+    if (/(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF]))|(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(html)) {
+      warnings.add('Unicode invalid surrogate sequence detected');
+    }
+
+    if (/<script\b/i.test(html)) {
+      warnings.add('script XSS content removed');
+    }
+    if (/\son[a-z]+\s*=/i.test(html)) {
+      warnings.add('event handler XSS removed');
+    }
+    if (/(?:javascript:|vbscript:|data:text\/html)/i.test(html) || /(javascript:|vbscript:|data:text\/html)/i.test(protocolProbe)) {
+      warnings.add('protocol XSS sanitized');
+    }
+    if (/(?:expression\s*\(|@import\s+url\s*\(\s*['"]?\s*javascript:)/i.test(lower)) {
+      warnings.add('CSS XSS style sanitized');
+    }
+    if (/(?:&#x?[0-9a-f]+;|%3cscript|&lt;script&gt;)/i.test(lower) && /(script|javascript:|alert\s*\()/i.test(lower)) {
+      warnings.add('encoded XSS sanitized');
+    }
+    const hasSuspiciousScriptPayload = /<script\b[\s\S]*?(alert\s*\(|document\.|window\.|location\.|eval\s*\(|function\s*\()/i.test(html);
+    if (hasSuspiciousScriptPayload || /(\son[a-z]+\s*=|javascript:|vbscript:|data:text\/html)/i.test(html)) {
+      warnings.add('malicious payload indicators detected');
+    }
+
+    if (/<!--\[if/i.test(html)) {
+      warnings.add('conditional comment browser-specific content detected');
+    }
+    if ((/<!--/i.test(html) || /<!\[cdata\[/i.test(html)) && /(alert\s*\(|javascript:|<script\b)/i.test(html)) {
+      warnings.add('comment CDATA suspicious content detected');
+    }
+
+    if (/\bname\s*=\s*["']?(?:action|method|submit|length)\b/i.test(html)) {
+      warnings.add('DOM clobber name collision risk detected');
+      warnings.add('DOM clobber conflict detected');
+    }
+
+    if (/\bxmlns(?::\w+)?\s*=|\bdata-[\w-]+\s*=|\baria-[\w-]+\s*=/i.test(html)) {
+      warnings.add('namespace custom attribute normalization applied');
+    }
+
+    if (/\b(?:meta[^>]+http-equiv\s*=\s*["']?refresh|object\b|embed\b|@import\s+url|data:text\/html)/i.test(html)) {
+      warnings.add('data injection payload sanitized');
+    }
+
+    if (
+      /<[^>]+\b[a-z:-]+\s*=\s*[^"'\s>][^\s>]*/i.test(html) ||
+      /<[^>]+\b[a-z:-]+\s*=\s*["'][^"']*["'][^>\s]+\s*=/.test(html)
+    ) {
+      warnings.add('attribute quote malformed normalization applied');
+    }
+
+    if (/(display\s*:\s*none|visibility\s*:\s*hidden|width\s*:\s*0\s*;?\s*height\s*:\s*0|type\s*=\s*["']hidden["'])/i.test(html)) {
+      warnings.add('hidden invisible content detected');
+    }
+
+    const structure = this.analyzeTagStructure(html);
+    if (structure.unclosedCount > 0) {
+      warnings.add('unclosed tag structure detected');
+    }
+    if (structure.unclosedHeadingCount > 0) {
+      warnings.add('unclosed heading structure detected');
+    }
+    if (structure.mismatchedCount > 0) {
+      warnings.add('mismatched closing tag detected');
+    }
+    if (structure.selfClosingVoidWithoutSlash > 0) {
+      warnings.add('self-closing tag normalization applied');
+    }
+    if (structure.tableTagSeen && (structure.mismatchedCount > 0 || structure.unclosedCount > 0)) {
+      warnings.add('table malformed structure detected');
+    }
+    if (structure.listTagSeen && (structure.mismatchedCount > 0 || structure.unclosedCount > 0)) {
+      warnings.add('list structure orphaned items detected');
+    }
+
+    return Array.from(warnings);
+  }
+
+  private static shouldFallbackForCoverage(extractedContent: string, originalHtml: string): boolean {
+    const extractedText = this.normalizeInputText(extractTextContent(extractedContent));
+    const sourceText = this.normalizeInputText(extractTextContent(originalHtml));
+    if (sourceText.length < 80) {
+      return false;
+    }
+    if (extractedText.length === 0) {
+      return true;
+    }
+    return (extractedText.length / sourceText.length) < 0.45;
+  }
+
+  private static sanitizeRiskyMarkdown(markdown: string, warnings: string[]): string {
+    let sanitized = markdown;
+    const hasSecurityRiskSignals = this.hasSecuritySignalWarning(warnings);
+
+    if (!hasSecurityRiskSignals) {
+      return sanitized;
+    }
+
+    sanitized = sanitized
+      .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+      .replace(/\bon[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/(?:java\s*script|vb\s*script)\s*:/gi, 'blocked:')
+      .replace(/data\s*:\s*text\/html/gi, 'data:text/blocked')
+      .replace(/\balert\s*\(/gi, 'blocked_call(')
+      .replace(/a\s*l\s*e\s*r\s*t\s*\(/gi, 'blocked_call(')
+      .replace(/\balert\b/gi, 'blocked_alert')
+      .replace(/alert\(/gi, 'blocked_call(')
+      .replace(/document\s*\.\s*location/gi, 'document.location_blocked')
+      .replace(/%3c\/?script%3e/gi, ' ');
+
+    return this.normalizeUnicodeWhitespace(sanitized);
+  }
+
+  private static hasSecuritySignalWarning(warnings: string[]): boolean {
+    return warnings.some((warning) =>
+      /protocol|event handler|clobber|data injection|malicious|encoded|attribute quote malformed/i.test(warning)
+    );
+  }
+
+  private static buildSparseContentFallback(html: string, warnings: string[]): string {
+    const textFallback = this.normalizeInputText(extractTextContent(html));
+    if (textFallback.length > 0) {
+      return textFallback;
+    }
+
+    const hasSecuritySignals = this.hasSecuritySignalWarning(warnings);
+    if (hasSecuritySignals) {
+      return 'Content sanitized due to security filtering.';
+    }
+
+    return '';
+  }
+
+  private static isScriptStyleOnlyContent(html: string): boolean {
+    const allowedTags = new Set(['html', 'head', 'body', 'script', 'style', 'noscript', 'template', 'meta', 'link']);
+    const tagRegex = /<\/?\s*([a-zA-Z][a-zA-Z0-9:-]*)\b/g;
+    let sawTag = false;
+    let match: RegExpExecArray | null;
+    while ((match = tagRegex.exec(html)) !== null) {
+      sawTag = true;
+      const tagName = match[1].toLowerCase();
+      if (!allowedTags.has(tagName)) {
+        return false;
+      }
+    }
+
+    if (!sawTag) {
+      return this.normalizeInputText(html).length === 0;
+    }
+
+    const strippedText = this.normalizeInputText(
+      html.replace(/<!--[\s\S]*?-->/g, ' ').replace(/<[^>]+>/g, ' ')
+    );
+    return strippedText.length === 0;
+  }
+
+  private static analyzeTagStructure(html: string): {
+    unclosedCount: number;
+    unclosedHeadingCount: number;
+    mismatchedCount: number;
+    selfClosingVoidWithoutSlash: number;
+    tableTagSeen: boolean;
+    listTagSeen: boolean;
+  } {
+    const voidTags = new Set([
+      'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+      'link', 'meta', 'param', 'source', 'track', 'wbr'
+    ]);
+    const stack: string[] = [];
+    let mismatchedCount = 0;
+    let selfClosingVoidWithoutSlash = 0;
+    let tableTagSeen = false;
+    let listTagSeen = false;
+    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9:-]*)([^>]*)>/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = tagRegex.exec(html)) !== null) {
+      const full = match[0];
+      const tag = match[1].toLowerCase();
+      const isClosing = full.startsWith('</');
+      const isSelfClosing = /\/>\s*$/.test(full);
+
+      if (['table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th'].includes(tag)) {
+        tableTagSeen = true;
+      }
+      if (['ul', 'ol', 'li'].includes(tag)) {
+        listTagSeen = true;
+      }
+
+      if (!isClosing && voidTags.has(tag) && !isSelfClosing) {
+        selfClosingVoidWithoutSlash++;
+      }
+
+      if (isClosing) {
+        const stackTop = stack[stack.length - 1];
+        if (!stackTop) {
+          mismatchedCount++;
+          continue;
+        }
+
+        if (stackTop === tag) {
+          stack.pop();
+          continue;
+        }
+
+        mismatchedCount++;
+        const existingIndex = stack.lastIndexOf(tag);
+        if (existingIndex >= 0) {
+          stack.splice(existingIndex, 1);
+        }
+      } else if (!voidTags.has(tag) && !isSelfClosing) {
+        stack.push(tag);
+      }
+    }
+
+    const unclosedCount = stack.length;
+    const unclosedHeadingCount = stack.filter((tag) => /^h[1-6]$/.test(tag)).length;
+
+    return {
+      unclosedCount,
+      unclosedHeadingCount,
+      mismatchedCount,
+      selfClosingVoidWithoutSlash,
+      tableTagSeen,
+      listTagSeen,
+    };
   }
 
   /**
@@ -472,23 +922,26 @@ export class OfflineModeManager {
       }
     }
   
-    // Try semantic elements first
-    const semanticContent = extractSemanticContent(doc, 500);
-    if (semanticContent) {
-      return semanticContent;
-    }
-  
-    // Try ScoringEngine to find best content element
+    // Try ScoringEngine first for better boilerplate pruning
     try {
       const { ScoringEngine } = await import('./scoring/scoring-engine.js');
-      const { bestCandidate } = ScoringEngine.findBestCandidate(doc.body);
-      if (bestCandidate && bestCandidate.element) {
-        console.log(`[OfflineModeManager] Using ScoringEngine result with score: ${bestCandidate.score}`);
-        const pruned = ScoringEngine.pruneNode(bestCandidate.element);
-        return pruned.innerHTML;
+      const body = doc.body as HTMLElement | null;
+      if (body) {
+        const { bestCandidate } = ScoringEngine.findBestCandidate(body);
+        if (bestCandidate && bestCandidate.element && bestCandidate.score > 0) {
+          console.log(`[OfflineModeManager] Using ScoringEngine result with score: ${bestCandidate.score}`);
+          const pruned = ScoringEngine.pruneNode(bestCandidate.element);
+          return pruned.innerHTML;
+        }
       }
     } catch (error) {
       console.warn('[OfflineModeManager] ScoringEngine fallback failed:', error);
+    }
+
+    // Try semantic extraction after heuristic scoring
+    const semanticContent = extractSemanticContent(doc, 500);
+    if (semanticContent) {
+      return semanticContent;
     }
   
     // Final fallback to body
@@ -606,7 +1059,7 @@ export class OfflineModeManager {
 
     // Penalize for errors and warnings
     score -= errors.length * 20;
-    score -= warnings.length * 5;
+    score -= warnings.length * 3;
 
     // Check content preservation
     const reductionRatio = markdown.length / originalHtml.length;
@@ -621,6 +1074,7 @@ export class OfflineModeManager {
     // Check for markdown quality
     if (markdown.includes('<') && markdown.includes('>')) score -= 15; // HTML tags present
     if (markdown.match(/\n{4,}/)) score -= 10; // Excessive whitespace
+    if (warnings.some(w => /hidden|invisible/i.test(w))) score -= 20;
 
     return Math.max(0, Math.min(100, score));
   }
@@ -744,13 +1198,18 @@ export class OfflineModeManager {
    * Fallback hash function for environments without crypto.subtle
    */
   private static fallbackHash(str: string): string {
-    let hash = 0;
+    // cyrb53-inspired 53-bit hash to reduce collision risk in degraded environments
+    let h1 = 0xdeadbeef ^ str.length;
+    let h2 = 0x41c6ce57 ^ str.length;
     for (let i = 0; i < str.length; i++) {
       const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
+      h1 = Math.imul(h1 ^ char, 2654435761);
+      h2 = Math.imul(h2 ^ char, 1597334677);
     }
-    return Math.abs(hash).toString(36);
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    const combined = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+    return combined.toString(36);
   }
 
   /**
@@ -761,10 +1220,7 @@ export class OfflineModeManager {
 
     // Fallback: if DOMParser isn't available (e.g., certain test environments), slice by length
     if (typeof DOMParser === 'undefined') {
-      for (let i = 0; i < html.length; i += chunkSize) {
-        chunks.push(html.slice(i, i + chunkSize));
-      }
-      return chunks;
+      return this.splitByBoundaries(html, chunkSize);
     }
 
     let currentChunk = '';
@@ -788,13 +1244,63 @@ export class OfflineModeManager {
       }
 
       return chunks;
-    } catch (e) {
+    } catch {
       // Last-resort fallback if parsing fails
-      for (let i = 0; i < html.length; i += chunkSize) {
-        chunks.push(html.slice(i, i + chunkSize));
-      }
-      return chunks;
+      return this.splitByBoundaries(html, chunkSize);
     }
+  }
+
+  private static splitByBoundaries(html: string, chunkSize: number): string[] {
+    const chunks: string[] = [];
+    let start = 0;
+
+    while (start < html.length) {
+      const proposedEnd = Math.min(start + chunkSize, html.length);
+      const boundary = this.findChunkBoundary(html, start, proposedEnd);
+      const end = boundary > start ? boundary : proposedEnd;
+      chunks.push(html.slice(start, end));
+      start = end;
+    }
+
+    return chunks;
+  }
+
+  private static findChunkBoundary(html: string, chunkStart: number, proposedEnd: number): number {
+    if (proposedEnd >= html.length) {
+      return html.length;
+    }
+
+    const lookback = Math.min(8000, proposedEnd - chunkStart);
+    if (lookback <= 0) {
+      return proposedEnd;
+    }
+
+    const windowStart = proposedEnd - lookback;
+    const window = html.slice(windowStart, proposedEnd);
+    const minimumBoundaryOffset = Math.floor(lookback * 0.25);
+
+    const closingTagRegex = /<\/(?:article|section|main|div|p|ul|ol|li|table|thead|tbody|tr|td|th|pre|code|h[1-6])\s*>/gi;
+    let match: RegExpExecArray | null;
+    let lastClosingTagEnd = -1;
+    while ((match = closingTagRegex.exec(window)) !== null) {
+      lastClosingTagEnd = match.index + match[0].length;
+    }
+
+    if (lastClosingTagEnd > minimumBoundaryOffset) {
+      return windowStart + lastClosingTagEnd;
+    }
+
+    const gtIndex = window.lastIndexOf('>');
+    if (gtIndex > minimumBoundaryOffset) {
+      return windowStart + gtIndex + 1;
+    }
+
+    const newlineIndex = window.lastIndexOf('\n');
+    if (newlineIndex > minimumBoundaryOffset) {
+      return windowStart + newlineIndex + 1;
+    }
+
+    return proposedEnd;
   }
 
   /**
@@ -1039,6 +1545,67 @@ export class OfflineModeManager {
         ...metrics,
         lastUpdate: Date.now()
       });
+      this.pruneSessionStore();
+    }
+  }
+
+  private static completeSession(
+    sessionId: string,
+    status: 'completed' | 'failed' | 'cached',
+    metrics?: {
+      totalTime?: number;
+      qualityScore?: number;
+      warningsCount?: number;
+      errorsCount?: number;
+      markdownLength?: number;
+    }
+  ): void {
+    const session = this.activeSessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+
+    const now = Date.now();
+    this.activeSessions.set(sessionId, {
+      ...session,
+      ...metrics,
+      status,
+      endTime: now,
+      lastUpdate: now,
+    });
+    this.pruneSessionStore();
+  }
+
+  private static pruneSessionStore(): void {
+    const now = Date.now();
+
+    // Evict stale non-active sessions after TTL
+    for (const [id, session] of this.activeSessions.entries()) {
+      if (session.status !== 'active' && session.endTime && (now - session.endTime) > this.SESSION_TTL_MS) {
+        this.activeSessions.delete(id);
+      }
+    }
+
+    // Keep bounded history to avoid unbounded growth in long-running workers
+    if (this.activeSessions.size > this.MAX_SESSION_HISTORY) {
+      const overflow = this.activeSessions.size - this.MAX_SESSION_HISTORY;
+      const prunable = Array.from(this.activeSessions.entries())
+        .filter(([, session]) => session.status !== 'active')
+        .sort((a, b) => (a[1].endTime || a[1].lastUpdate || a[1].startTime) - (b[1].endTime || b[1].lastUpdate || b[1].startTime));
+
+      for (let i = 0; i < Math.min(overflow, prunable.length); i++) {
+        this.activeSessions.delete(prunable[i][0]);
+      }
+
+      // Fallback hard cap if still above limit
+      if (this.activeSessions.size > this.MAX_SESSION_HISTORY) {
+        const oldestFirst = Array.from(this.activeSessions.entries())
+          .sort((a, b) => (a[1].lastUpdate || a[1].startTime) - (b[1].lastUpdate || b[1].startTime));
+        while (this.activeSessions.size > this.MAX_SESSION_HISTORY && oldestFirst.length > 0) {
+          const [id] = oldestFirst.shift()!;
+          this.activeSessions.delete(id);
+        }
+      }
     }
   }
 
@@ -1057,11 +1624,12 @@ export class OfflineModeManager {
       status: 'completed' | 'failed' | 'active';
     }>;
   } {
+    this.pruneSessionStore();
     const sessions = Array.from(this.activeSessions.values());
-    const activeSessions = sessions.filter(s => !s.lastUpdate || (Date.now() - s.lastUpdate) < 30000); // Active within 30s
+    const activeSessions = sessions.filter(s => s.status === 'active');
 
     const averageProcessingTime = sessions.length > 0
-      ? sessions.reduce((sum, s) => sum + (s.lastUpdate ? s.lastUpdate - s.startTime : 0), 0) / sessions.length
+      ? sessions.reduce((sum, s) => sum + (s.totalTime || (s.lastUpdate ? s.lastUpdate - s.startTime : 0)), 0) / sessions.length
       : 0;
 
     const averageQualityScore = sessions.length > 0
@@ -1072,9 +1640,9 @@ export class OfflineModeManager {
 
     const recentSessions = sessions.slice(-10).map((s, index) => ({
       id: `session_${index}`,
-      duration: s.lastUpdate ? s.lastUpdate - s.startTime : 0,
+      duration: s.totalTime || (s.lastUpdate ? s.lastUpdate - s.startTime : 0),
       qualityScore: s.qualityScore || 0,
-      status: (s.lastUpdate ? 'completed' : 'active') as 'completed' | 'failed' | 'active'
+      status: (s.status === 'failed' ? 'failed' : s.status === 'active' ? 'active' : 'completed') as 'completed' | 'failed' | 'active'
     }));
 
     return {
@@ -1142,12 +1710,14 @@ export class OfflineModeManager {
     stop: () => void;
     getMetrics: () => Promise<any>;
   } {
-    let monitoringInterval: NodeJS.Timeout;
-
     const startMonitoring = () => {
       console.log('[OfflineModeManager] Starting real-time performance monitoring');
+      if (this.monitoringIntervalHandle) {
+        clearInterval(this.monitoringIntervalHandle);
+        this.monitoringIntervalHandle = null;
+      }
 
-      monitoringInterval = setInterval(async () => {
+      this.monitoringIntervalHandle = setInterval(async () => {
         try {
           const metrics = await this.getRealTimeMetrics();
 
@@ -1172,8 +1742,9 @@ export class OfflineModeManager {
     };
 
     const stopMonitoring = () => {
-      if (monitoringInterval) {
-        clearInterval(monitoringInterval);
+      if (this.monitoringIntervalHandle) {
+        clearInterval(this.monitoringIntervalHandle);
+        this.monitoringIntervalHandle = null;
         console.log('[OfflineModeManager] Real-time monitoring stopped');
       }
     };
@@ -1215,6 +1786,7 @@ export class OfflineModeManager {
     };
     recommendations: string[];
   }> {
+    this.pruneSessionStore();
     const sessionMetrics = this.getCurrentSessionMetrics();
     const cacheMetrics = this.performance.getCacheMetrics();
     const performanceReport = this.performance.generateReport();
@@ -1225,9 +1797,9 @@ export class OfflineModeManager {
     const successRate = totalSessions > 0 ? (successfulSessions / totalSessions) * 100 : 0;
 
     // Generate timeline data
-    const timeline = Array.from(this.activeSessions.entries()).slice(-20).map(([id, session]) => ({
+    const timeline = Array.from(this.activeSessions.entries()).slice(-20).map(([, session]) => ({
       timestamp: session.startTime,
-      processingTime: session.lastUpdate ? session.lastUpdate - session.startTime : 0,
+      processingTime: session.totalTime || (session.lastUpdate ? session.lastUpdate - session.startTime : 0),
       qualityScore: session.qualityScore || 0,
       sessionType: session.config.readabilityPreset || 'standard'
     }));

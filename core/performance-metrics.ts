@@ -1,8 +1,6 @@
 // Performance Metrics Tracking for Readability Integration
 // Provides production-ready performance monitoring with minimal overhead
 
-import { OfflineModeConfig } from './offline-mode-manager.js';
-
 export interface ExtractionMetrics {
   extractionTime: number;
   contentLength: number;

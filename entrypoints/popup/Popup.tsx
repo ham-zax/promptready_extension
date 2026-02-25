@@ -5,16 +5,14 @@ import React, { useState, useEffect } from 'react';
 import { usePopupController } from './hooks/usePopupController';
 import { useByokManager } from './hooks/useByokManager';
 import { useProManager } from './hooks/useProManager';
-import { useErrorHandler } from './hooks/useErrorHandler';
 import { useToastManager } from './hooks/useToastManager';
 import { UnifiedSettings } from './components/UnifiedSettings';
-import { ToastContainer } from './hooks/useToastManager';
+import { ToastContainer } from './components/ToastContainer';
 import type { Settings } from '@/lib/types';
 import { ProBadge } from './components/ProBadge';
 import { ModeToggle } from './components/ModeToggle';
 import { PrimaryButton } from './components/PrimaryButton';
 import { ProUpgradePrompt } from './components/ProUpgradePrompt';
-import { CreditExhaustedPrompt } from './components/CreditExhaustedPrompt';
 import { Storage } from '@/lib/storage';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { browser } from 'wxt/browser';
@@ -79,7 +77,8 @@ export default function RefactoredPopup() {
     return () => browser.runtime.onMessage.removeListener(handleProgress);
   }, []);
   useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+    const handleBeforeUnload = (event: Event) => {
+      const e = event as unknown as { preventDefault: () => void; returnValue?: string };
       if (isProcessing) {
         e.preventDefault();
         e.returnValue = ''; // Standard way to show "are you sure" dialog
@@ -106,7 +105,6 @@ export default function RefactoredPopup() {
   // New focused hooks
   const byokManager = useByokManager();
   const proManager = useProManager();
-  const errorHandler = useErrorHandler();
   const toastManager = useToastManager();
 
   const [showSettings, setShowSettings] = useState(false);
@@ -171,18 +169,6 @@ export default function RefactoredPopup() {
     if (byokManager.hasApiKey) return 'AI (BYOK)'; // If user has their own key
     if (proManager.isInTrial) return 'AI (Trial)'; // If user is on free trial
     return 'AI'; // Default label if neither BYOK nor Trial (e.g., after trial exhausted)
-  };
-
-  // Enhanced handlers using new hooks
-  const handleUpgrade = () => {
-    toastManager.showPersistentToast(
-      'Choose your upgrade path:',
-      'info',
-      {
-        label: 'Start Free Trial',
-        onClick: () => proManager.startTrial('user@example.com'),
-      }
-    );
   };
 
   return (
@@ -262,7 +248,7 @@ export default function RefactoredPopup() {
         {/* Upgrade Prompt View */}
         {state.credits?.remaining === 0 && !state.settings?.flags?.developerMode && (
           <div className="p-4 text-center">
-            <p className="text-lg font-semibold">You're out of free credits.</p>
+            <p className="text-lg font-semibold">You&apos;re out of free credits.</p>
             <p className="text-sm text-gray-600 mb-4">Upgrade to continue using AI Mode.</p>
             <button
               onClick={handleShowSettings}

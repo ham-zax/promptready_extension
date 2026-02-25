@@ -18,7 +18,8 @@
             "dependencies": [],
             "details": "Audit `entrypoints/offscreen/enhanced-processor.ts`, `lib/storage.ts`, `entrypoints/popup/hooks/usePopupController.ts`, `lib/auth-service.ts`, `pro/monetization-client.ts`, `lib/api-validation.ts`, and `functions/*` to capture current mode flags, hardcoded endpoints, API key paths, monetization gates, and fallback triggers.\n\n2026-02-25 update: Completed runtime surface inventory and consolidated key environment-sensitive paths in runtime policy docs and implementation changes (`lib/runtime-profile.ts`, `lib/storage.ts`, popup/offscreen/background wiring).",
             "status": "done",
-            "testStrategy": "Create a checklist of discovered switches/endpoints and verify each item is traceable to at least one concrete file and code path."
+            "testStrategy": "Create a checklist of discovered switches/endpoints and verify each item is traceable to at least one concrete file and code path.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -29,7 +30,8 @@
             ],
             "details": "Design a centralized schema (for example `RuntimeProfile` + `RuntimePolicyRegistry`) that includes extraction provider order, network allowlist/denylist, premium gating behavior, auth mode, API key requirements, and fallback strategy fields, replacing ad-hoc booleans like `DEV_MODE` and `developerMode` semantics.\n\n2026-02-25 update: Implemented canonical `RuntimeProfile` schema in `lib/runtime-profile.ts`.",
             "status": "done",
-            "testStrategy": "Schema validation tests ensuring all required policy fields exist for every profile and no profile can be partially defined."
+            "testStrategy": "Schema validation tests ensuring all required policy fields exist for every profile and no profile can be partially defined.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -40,7 +42,8 @@
             ],
             "details": "Fill policy values for each environment, explicitly enforcing: development is offline-capable, premium UX is enabled in development, and production paths require explicit remote/auth prerequisites; include decisions for BYOK, trial/credit services, API validation calls, experimentation calls, and extraction fallback ordering.\n\n2026-02-25 update: Added explicit environment matrix in `docs/RUNTIME_POLICY_MATRIX.md`.",
             "status": "done",
-            "testStrategy": "Matrix completeness test that asserts every dimension has concrete values across all profiles and includes explicit dev guarantee assertions."
+            "testStrategy": "Matrix completeness test that asserts every dimension has concrete values across all profiles and includes explicit dev guarantee assertions.",
+            "parentId": "undefined"
           },
           {
             "id": 4,
@@ -51,7 +54,8 @@
             ],
             "details": "Specify enforcement points in background/offscreen/popup/worker boundaries: block forbidden outbound calls in dev, reject production profiles containing dev secrets/bypasses, require explicit production toggles, and standardize fail-closed vs fallback behavior with deterministic error messages/telemetry tags.\n\n2026-02-25 update: Added guard enforcement with `validateRuntimeProfile` + `assertRuntimeProfileSafe`, including startup self-checks.",
             "status": "done",
-            "testStrategy": "Negative-case scenarios for each guard (misconfigured prod, forbidden dev network call, missing required prod key) with expected hard-fail outcomes."
+            "testStrategy": "Negative-case scenarios for each guard (misconfigured prod, forbidden dev network call, missing required prod key) with expected hard-fail outcomes.",
+            "parentId": "undefined"
           },
           {
             "id": 5,
@@ -62,7 +66,8 @@
             ],
             "details": "Deliver a concise spec artifact plus mapping table from current code paths to future policy resolver integration points, and define unit/integration test cases (profile resolution, network guard behavior, premium-in-dev behavior, offline fallback continuity) that become acceptance criteria for subsequent tasks.\n\n2026-02-25 update: Added handoff/verification artifacts via `docs/RUNTIME_POLICY_MATRIX.md`, `docs/VERIFICATION_MATRIX.md`, and `test/VERIFICATION_BASELINE.md`.",
             "status": "done",
-            "testStrategy": "Review against Task 2/3/4 dependencies to confirm each downstream task has unambiguous policy inputs and testable expected outputs."
+            "testStrategy": "Review against Task 2/3/4 dependencies to confirm each downstream task has unambiguous policy inputs and testable expected outputs.",
+            "parentId": "undefined"
           }
         ]
       },
@@ -74,7 +79,7 @@
         "testStrategy": "Configuration tests for profile resolution; smoke tests for each profile; negative tests that production fails with dev-only credentials/bypasses.",
         "status": "done",
         "dependencies": [
-          1
+          "1"
         ],
         "priority": "high",
         "subtasks": [
@@ -85,7 +90,8 @@
             "details": "Refactor runtime config access in offscreen/background/popup/pro clients to use one profile resolver module.\n\n2026-02-25 update: Replaced ad-hoc dev/runtime constants with centralized `lib/runtime-profile.ts` and wired storage defaults/overrides through profile policy.",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 2
+            "parentTaskId": 2,
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -96,7 +102,8 @@
             "dependencies": [
               1
             ],
-            "parentTaskId": 2
+            "parentTaskId": 2,
+            "parentId": "undefined"
           }
         ]
       },
@@ -108,7 +115,7 @@
         "testStrategy": "Contract tests for request/response schema; extraction quality tests on representative fixtures; timeout/error handling tests; server healthcheck test.",
         "status": "done",
         "dependencies": [
-          1
+          "1"
         ],
         "priority": "high",
         "subtasks": [
@@ -119,7 +126,8 @@
             "details": "Support input as URL or raw HTML; include request options for timeout, selectors, and output mode.\n\n2026-02-25 update: Added Trafilatura service scaffold with `/health` and `POST /extract` in `services/trafilatura/app.py`.",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 3
+            "parentTaskId": 3,
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -130,7 +138,8 @@
             "dependencies": [
               1
             ],
-            "parentTaskId": 3
+            "parentTaskId": 3,
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -141,7 +150,8 @@
             "dependencies": [
               2
             ],
-            "parentTaskId": 3
+            "parentTaskId": 3,
+            "parentId": "undefined"
           }
         ]
       },
@@ -153,8 +163,8 @@
         "testStrategy": "Unit tests for strategy resolver; integration tests proving local-first behavior in dev; fallback tests for low quality/failure paths; regression tests for citation preservation.",
         "status": "done",
         "dependencies": [
-          2,
-          3
+          "2",
+          "3"
         ],
         "priority": "high",
         "subtasks": [
@@ -165,7 +175,8 @@
             "details": "Add provider enum, input/output contracts, and decision criteria driven by quality score and failure types.\n\n2026-02-25 update: Added provider interface/decision model in `core/extraction-provider.ts` with local-first and Trafilatura fallback strategy.",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 4
+            "parentTaskId": 4,
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -174,7 +185,8 @@
             "details": "Wire provider selection into offscreen processor and background message flow; persist provider decision and fallback reason in processing stats.\n\n2026-02-25 update: Integrated provider chain in offscreen flow (`processOfflineMode`) and persisted provider decision metadata/stats.",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 4
+            "parentTaskId": 4,
+            "parentId": "undefined"
           }
         ]
       },
@@ -186,8 +198,8 @@
         "testStrategy": "State machine tests for entitlement transitions in dev and prod; UI tests verifying premium controls visible/enabled in dev; tests confirming production still enforces real gating.",
         "status": "done",
         "dependencies": [
-          1,
-          2
+          "1",
+          "2"
         ],
         "priority": "high",
         "subtasks": [
@@ -198,7 +210,8 @@
             "details": "Ensure `isPro`, credits, and trial states are resolved by profile adapter in development and not by remote endpoints.\n\n2026-02-25 update: Implemented explicit entitlement adapter `lib/entitlement-policy.ts` and wired popup/auth state derivation through it, including remote-credit fetch gating by profile.",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 5
+            "parentTaskId": 5,
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -207,7 +220,8 @@
             "details": "Refactor popup hooks/components to resolve monetization behavior through an injected adapter selected by environment profile.\n\n2026-02-25 update: Removed runtime imports of `mock-monetization-client` in popup hooks/components and switched to profile-aware `pro/monetization-client.ts`.",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 5
+            "parentTaskId": 5,
+            "parentId": "undefined"
           }
         ]
       },
@@ -219,8 +233,8 @@
         "testStrategy": "Automated integration test for OPTIONS preflight + POST from extension origin; negative tests for disallowed origins/methods; end-to-end BYOK dev test proving zero CORS errors.",
         "status": "done",
         "dependencies": [
-          2,
-          5
+          "2",
+          "5"
         ],
         "priority": "high",
         "subtasks": [
@@ -231,7 +245,8 @@
             "details": "Whitelist extension origin(s) and localhost dev origin(s), enforce method/header policy, and normalize error responses for UI handling.\n\n2026-02-25 update: Implemented BYOK proxy routing with OPTIONS handling and CORS headers in `functions/ai-proxy/index.ts`, plus deterministic JSON error responses.",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 6
+            "parentTaskId": 6,
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -240,7 +255,8 @@
             "details": "Update BYOK client and related settings flow so development always uses first-party proxy transport and logs provider-specific failures consistently.\n\n2026-02-25 update: BYOK client now routes through profile-configured proxy URL; OpenRouter default model set to `arcee-ai/trinity-large-preview:free`; OpenRouter attribution headers added per quickstart (HTTP-Referer + X-Title/X-OpenRouter-Title).",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 6
+            "parentTaskId": 6,
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -252,7 +268,8 @@
               1,
               2
             ],
-            "parentTaskId": 6
+            "parentTaskId": 6,
+            "parentId": "undefined"
           }
         ]
       },
@@ -264,10 +281,10 @@
         "testStrategy": "Diff-based regression tests on extraction output fixtures; static checks for forbidden patterns (hardcoded keys, dev-only constants in prod); compile and runtime smoke tests.",
         "status": "done",
         "dependencies": [
-          2,
-          4,
-          5,
-          6
+          "2",
+          "4",
+          "5",
+          "6"
         ],
         "priority": "high",
         "subtasks": [
@@ -278,7 +295,8 @@
             "details": "Replace hardcoded dev credentials with profile-config values and implement real progress/complete/error emitters in offscreen processor.\n\n2026-02-25 update: Placeholder send methods were implemented in offscreen processor.\n\n2026-02-25 update (follow-up): Removed inline test OpenRouter key fallback from `functions/ai-proxy/index.ts`; BYOK now uses request key or `OPENROUTER_API_KEY` env only.",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 7
+            "parentTaskId": 7,
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -287,7 +305,8 @@
             "details": "Unify response fields for credits, processing stats, and errors; ensure all consumers parse one canonical shape.\n\n2026-02-25 update: Messaging contracts were normalized in offscreen progress/complete/error emissions and provider decision metadata propagation.",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 7
+            "parentTaskId": 7,
+            "parentId": "undefined"
           }
         ]
       },
@@ -299,9 +318,9 @@
         "testStrategy": "Golden-file tests on representative URLs/HTML fixtures; contract tests per provider; reliability tests for timeout/cancellation/retry and consistent user-facing errors.",
         "status": "done",
         "dependencies": [
-          3,
-          4,
-          6
+          "3",
+          "4",
+          "6"
         ],
         "priority": "medium",
         "subtasks": [
@@ -312,7 +331,8 @@
             "details": "Produce architecture notes mapping each adopted pattern to local code modules and tests; record rejected patterns and rationale to prevent churn.\n\n2026-02-25 update: Documented OpenRouter real-world adopted patterns and anti-patterns in `docs/REFERENCE_NOTES_OPENROUTER.md`.",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 8
+            "parentTaskId": 8,
+            "parentId": "undefined"
           }
         ]
       },
@@ -324,8 +344,8 @@
         "testStrategy": "CI dry runs with intentionally failing cases to verify gate behavior; coverage check for critical paths; reproducible command checklist for local validation.",
         "status": "done",
         "dependencies": [
-          7,
-          8
+          "7",
+          "8"
         ],
         "priority": "high",
         "subtasks": [
@@ -336,7 +356,8 @@
             "details": "Include compile, unit tests, integration tests, and scenario tests for offline extraction, dev premium mode, BYOK proxy CORS, and Trafilatura fallback reliability.\n\n2026-02-25 update: Added executable verification matrix in `docs/VERIFICATION_MATRIX.md` and baseline commands in package scripts.",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 9
+            "parentTaskId": 9,
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -347,7 +368,8 @@
             "dependencies": [
               1
             ],
-            "parentTaskId": 9
+            "parentTaskId": 9,
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -358,7 +380,8 @@
             "dependencies": [
               2
             ],
-            "parentTaskId": 9
+            "parentTaskId": 9,
+            "parentId": "undefined"
           }
         ]
       },
@@ -370,7 +393,7 @@
         "testStrategy": "Run `npm run compile`, targeted vitest suites, and lint checks with deterministic pass/fail baselines in local and CI contexts.",
         "status": "done",
         "dependencies": [
-          1
+          "1"
         ],
         "priority": "high",
         "subtasks": [
@@ -381,7 +404,8 @@
             "details": "Refactor setup to expose jsdom utilities consistently and update suites relying on `global.JSDOM` constructors.\n\n2026-02-25 update: Stabilized Vitest globals by exposing `globalThis.JSDOM` in `vitest.setup.ts`; fixed hook/byok tests to match current behavior.",
             "status": "done",
             "dependencies": [],
-            "parentTaskId": 10
+            "parentTaskId": 10,
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -392,7 +416,8 @@
             "dependencies": [
               1
             ],
-            "parentTaskId": 10
+            "parentTaskId": 10,
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -403,7 +428,8 @@
             "dependencies": [
               2
             ],
-            "parentTaskId": 10
+            "parentTaskId": 10,
+            "parentId": "undefined"
           }
         ]
       },
@@ -413,11 +439,11 @@
         "description": "Replace temporary development-open hardcoded bypasses with explicit environment-controlled policy before production rollout.",
         "details": "Current development implementation intentionally forces open access (FORCE_OPEN_ACCESS_DURING_DEVELOPMENT) and fail-open monetization behavior to unblock local workflows. Before any production rollout, move these toggles to explicit env/runtime profile flags, default them to fail-closed in production, and add startup assertions that reject unsafe production configs.",
         "testStrategy": "Add unit tests for entitlement resolution under dev vs prod profiles, plus integration tests confirming no remote credit calls in dev-open mode and strict gating in prod mode.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
-          2,
-          5,
-          7
+          "2",
+          "5",
+          "7"
         ],
         "priority": "high",
         "subtasks": [
@@ -426,22 +452,27 @@
             "title": "Move force-open flag into runtime profile/env",
             "description": "Eliminate hardcoded open-access constant and use explicit environment flag with safe defaults.",
             "details": "Add runtime profile field (e.g., openAccessMode) sourced from env, default true in local/dev workflows and false in production builds. Wire entitlement policy and auth state to this flag.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [],
-            "parentTaskId": 11
+            "parentTaskId": 11,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T14:33:20.830Z"
           },
           {
             "id": 2,
             "title": "Enforce fail-closed production assertions",
             "description": "Block unsafe startup when production profile still has open-access toggles enabled.",
             "details": "Extend runtime profile validation/assertions to include open-access flags and monetization fail-open paths.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               1
             ],
-            "parentTaskId": 11
+            "parentTaskId": 11,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T14:33:20.836Z"
           }
-        ]
+        ],
+        "updatedAt": "2026-02-25T14:33:20.836Z"
       },
       {
         "id": 12,
@@ -449,11 +480,11 @@
         "description": "Expand offline extractor regression coverage against real-world page structures (Wikipedia/docs/news/forum) to prevent extraction drift.",
         "details": "Add deterministic fixtures from representative page HTML captures and assert extraction quality, heading structure, citation block consistency, and fallback behavior under minimal/noisy DOM conditions.",
         "testStrategy": "Run targeted suites (quality-gates, graceful-degradation-pipeline, readability-integration, offline-capabilities) in CI nightlies with fixture snapshots and tolerance checks.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
-          4,
-          8,
-          10
+          "4",
+          "8",
+          "10"
         ],
         "priority": "medium",
         "subtasks": [
@@ -461,29 +492,179 @@
             "id": 1,
             "title": "Add Wikipedia/doc/news/forum fixture corpus",
             "description": "Create fixture set and expected markdown outputs for critical page archetypes.",
-            "details": "Store normalized HTML fixtures and assert markdown invariants (headings, citations, code blocks, lists, links).",
-            "status": "pending",
+            "details": "Store normalized HTML fixtures and assert markdown invariants (headings, citations, code blocks, lists, links).\n<info added on 2026-02-25T14:53:43.070Z>\nReplaced synthetic fixture HTML with deterministic real-source pages and normalized them for offline regression runs. Current corpus in `tests/fixtures/offline-corpus/`: `wikipedia-prompt-engineering.html` (`https://en.wikipedia.org/wiki/Prompt_engineering`), `docs-sdk-quickstart.html` (`https://openrouter.ai/docs/quickstart`), `news-open-data-program.html` (`https://blog.cloudflare.com/vinext/`), and `forum-prompt-strategy-thread.html` (`https://en.wikipedia.org/wiki/Talk:Prompt_engineering`).\n</info added on 2026-02-25T14:53:43.070Z>",
+            "status": "done",
             "dependencies": [],
-            "parentTaskId": 12
+            "parentTaskId": 12,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T14:29:08.067Z"
           },
           {
             "id": 2,
             "title": "Add extractor quality regression gate",
             "description": "Prevent quality-score regressions by asserting minimum score thresholds per fixture class.",
-            "details": "Define per-fixture minimum quality and fallback expectations; fail CI when drift exceeds baseline.",
-            "status": "pending",
+            "details": "Define per-fixture minimum quality and fallback expectations; fail CI when drift exceeds baseline.\n<info added on 2026-02-25T14:53:43.070Z>\nUpdated real-source offline corpus regression gates in tests/offline-fixture-regression.test.ts and refreshed snapshots in tests/__snapshots__/offline-fixture-regression.test.ts.snap. Per-fixture checks now gate on URL/title inputs, required/forbidden snippet presence, and minimum qualityScore (wikipedia 68, docs 65, news 70, forum 60) for fixtures in tests/fixtures/offline-corpus/. Snapshot assertions normalize Captured/Hash metadata to keep runs stable. Rebaselined via npm run test -- tests/offline-fixture-regression.test.ts -u; validated with npm run compile and a consolidated offline extraction vitest suite (11 files), all green.\n</info added on 2026-02-25T14:53:43.070Z>",
+            "status": "done",
             "dependencies": [
               1
             ],
-            "parentTaskId": 12
+            "parentTaskId": 12,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T14:29:08.079Z"
           }
-        ]
+        ],
+        "updatedAt": "2026-02-25T14:29:08.079Z"
+      },
+      {
+        "id": 13,
+        "title": "Fix OfflineModeManager Critical Defects (leak, timing, extraction order, chunking/hash)",
+        "description": "Patch verified defects in OfflineModeManager that degrade extraction quality and runtime stability: active session leak, mixed clock timing bug, ScoringEngine bypass, and fragile fallback chunk/hash behavior.",
+        "details": "Implement minimal-risk fixes in `core/offline-mode-manager.ts` and targeted regression tests. Keep behavior backward-compatible with existing provider chain and runtime profile policy.\n\nAcceptance criteria:\n1) sessions are cleaned up/evicted and do not grow unbounded;\n2) failed run timing uses consistent wall clock;\n3) fallback extraction prioritizes ScoringEngine pruning before semantic fallback;\n4) split fallback avoids cutting tags when DOMParser path unavailable/fails;\n5) fallback hash collision risk reduced in degraded environments.\n6) extractor tests pass.",
+        "testStrategy": "Run targeted vitest suites: `tests/offline-processor.test.ts`, `tests/offline-capabilities.test.ts`, `tests/graceful-degradation-pipeline.test.ts`, and any new unit tests for chunk/hash/session lifecycle.",
+        "status": "done",
+        "dependencies": [
+          "4",
+          "10"
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Fix activeSessions lifecycle and bounded retention",
+            "description": "Ensure processing sessions are marked complete/fail and evicted to prevent unbounded map growth.",
+            "details": "Add explicit `completeSession(sessionId, status, metrics?)` and bounded cleanup policy (TTL and/or max history). Ensure cleanup runs on success, cached-return path, and failure path. Preserve enough recent sessions for dashboard analytics.\n<info added on 2026-02-25T13:49:58.608Z>\nNext I’ll grep for `completeSession`, retention constants, and status values, then read the manager and tests to capture exact implementation details.\n</info added on 2026-02-25T13:49:58.608Z>",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 13,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T13:49:24.234Z"
+          },
+          {
+            "id": 2,
+            "title": "Fix failure-path timing clock mismatch",
+            "description": "Use a consistent time source for totalTime on all paths.",
+            "details": "Replace `performance.now() - startTime` with a Date.now-based delta (or switch both to performance.now), and keep stats comparable across success/failure paths.\n<info added on 2026-02-25T13:53:39.846Z>\nNext I’ll grep timing/session logic and read the manager and hardening test.\n</info added on 2026-02-25T13:53:39.846Z>",
+            "status": "done",
+            "dependencies": [
+              "13.1"
+            ],
+            "parentTaskId": 13,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T13:49:24.239Z"
+          },
+          {
+            "id": 3,
+            "title": "Prioritize ScoringEngine before semantic fallback",
+            "description": "Reorder fallback extraction to prefer heuristic scoring/pruning before semantic blocks.",
+            "details": "In `fallbackContentExtraction`, attempt ScoringEngine first and apply minimum candidate checks; only then fallback to semantic extraction/body cleanup.\n<info added on 2026-02-25T13:51:26.671Z>\nI found the key files; next I’ll confirm exact logic and test coverage before drafting the update text.\n</info added on 2026-02-25T13:51:26.671Z>",
+            "status": "done",
+            "dependencies": [
+              "13.2"
+            ],
+            "parentTaskId": 13,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T13:49:24.244Z"
+          },
+          {
+            "id": 4,
+            "title": "Harden fallback chunk splitting",
+            "description": "Avoid invalid HTML chunks when parser-based splitting is unavailable.",
+            "details": "Replace naive fixed-width slicing with boundary-aware slicing (prefer `</...>`, `>`, newline) so chunks are less likely to cut tags mid-token.\n<info added on 2026-02-25T13:52:11.654Z>\n2026-02-25 update: core/offline-mode-manager.ts now routes fallback chunking through splitByBoundaries() from splitIntoChunks() when DOMParser is unavailable or parsing fails, replacing fixed-width slicing with findChunkBoundary() priority checks for closing tags, then >, then newline (using a bounded lookback window) to reduce mid-tag cuts. tests/offline-mode-manager.hardening.test.ts adds regression coverage to verify DOMParser-unavailable fallback chunking preserves full content on rejoin and ends intermediate chunks on safe boundaries.\n</info added on 2026-02-25T13:52:11.654Z>",
+            "status": "done",
+            "dependencies": [
+              "13.3"
+            ],
+            "parentTaskId": 13,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T13:49:24.253Z"
+          },
+          {
+            "id": 5,
+            "title": "Strengthen fallback hash and add regression coverage",
+            "description": "Improve non-crypto fallback hash quality and lock behavior with tests.",
+            "details": "Replace 32-bit bitshift hash with cyrb53-style hash and keep cache key namespace behavior unchanged. Add or update tests for session cleanup, extraction order, and chunk/hash behavior.\n<info added on 2026-02-25T13:54:45.078Z>\nUpdated core/offline-mode-manager.ts fallback hashing to a cyrb53-style 53-bit implementation in fallbackHash (base36 output) while keeping cache-key namespacing unchanged through generateCacheKey(url-contentHash-configHash). Added tests/offline-mode-manager.hardening.test.ts regression coverage for stable and differentiated fallback hashes, ScoringEngine-first fallback extraction order, non-negative failed-run timing with closed session state, bounded completed-session retention pruning, and boundary-aware chunk splitting when DOMParser is unavailable. Validation passed with npm run compile and targeted vitest suites.\n</info added on 2026-02-25T13:54:45.078Z>",
+            "status": "done",
+            "dependencies": [
+              "13.4"
+            ],
+            "parentTaskId": 13,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T13:49:24.258Z"
+          }
+        ],
+        "updatedAt": "2026-02-25T13:49:24.258Z"
+      },
+      {
+        "id": 14,
+        "title": "Extractor Runtime Hardening: dedup, monitoring singleton, diagnostics, malformed/XSS warnings",
+        "description": "Execute remaining hardening work identified in review: prevent concurrent duplicate extraction work, prevent orphaned monitor intervals, preserve stack diagnostics, and add practical warning signals for malformed/XSS-like inputs to satisfy edge-case expectations.",
+        "details": "Scope:\n1) Add in-flight request coalescing to OfflineModeManager.processContent keyed by cacheKey/config to avoid duplicate heavy work for concurrent identical requests.\n2) Make startRealTimeMonitoring singleton-safe by reusing/stopping an existing interval before starting a new one.\n3) Enrich failure diagnostics by storing stack/context in errors while preserving user-safe message.\n4) Add lightweight pre-parse risk detectors + post-extraction warning hooks (malformed structure/XSS protocol/event-handler markers/control-char/unicode anomaly hints) and wire into warnings output.\n5) Run targeted suites: edge-cases, edge-cases-extended, malformed-html, offline hardening tests.\n\nKeep behavior backward-compatible and avoid introducing network dependencies.",
+        "testStrategy": "Run `npm run compile` then `npm run test -- tests/offline-mode-manager.hardening.test.ts tests/edge-cases.test.ts tests/edge-cases-extended.test.ts tests/malformed-html.test.ts`.",
+        "status": "done",
+        "dependencies": [
+          "10",
+          "13"
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add in-flight request deduplication in OfflineModeManager",
+            "description": "Coalesce identical concurrent extraction requests by cache key to avoid duplicate heavy processing.",
+            "details": "Introduce static inFlight map keyed by generated cache key + config signature. In processContent, join existing promise when available, create and register a promise when not, and always clear map entry on settle.",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 14,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T14:23:17.177Z"
+          },
+          {
+            "id": 2,
+            "title": "Make real-time monitoring singleton-safe",
+            "description": "Prevent orphaned polling intervals when startRealTimeMonitoring is called multiple times.",
+            "details": "Promote monitoring interval handle to class-level static property. Clear previous interval before creating a new one and ensure returned stop() clears the shared handle.",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 14,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T14:23:17.183Z"
+          },
+          {
+            "id": 3,
+            "title": "Enrich extraction diagnostics and warning signals",
+            "description": "Keep stack diagnostics and add lightweight malformed/XSS warning detectors to align with edge-case suites.",
+            "details": "Add stack/error-type details to errors array (in addition to human message). Add heuristic pattern detectors for malformed tags, event-handler attributes, javascript: URLs, CSS expression/protocol patterns, control/unicode anomalies, and comment/conditional-comment hints; append warning strings when detected.",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 14,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T14:23:17.193Z"
+          },
+          {
+            "id": 4,
+            "title": "Run and stabilize edge-case suites",
+            "description": "Execute edge-cases and malformed-html tests, fix regressions from new hardening changes, and record results.",
+            "details": "Run compile + targeted vitest suites; adjust implementation to pass critical assertions without overfitting.",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 14,
+            "parentId": "undefined",
+            "updatedAt": "2026-02-25T14:23:17.199Z"
+          }
+        ],
+        "updatedAt": "2026-02-25T14:23:17.199Z"
       }
     ],
     "metadata": {
-      "created": "2026-02-25T11:38:41.059Z",
-      "description": "Default tasks context",
-      "updated": "2026-02-25T21:31:40.000Z"
+      "version": "1.0.0",
+      "lastModified": "2026-02-25T14:33:20.837Z",
+      "taskCount": 14,
+      "completedCount": 14,
+      "tags": [
+        "master"
+      ],
+      "created": "2026-02-25T14:49:59.729Z",
+      "description": "Tasks for master context"
     }
   }
 }

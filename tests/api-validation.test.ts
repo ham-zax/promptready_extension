@@ -1,5 +1,5 @@
 // API Validation Service Tests
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { validateApiKey, validateOpenRouter, validateOpenAI, validateZAI } from '@/lib/api-validation';
 
 // Mock fetch for testing
@@ -37,7 +37,12 @@ describe('API Validation Service', () => {
       expect(result.message).toBe('OpenRouter keys should start with "sk-or-v1-"');
     });
 
-    it('should validate OpenAI key format', async () => {
+    it('should not enforce sk- prefix for manual providers', async () => {
+      (global.fetch as any).mockResolvedValue({
+        ok: false,
+        status: 401,
+      });
+
       const result = await validateApiKey({
         provider: 'manual',
         apiKey: 'invalid-key-format',
@@ -45,7 +50,7 @@ describe('API Validation Service', () => {
       });
 
       expect(result.isValid).toBe(false);
-      expect(result.message).toBe('OpenAI-compatible keys should start with "sk-"');
+      expect(result.message).toBe('Invalid API key. Please check your OpenAI-compatible key.');
     });
 
     it('should validate API base URL format', async () => {
@@ -170,7 +175,7 @@ describe('API Validation Service', () => {
       const result = await validateOpenAI('sk-valid-key', 'https://invalid-url.example');
 
       expect(result.isValid).toBe(false);
-      expect(result.message).toBe('Invalid API base URL. Please check server address.');
+      expect(result.message).toBe('Invalid API base URL. Please check the server address.');
     });
   });
 
@@ -236,7 +241,7 @@ describe('API Validation Service', () => {
       const result = await validateOpenAI('sk-key', 'https://api.openai.com/v1');
 
       expect(result.isValid).toBe(false);
-      expect(result.message).toBe('Failed to validate API key. Please check URL and key.');
+      expect(result.message).toBe('Failed to validate API key. Please check the URL and key.');
     });
   });
 });

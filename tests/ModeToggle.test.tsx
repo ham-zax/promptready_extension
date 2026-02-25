@@ -3,11 +3,26 @@ import { render, fireEvent, screen, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ModeToggle } from '../entrypoints/popup/components/ModeToggle';
 import { Storage } from '../lib/storage';
+import { authService } from '../lib/auth-service';
 
 // Mock the Storage class
 vi.mock('../lib/storage', () => ({
   Storage: {
     updateSettings: vi.fn(),
+  },
+}));
+
+vi.mock('../lib/auth-service', () => ({
+  authService: {
+    getAuthState: vi.fn().mockResolvedValue({
+      isAuthenticated: true,
+      isDeveloperMode: true,
+      hasUnlimitedAccess: true,
+      canUseAIMode: true,
+      planType: 'developer',
+      remainingCredits: 999999,
+      hasApiKey: false,
+    }),
   },
 }));
 
@@ -46,9 +61,18 @@ describe('ModeToggle', () => {
     expect(Storage.updateSettings).toHaveBeenCalledWith({ mode: 'offline' });
   });
 
-  it('calls onUpgradePrompt when a non-pro user clicks AI mode', () => {
+  it('calls onUpgradePrompt when a non-pro user clicks AI mode', async () => {
     const handleUpgradePrompt = vi.fn();
     const handleChange = vi.fn();
+    vi.mocked(authService.getAuthState).mockResolvedValueOnce({
+      isAuthenticated: true,
+      isDeveloperMode: false,
+      hasUnlimitedAccess: false,
+      canUseAIMode: false,
+      planType: 'free',
+      remainingCredits: 0,
+      hasApiKey: false,
+    });
 
     render(
       <ModeToggle
@@ -58,6 +82,7 @@ describe('ModeToggle', () => {
       />
     );
 
+    await screen.findByText('Limited • Upgrade');
     const aiButton = screen.getByLabelText('AI Mode');
     fireEvent.click(aiButton);
 

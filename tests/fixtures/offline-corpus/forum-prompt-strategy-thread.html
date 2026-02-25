@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Talk:Prompt engineering</title>
+  </head>
+  <body>
+    <main>
+      <article class="thread">
+        <h1>Talk:Prompt engineering</h1>
+        <h2>Restrictions of a Context Window</h2>
+        <section class="comment" id="comment-1">
+          <p>Context Window and Token cap in every request (reasoning and must be mentioned in the article of Prompt engineering).</p>
+        </section>
+        <section class="comment" id="comment-2">
+          <p>The Context Window (or simply Context Length) is a principal limitation on information an LLM can process and/or produce in a single interaction.</p>
+        </section>
+        <section class="comment" id="comment-3">
+          <p>This “window” also limits the total number of tokens which in most instances are words or sub-word units, that might be processed by the model at a time. This comprises both the user's input prompt as well as the AI's generated output or response.</p>
+        </section>
+        <section class="comment" id="comment-4">
+          <p>A concept that encompasses this limit is Maximum Fixed Allocation of Tokens (MFAT). This directly associates with the hard limit that is imposed by the Context Window and represents the absolute maximum ‘“space”’ that can be utilized for a complete request and reply. Knowing this token allocation ceiling is crucial for effective prompt engineering since it determines how much input and output can be controlled around a given limit. Developers and users should ensure that the prompts they issue and the expected responses together do not exceed the defined Context Window for avoidance of truncation, [[Error (computing)|errors])], or partial results. Different calculators pertain to MFAT. Some are issued to the public for free, like this one: [1]. However, some others are secret or restricted, like the ones used by Grok or DeepSeek.</p>
+        </section>
+        <section class="comment" id="comment-5">
+          <p>I submitted a prompt asking for a variety of prompt suggestions shown below to ChatGPT (Mar 14 Version. Free Research Preview) shortly before posting here. I also included the text of the main article. Shown below are a few prompt examples suggested by ChatGPT.</p>
+        </section>
+        <section class="comment" id="comment-6">
+          <p>I wanted to post the results to the talk page first to get feedback before posting to the main article.</p>
+        </section>
+        <section class="comment" id="comment-7">
+          <p>Prompt: Would you please add a section to the Wikipedia article shown below that provides effective prompt examples for the following prompt types: sql query, cake recipe, blog post, memo, and any other prompt examples you may want to add?</p>
+        </section>
+        <section class="comment" id="comment-8">
+          <p>ChatGPT: Sure, I can provide examples of effective prompts for different types of tasks.</p>
+        </section>
+      </article>
+    </main>
+  </body>
+</html>

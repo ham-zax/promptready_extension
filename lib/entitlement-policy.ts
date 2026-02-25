@@ -2,7 +2,6 @@ import type { CreditsState, FeatureFlags, Settings } from './types.js';
 import { getRuntimeProfile, type RuntimeProfile } from './runtime-profile.js';
 
 const UNLIMITED_CREDITS = 999999;
-const FORCE_OPEN_ACCESS_DURING_DEVELOPMENT = true;
 
 const DEFAULT_FLAGS: FeatureFlags = {
   aiModeEnabled: true,
@@ -54,18 +53,22 @@ export function resolveEntitlements(
 ): ResolvedEntitlements {
   const flags = normalizeFlags(settings, profile);
   const hasApiKey = Boolean(settings.byok?.apiKey);
-  const forceUnlimited = profile.premiumBypassEnabled || flags.developerMode || profile.useMockMonetization;
+  const forceUnlimited =
+    profile.openAccessEnabled ||
+    profile.premiumBypassEnabled ||
+    flags.developerMode ||
+    profile.useMockMonetization;
   const credits = normalizeCredits(settings, forceUnlimited);
 
   const isDeveloperMode = Boolean(flags.developerMode);
   const hasUnlimitedAccess =
-    FORCE_OPEN_ACCESS_DURING_DEVELOPMENT ||
+    profile.openAccessEnabled ||
     isDeveloperMode ||
     hasApiKey ||
     profile.premiumBypassEnabled ||
     profile.useMockMonetization;
   const isPro = hasUnlimitedAccess || credits.remaining > 0 || Boolean(settings.isPro);
-  const shouldFetchRemoteCredits = FORCE_OPEN_ACCESS_DURING_DEVELOPMENT
+  const shouldFetchRemoteCredits = profile.openAccessEnabled
     ? false
     : !(hasUnlimitedAccess || !settings.user?.id);
 

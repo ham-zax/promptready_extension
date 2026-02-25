@@ -50,7 +50,7 @@ export function usePerformanceMonitor(refreshInterval: number = 2000) {
   const [analytics, setAnalytics] = useState<PerformanceAnalytics | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [lastUpdate, setLastUpdate] = useState<number>(Date.now());
+  const [lastUpdate, setLastUpdate] = useState<number>(() => Date.now());
 
   // Fetch real-time metrics
   const fetchMetrics = useCallback(async () => {
@@ -88,9 +88,13 @@ export function usePerformanceMonitor(refreshInterval: number = 2000) {
   }, []);
 
   // Setup message listener for real-time updates
-  const handleMetricsUpdate = useCallback((message: any) => {
-    if (message.type === 'PERFORMANCE_METRICS_UPDATE') {
-      setMetrics(message.payload);
+  const handleMetricsUpdate = useCallback((message: unknown) => {
+    if (typeof message !== 'object' || message === null) {
+      return;
+    }
+    const runtimeMessage = message as { type?: string; payload?: PerformanceMetrics };
+    if (runtimeMessage.type === 'PERFORMANCE_METRICS_UPDATE') {
+      setMetrics(runtimeMessage.payload || null);
       setLastUpdate(Date.now());
     }
   }, []);
@@ -114,7 +118,7 @@ export function usePerformanceMonitor(refreshInterval: number = 2000) {
       browser.runtime.onMessage.addListener(handleMetricsUpdate);
 
       // Test connection on mount
-      browser.runtime.sendMessage({
+      void browser.runtime.sendMessage({
         type: 'GET_REAL_TIME_METRICS'
       }).then(() => {
         setIsConnected(true);
@@ -129,15 +133,6 @@ export function usePerformanceMonitor(refreshInterval: number = 2000) {
       }
     };
   }, [handleMetricsUpdate]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (typeof browser !== 'undefined' && browser.runtime) {
-        browser.runtime.onMessage.removeListener(handleMetricsUpdate);
-      }
-    };
-  }, []);
 
   // Format time display
   const formatTime = (timestamp: number) => {

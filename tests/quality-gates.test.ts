@@ -1,6 +1,6 @@
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { QualityGateValidator, QualityGateResult } from '../core/quality-gates';
+import { describe, it, expect } from 'vitest';
+import { QualityGateValidator } from '../core/quality-gates';
 
 describe('QualityGateValidator', () => {
   describe('validateSemanticQuery', () => {

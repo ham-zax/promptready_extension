@@ -181,7 +181,7 @@ export class RedditShadowExtractor {
       );
 
       let node;
-      while (node = walker.nextNode()) {
+      while ((node = walker.nextNode())) {
         if (node.nodeType === Node.TEXT_NODE) {
           const textContent = node.textContent?.trim();
           if (textContent && textContent.length > 3) {
@@ -382,7 +382,7 @@ export class RedditShadowExtractor {
       const element = document.querySelector(selector);
       if (element) {
         const href = element.getAttribute('href');
-        const match = href?.match(/\/r\/([^\/]+)/);
+        const match = href?.match(/\/r\/([^/]+)/);
         if (match) return match[1];
         
         const text = element.textContent?.trim();
@@ -624,7 +624,7 @@ export class RedditShadowExtractor {
       if (style && style.display === 'none') {
         return true;
       }
-    } catch (e) {
+    } catch {
       // Ignore style check errors
     }
 
@@ -670,7 +670,7 @@ export class RedditShadowExtractor {
     let nodesProcessed = 0;
     let nodesRejected = 0;
     
-    while (node = walker.nextNode()) {
+    while ((node = walker.nextNode())) {
       nodesProcessed++;
       const content = node.textContent?.trim();
       if (content && content.length > 3) {

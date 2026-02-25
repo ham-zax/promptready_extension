@@ -14,6 +14,21 @@ export interface CaptureResult {
   pipelineMetadata?: PipelineResult;
 }
 
+type MathJaxNode = {
+  math?: string;
+  typesetRoot?: {
+    setAttribute?: (name: string, value: string) => void;
+  };
+};
+
+type MathJaxGlobal = {
+  startup?: {
+    document?: {
+      math?: MathJaxNode[];
+    };
+  };
+};
+
 export class ContentCapture {
 
   /**
@@ -237,11 +252,9 @@ export class ContentCapture {
       throw error;
     }
   }
-}
 
-// ===================== DOM Prep Helpers (adapted from MarkDownload) =====================
-export namespace ContentCapture {
-  export function ensureBase(): void {
+  // ===================== DOM Prep Helpers (adapted from MarkDownload) =====================
+  private static ensureBase(): void {
     try {
       const head = document.head || document.getElementsByTagName('head')[0];
       if (!head) return;
@@ -254,7 +267,7 @@ export namespace ContentCapture {
     } catch { }
   }
 
-  export function ensureTitle(): void {
+  private static ensureTitle(): void {
     try {
       const head = document.head || document.getElementsByTagName('head')[0];
       if (!head) return;
@@ -266,18 +279,18 @@ export namespace ContentCapture {
     } catch { }
   }
 
-  export function addLatexToMathJax3(): void {
+  private static addLatexToMathJax3(): void {
     try {
-      // @ts-ignore Optional global
-      if (!globalThis.MathJax?.startup?.document?.math) return;
-      // @ts-ignore
-      for (const math of globalThis.MathJax.startup.document.math) {
-        math.typesetRoot?.setAttribute?.('markdownload-latex', math.math);
+      const mathJax = (globalThis as typeof globalThis & { MathJax?: MathJaxGlobal }).MathJax;
+      const mathNodes = mathJax?.startup?.document?.math;
+      if (!mathNodes) return;
+      for (const math of mathNodes) {
+        math.typesetRoot?.setAttribute?.('markdownload-latex', math.math ?? '');
       }
     } catch { }
   }
 
-  export function markHiddenNodes(root: Element): void {
+  private static markHiddenNodes(root: Element): void {
     try {
       const hiddenList: Element[] = [];
       const filter: NodeFilter = {
@@ -286,8 +299,8 @@ export namespace ContentCapture {
           const el = node as Element;
           const nodeName = el.nodeName.toLowerCase();
           if (nodeName === 'math') return NodeFilter.FILTER_REJECT;
-          // @ts-ignore offsetParent may be undefined in some cases
-          if ((el as any).offsetParent === void 0) return NodeFilter.FILTER_ACCEPT;
+          const maybeOffsetParent = (el as Element & { offsetParent?: Element | null }).offsetParent;
+          if (typeof maybeOffsetParent === 'undefined') return NodeFilter.FILTER_ACCEPT;
           const cs = window.getComputedStyle(el);
           if (cs.visibility === 'hidden' || cs.display === 'none') return NodeFilter.FILTER_ACCEPT;
           return NodeFilter.FILTER_SKIP;
@@ -309,7 +322,7 @@ export namespace ContentCapture {
           text: (e.textContent || '').trim().slice(0, 120),
         }));
         console.log(`[ContentCapture] markHiddenNodes marked ${hiddenList.length} elements. Sample:`, sample);
-      } catch (e) {
+      } catch {
         console.log('[ContentCapture] markHiddenNodes marked elements count:', hiddenList.length);
       }
     } catch (e) {

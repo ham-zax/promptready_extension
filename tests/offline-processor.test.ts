@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { OfflineModeManager } from '../core/offline-mode-manager';
-import { DateUtils } from '../lib/date-utils';
 
 const html = `
 <!doctype html>

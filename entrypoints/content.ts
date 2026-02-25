@@ -6,7 +6,7 @@ export default defineContentScript({
   runAt: 'document_idle',
   world: 'ISOLATED',
 
-  main(ctx) {
+  main(_ctx) {
     console.log('PromptReady content script initializing...');
     console.log('ContentCapture module loaded');
 
@@ -16,7 +16,7 @@ export default defineContentScript({
     // and finally shows a manual UI prompt if all programmatic approaches fail.
     // ====================================================================================
 
-    async function copyTextToClipboard(text: string): Promise<{ success: boolean; method?: string; error?: any }> {
+    async function copyTextToClipboard(text: string): Promise<{ success: boolean; method?: string; error?: unknown }> {
       // Check permissions API for additional diagnostics
       const permState = await checkClipboardPermission();
       console.log('[BMAD_CLIPBOARD] clipboard-write permission state:', permState);
@@ -38,11 +38,12 @@ export default defineContentScript({
           return { success: true, method: 'navigator.clipboard' };
         }
       } catch (err) {
-        const toMsg = (e: any) => {
+        const toMsg = (e: unknown): string => {
           try {
             if (e && typeof e === 'object') {
-              const n = (e as any).name || 'Error';
-              const m = (e as any).message || String(e);
+              const maybeError = e as { name?: unknown; message?: unknown };
+              const n = typeof maybeError.name === 'string' ? maybeError.name : 'Error';
+              const m = typeof maybeError.message === 'string' ? maybeError.message : String(e);
               return `${n}: ${m}`;
             }
             return String(e);
@@ -96,7 +97,7 @@ export default defineContentScript({
 
       try {
         document.body.removeChild(textarea);
-      } catch (e) {
+      } catch {
         // ignore
       }
 
@@ -155,7 +156,7 @@ export default defineContentScript({
                 console.log('[BMAD_CLIPBOARD] Manual Copy button: success via navigator.clipboard');
                 await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'manual-button:navigator.clipboard' } }).catch(() => { });
                 // Clean up before removing
-                try { document.body.removeChild(promptDiv); } catch (e) { }
+                try { document.body.removeChild(promptDiv); } catch { }
                 return;
               }
             } catch (err) {
@@ -168,7 +169,7 @@ export default defineContentScript({
             if (ok) {
               console.log('[BMAD_CLIPBOARD] Manual Copy button: success via execCommand');
               await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'manual-button:execCommand' } }).catch(() => { });
-              try { document.body.removeChild(promptDiv); } catch (e) { }
+              try { document.body.removeChild(promptDiv); } catch { }
               return;
             }
 
@@ -178,7 +179,7 @@ export default defineContentScript({
             alert('Automatic copy failed. Please press Ctrl+C / Cmd+C to copy the text.');
           } catch (err) {
             console.error('[BMAD_CLIPBOARD] Manual Copy button click failed:', err);
-            try { document.body.removeChild(promptDiv); } catch (e) { }
+            try { document.body.removeChild(promptDiv); } catch { }
           }
         });
 
@@ -186,7 +187,7 @@ export default defineContentScript({
         closeButton.textContent = 'Close';
         closeButton.style.padding = '6px 10px';
         closeButton.addEventListener('click', () => {
-          try { document.body.removeChild(promptDiv); } catch (e) { }
+          try { document.body.removeChild(promptDiv); } catch { }
         });
 
         buttonsRow.appendChild(copyButton);
@@ -199,19 +200,17 @@ export default defineContentScript({
       } catch (err) {
         console.error('[BMAD_CLIPBOARD] Failed to show manual copy prompt:', err);
         // As a last fallback, show alert
-        try { alert('Automatic copy failed. Please copy the following text:\n\n' + text); } catch (e) { }
+        try { alert('Automatic copy failed. Please copy the following text:\n\n' + text); } catch { }
       }
     }
 
     async function checkClipboardPermission(): Promise<string> {
       try {
         if (!('permissions' in navigator)) return 'unknown';
-        // PermissionName typing is strict; cast to any to allow clipboard-write
-        // Some browsers may throw or return 'denied' / 'granted' / 'prompt'
-        // Note: querying clipboard-write may be unsupported in some browsers
-        // and will throw; we catch and return 'unknown'.
-        // @ts-ignore
-        const status = await navigator.permissions.query({ name: 'clipboard-write' as any });
+        // Some browsers may not support clipboard-write permission queries.
+        const status = await navigator.permissions.query({
+          name: 'clipboard-write' as unknown as PermissionName,
+        });
         if (status && typeof status.state === 'string') return status.state;
         return 'unknown';
       } catch (err) {
@@ -228,12 +227,16 @@ export default defineContentScript({
     // Attach the message listener exactly once. Content scripts can be injected/reloaded
     // in ways that would otherwise register duplicate listeners. Use a global guard
     // so repeated initializations don't add multiple handlers.
-    if (!(globalThis as any).__PROMPTREADY_MESSAGE_LISTENER_ATTACHED) {
-      (globalThis as any).__PROMPTREADY_MESSAGE_LISTENER_ATTACHED = true;
+    const globalState = globalThis as typeof globalThis & {
+      __PROMPTREADY_MESSAGE_LISTENER_ATTACHED?: boolean;
+    };
+
+    if (!globalState.__PROMPTREADY_MESSAGE_LISTENER_ATTACHED) {
+      globalState.__PROMPTREADY_MESSAGE_LISTENER_ATTACHED = true;
       console.log('Attaching single runtime.onMessage listener for PromptReady content script');
 
       // Listen for capture requests from background or popup
-      browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+      browser.runtime.onMessage.addListener(async (message, _sender, sendResponse) => {
         try {
           console.log('Content script received message:', message.type);
 

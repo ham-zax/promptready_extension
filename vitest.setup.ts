@@ -13,7 +13,7 @@ globalThis.document = dom.window.document;
 const memoryLocal: Record<string, any> = {};
 const memorySession: Record<string, any> = {};
 
-// @ts-ignore
+// @ts-expect-error test-only browser shim for wxt/browser APIs
 globalThis.browser = {
   storage: {
     local: {

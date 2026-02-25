@@ -192,7 +192,7 @@ export class MarkdownPostProcessor {
    */
   private static cleanupWhitespace(
     markdown: string,
-    config: PostProcessingOptions
+    _config: PostProcessingOptions
   ): { markdown: string; improvements: string[] } {
     const improvements: string[] = [];
     let processed = markdown;
@@ -356,9 +356,9 @@ export class MarkdownPostProcessor {
 
     // Detect and fix indented code blocks
     const beforeIndented = processed;
-    processed = processed.replace(/^(    .+)$/gm, (match) => {
+    processed = processed.replace(/^(\s{4}.+)$/gm, (match) => {
       // Convert indented code to fenced code blocks
-      const code = match.replace(/^    /gm, '');
+      const code = match.replace(/^\s{4}/gm, '');
       return `\n\`\`\`\n${code}\n\`\`\`\n`;
     });
     if (processed !== beforeIndented) {

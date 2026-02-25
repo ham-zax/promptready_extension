@@ -96,6 +96,8 @@ export default [
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
+      'no-undef': 'off', // TypeScript already checks symbol resolution
+      'no-unused-vars': 'off', // Use @typescript-eslint/no-unused-vars instead
       'no-console': 'off', // Console is often used in extension development
       'no-alert': 'off', // Alert is used in browser extensions
       'no-case-declarations': 'warn', // Allow case block declarations with caution
@@ -124,6 +126,8 @@ export default [
       '*.config.js',
       '*.config.ts',
       '**/*.d.ts',
+      'tree.js',
+      'test-byok.js',
     ],
   },
 ]

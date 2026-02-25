@@ -67,7 +67,11 @@ export class AuthService {
 
   private getDefaultAuthState(): AuthState {
     const profile = getRuntimeProfile();
-    const devLike = profile.isDevelopment || profile.enforceDeveloperMode || profile.premiumBypassEnabled;
+    const devLike =
+      profile.isDevelopment ||
+      profile.openAccessEnabled ||
+      profile.enforceDeveloperMode ||
+      profile.premiumBypassEnabled;
     return {
       isAuthenticated: false,
       isDeveloperMode: devLike,
