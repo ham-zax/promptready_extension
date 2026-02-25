@@ -60,7 +60,7 @@ describe('ContentCapture full-page snapshot', () => {
 
     expect(result.url).toBe('https://promptready.app/');
     expect(result.title).toContain('PromptReady');
-    expect(result.pipelineMetadata).toBeUndefined();
+    expect(result).not.toHaveProperty('pipelineMetadata');
 
     expect(result.html).toContain('Cleaner input. Better model output.');
     expect(result.html).toContain('Core benefits');

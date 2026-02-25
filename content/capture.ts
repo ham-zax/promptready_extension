@@ -2,7 +2,6 @@
 // Based on Architecture Section 7 (Core Modules)
 
 import { FileNamingService } from '../lib/fileNaming.js';
-import type { PipelineResult } from '../core/graceful-degradation-pipeline.js';
 
 export interface CaptureResult {
   html: string;
@@ -10,7 +9,6 @@ export interface CaptureResult {
   title: string;
   selectionHash: string;
   isSelection?: boolean;
-  pipelineMetadata?: PipelineResult;
 }
 
 type MathJaxNode = {
