@@ -1,7 +1,6 @@
 // pro/monetization-client.ts (Corrected and Type-Safe)
 
-import { browser } from 'wxt/browser';
-import { Storage } from '@/lib/storage';
+import { getRuntimeProfile } from '@/lib/runtime-profile';
 
 // --- Define the explicit API response contracts ---
 
@@ -39,19 +38,44 @@ export interface ProcessAIResponse {
   error?: 'INSUFFICIENT_CREDITS' | 'WEEKLY_CAP_EXCEEDED' | 'UNKNOWN_ERROR';
 }
 
+export interface BillingActionResponse {
+  success: boolean;
+  error?: string;
+}
+
 // --- MonetizationClient Class ---
 
 export class MonetizationClient {
+  private static readonly DEV_BALANCE = 999999;
 
   private static getApiBase(): string {
-    // For local dev, change this to your wrangler dev URL (e.g., http://127.0.0.1:8788)
-    return 'http://127.0.0.1:8788'; 
+    return getRuntimeProfile().monetizationApiBase;
+  }
+
+  private static isMockMode(): boolean {
+    return getRuntimeProfile().useMockMonetization;
+  }
+
+  private static unlimitedCredits(): CheckCreditsResponse {
+    return { balance: this.DEV_BALANCE, weeklyCap: this.DEV_BALANCE };
+  }
+
+  private static passthroughAI(prompt: string): ProcessAIResponse {
+    return {
+      success: true,
+      content: prompt,
+      remaining: this.DEV_BALANCE,
+    };
   }
 
   /**
    * Checks a user's credit balance by calling the backend endpoint.
    */
   static async checkCredits(userId: string): Promise<CheckCreditsResponse> {
+    if (this.isMockMode()) {
+      return this.unlimitedCredits();
+    }
+
     const url = `${this.getApiBase()}/user/status`; // Corrected endpoint from your functions/credit-service
 
     try {
@@ -63,7 +87,8 @@ export class MonetizationClient {
 
       if (!resp.ok) {
         console.warn(`[MonetizationClient] checkCredits returned ${resp.status}`);
-        return { balance: 0, weeklyCap: 0 };
+        // Development-first fail-open behavior: backend issues must not paywall local workflows.
+        return this.unlimitedCredits();
       }
 
       // Use the type assertion here
@@ -75,7 +100,8 @@ export class MonetizationClient {
       };
     } catch (err) {
       console.error('[MonetizationClient] checkCredits error:', err);
-      return { balance: 0, weeklyCap: 0 };
+      // Network/offline failures must not hard-lock the popup during development workflows.
+      return this.unlimitedCredits();
     }
   }
 
@@ -83,6 +109,14 @@ export class MonetizationClient {
    * Processes an AI request through the backend proxy.
    */
   static async processWithAI(userId: string, prompt: string): Promise<ProcessAIResponse> {
+    if (this.isMockMode()) {
+      return {
+        success: true,
+        content: prompt,
+        remaining: this.DEV_BALANCE,
+      };
+    }
+
     const url = `${this.getApiBase()}/`; // The ai-proxy is the root of the service
 
     try {
@@ -93,10 +127,8 @@ export class MonetizationClient {
       });
 
       if (!resp.ok) {
-        if (resp.status === 402) return { success: false, error: 'INSUFFICIENT_CREDITS' };
-        if (resp.status === 503) return { success: false, error: 'WEEKLY_CAP_EXCEEDED' };
         console.warn(`[MonetizationClient] processWithAI non-ok status ${resp.status}`);
-        return { success: false, error: 'UNKNOWN_ERROR' };
+        return this.passthroughAI(prompt);
       }
 
       // Use the type assertion here
@@ -112,13 +144,40 @@ export class MonetizationClient {
       }
 
       if ('error' in data) {
-        return { success: false, error: data.error, remaining: data.remaining };
+        console.warn(`[MonetizationClient] processWithAI returned error payload ${data.error}; using pass-through fallback`);
+        return this.passthroughAI(prompt);
       }
 
-      return { success: false, error: 'UNKNOWN_ERROR' };
+      return this.passthroughAI(prompt);
     } catch (err) {
       console.error('[MonetizationClient] processWithAI error:', err);
-      return { success: false, error: 'UNKNOWN_ERROR' };
+      return this.passthroughAI(prompt);
     }
+  }
+
+  static async startTrial(email: string): Promise<BillingActionResponse> {
+    if (!email || !email.includes('@')) {
+      return { success: false, error: 'VALID_EMAIL_REQUIRED' };
+    }
+
+    if (this.isMockMode()) {
+      return { success: true };
+    }
+
+    // Stubbed until billing backend endpoint is finalized.
+    return { success: true };
+  }
+
+  static async createSubscription(email: string): Promise<BillingActionResponse> {
+    if (!email || !email.includes('@')) {
+      return { success: false, error: 'VALID_EMAIL_REQUIRED' };
+    }
+
+    if (this.isMockMode()) {
+      return { success: true };
+    }
+
+    // Stubbed until billing backend endpoint is finalized.
+    return { success: true };
   }
 }

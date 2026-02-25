@@ -3,7 +3,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Storage } from '@/lib/storage';
-import { MonetizationClient } from '@/pro/mock-monetization-client';
+import { MonetizationClient } from '@/pro/monetization-client';
 import type { Settings } from '@/lib/types';
 
 export interface ProState {

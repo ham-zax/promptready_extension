@@ -2,7 +2,8 @@
 // Replaces scattered isPro checks and inconsistent Pro/Free messaging
 
 import { Storage } from './storage';
-import type { Settings, FeatureFlags } from './types';
+import { resolveEntitlements } from './entitlement-policy.js';
+import { getRuntimeProfile } from './runtime-profile.js';
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -27,11 +28,10 @@ export class AuthService {
   async getAuthState(): Promise<AuthState> {
     try {
       const settings = await Storage.getSettings();
-      const flags: Partial<FeatureFlags> = settings.flags || {};
-      
-      const isDeveloperMode = Boolean((flags as any).developerMode);
-      const hasApiKey = Boolean(settings.byok?.apiKey);
-      const remainingCredits = settings.credits?.remaining || 0;
+      const entitlements = resolveEntitlements(settings);
+      const isDeveloperMode = entitlements.isDeveloperMode;
+      const hasApiKey = entitlements.hasApiKey;
+      const remainingCredits = entitlements.credits.remaining || 0;
       
       // Determine plan type and access level
       let planType: AuthState['planType'];
@@ -45,10 +45,10 @@ export class AuthService {
         hasUnlimitedAccess = true;
       } else {
         planType = 'free';
-        hasUnlimitedAccess = false;
+        hasUnlimitedAccess = entitlements.hasUnlimitedAccess;
       }
       
-      const canUseAIMode = isDeveloperMode || hasApiKey || remainingCredits > 0;
+      const canUseAIMode = entitlements.flags.aiModeEnabled && (isDeveloperMode || hasApiKey || remainingCredits > 0);
       
       return {
         isAuthenticated: true, // Always authenticated once settings are loaded
@@ -66,13 +66,15 @@ export class AuthService {
   }
 
   private getDefaultAuthState(): AuthState {
+    const profile = getRuntimeProfile();
+    const devLike = profile.isDevelopment || profile.enforceDeveloperMode || profile.premiumBypassEnabled;
     return {
       isAuthenticated: false,
-      isDeveloperMode: true, // Default to developer mode for safety
-      hasUnlimitedAccess: true,
-      canUseAIMode: true,
-      planType: 'developer',
-      remainingCredits: 999999,
+      isDeveloperMode: devLike,
+      hasUnlimitedAccess: devLike,
+      canUseAIMode: devLike,
+      planType: devLike ? 'developer' : 'free',
+      remainingCredits: devLike ? 999999 : 0,
       hasApiKey: false
     };
   }

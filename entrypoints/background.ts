@@ -3,12 +3,21 @@
 
 import { browser } from 'wxt/browser';
 import { Storage } from '../lib/storage.js';
+import { getRuntimeProfile, validateRuntimeProfile, assertRuntimeProfileSafe } from '../lib/runtime-profile.js';
 
 import { ErrorHandler } from '../core/error-handler.js';
 import { ContentQualityValidator } from '../core/content-quality-validator.js';
 import { SessionMetricsStore } from '../core/metrics-session-store.js';
 
 export default defineBackground(() => {
+  const runtimeProfile = getRuntimeProfile();
+  const runtimeValidation = validateRuntimeProfile(runtimeProfile);
+  console.log('[RuntimeProfile] Effective profile:', runtimeProfile);
+  if (runtimeValidation.warnings.length > 0) {
+    console.warn('[RuntimeProfile] Warnings:', runtimeValidation.warnings);
+  }
+  assertRuntimeProfileSafe(runtimeProfile);
+
   console.log('PromptReady Enhanced Background Service Worker initialized');
 
   // Initialize the enhanced processing pipeline

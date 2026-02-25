@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { browser } from 'wxt/browser';
 import { Storage } from '@/lib/storage';
-import { MonetizationClient } from '@/pro/mock-monetization-client';
+import { MonetizationClient } from '@/pro/monetization-client';
 
 interface ProUpgradePromptProps {
   isVisible: boolean;
@@ -26,9 +25,10 @@ export function ProUpgradePrompt({ isVisible, onClose, onUpgradeComplete }: ProU
     setStep('processing');
 
     try {
-      // In a real implementation, this would integrate with Stripe/other payment provider
-      // For now, we'll simulate a successful trial start
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate API call
+      const trialResult = await MonetizationClient.startTrial(billingEmail);
+      if (!trialResult.success) {
+        throw new Error(trialResult.error || 'Unable to start trial');
+      }
 
       // Update user settings to reflect Pro status
       await Storage.updateSettings({

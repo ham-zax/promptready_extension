@@ -3,6 +3,7 @@
 
 import { browser } from 'wxt/browser';
 import { Settings, TelemetryEvent } from './types.js';
+import { getRuntimeProfile } from './runtime-profile.js';
 
 // =============================================================================
 // Storage Keys
@@ -18,8 +19,9 @@ const STORAGE_KEYS = {
 // Default Settings
 // =============================================================================
 
+const runtimeProfile = getRuntimeProfile();
 const DEFAULT_SETTINGS: Settings = {
-  mode: 'offline', // Default to Offline for free users
+  mode: runtimeProfile.premiumBypassEnabled || runtimeProfile.useMockMonetization ? 'ai' : 'offline',
   theme: 'system',
   templates: {
     bundles: [],
@@ -28,16 +30,16 @@ const DEFAULT_SETTINGS: Settings = {
     provider: 'openrouter',
     apiBase: 'https://openrouter.ai/api/v1',
     apiKey: '', // No demo key by default; users can add BYOK
-    model: 'anthropic/claude-3.5-sonnet',
-    selectedByokModel: 'anthropic/claude-3.5-sonnet',
+    model: 'arcee-ai/trinity-large-preview:free',
+    selectedByokModel: 'arcee-ai/trinity-large-preview:free',
   },
   privacy: {
     telemetryEnabled: false,
   },
-  isPro: false,
+  isPro: runtimeProfile.premiumBypassEnabled,
   credits: {
-    remaining: 10, // Small free quota; AI requires credits/BYOK
-    total: 10,
+    remaining: runtimeProfile.premiumBypassEnabled ? 999999 : 10,
+    total: runtimeProfile.premiumBypassEnabled ? 999999 : 10,
     lastReset: new Date().toISOString(),
   },
   user: {
@@ -64,7 +66,7 @@ const DEFAULT_SETTINGS: Settings = {
     aiModeEnabled: true,   // AI mode can be enabled when credits/BYOK or DEV
     byokEnabled: true,
     trialEnabled: true,
-    developerMode: false,  // Developer mode OFF by default
+    developerMode: runtimeProfile.enforceDeveloperMode,
   },
   ui: {
     theme: 'auto',
@@ -80,6 +82,35 @@ const DEFAULT_SETTINGS: Settings = {
 // =============================================================================
 
 export class Storage {
+  private static applyRuntimeOverrides(settings: Settings): Settings {
+    const profile = getRuntimeProfile();
+    if (!profile.premiumBypassEnabled && !profile.enforceDeveloperMode) {
+      return settings;
+    }
+
+    const flags = settings.flags || DEFAULT_SETTINGS.flags!;
+    const credits = settings.credits || DEFAULT_SETTINGS.credits!;
+
+    return {
+      ...settings,
+      mode: profile.premiumBypassEnabled || profile.useMockMonetization ? 'ai' : settings.mode,
+      isPro: profile.premiumBypassEnabled ? true : settings.isPro,
+      flags: {
+        ...flags,
+        aiModeEnabled: true,
+        byokEnabled: true,
+        trialEnabled: true,
+        developerMode: profile.enforceDeveloperMode ? true : Boolean(flags.developerMode),
+      },
+      credits: profile.premiumBypassEnabled
+        ? {
+          ...credits,
+          remaining: Math.max(credits.remaining || 0, 999999),
+          total: Math.max(credits.total || 0, 999999),
+        }
+        : credits,
+    };
+  }
 
   // ---------------------------------------------------------------------------
   // Settings Management
@@ -102,7 +133,7 @@ export class Storage {
           newSettings.user = { id: '' };
         }
         newSettings.user.id = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`; // Generate anonymous ID
-        return newSettings;
+        return this.applyRuntimeOverrides(newSettings);
       }
 
       // Migrate legacy mode values
@@ -139,10 +170,10 @@ export class Storage {
         });
       }
 
-      return settings;
+      return this.applyRuntimeOverrides(settings);
     } catch (error) {
       console.error('Failed to load settings:', error);
-      return DEFAULT_SETTINGS;
+      return this.applyRuntimeOverrides(DEFAULT_SETTINGS);
     }
   }
 
@@ -204,11 +235,12 @@ export class Storage {
         selectedByokModel:
           current.byok?.selectedByokModel || current.byok?.model || DEFAULT_SETTINGS.byok.selectedByokModel,
       } as Settings['byok'];
-      // A user with a BYOK key is considered "Pro"
+      const profile = getRuntimeProfile();
+      // A user with a BYOK key is considered "Pro". In development, keep premium bypass on.
       const trial = { ...(current.trial || {}), hasExhausted: false, showUpgradePrompt: false };
       await browser.storage.local.set(
         {
-          [STORAGE_KEYS.SETTINGS]: { ...current, byok, trial, isPro: Boolean(apiKey) },
+          [STORAGE_KEYS.SETTINGS]: { ...current, byok, trial, isPro: Boolean(apiKey) || profile.premiumBypassEnabled },
         }
       );
       // Cleanup any legacy encrypted key artifacts

@@ -6,8 +6,8 @@ import { getUserId } from '@/lib/user';
 import { browser } from 'wxt/browser';
 import { Storage } from '@/lib/storage';
 import type { Settings, CreditsState, UserState, TrialState } from '@/lib/types';
-import { BYOKClient } from '@/pro/byok-client';
-import { MonetizationClient } from '@/pro/mock-monetization-client';
+import { MonetizationClient } from '@/pro/monetization-client';
+import { resolveEntitlements } from '@/lib/entitlement-policy';
 import { ExperimentationClient, type CohortAssignment } from '@/pro/experimentation-client';
 import UI_MESSAGES from '@/lib/ui-messages';
 
@@ -63,26 +63,37 @@ type PopupAction =
   | { type: 'SET_SETTINGS_VIEW'; payload: { view: 'main' | 'byokChoice' | 'byokConfig' } }
   | { type: 'SET_BYOK_PROVIDER'; payload: { provider: 'openrouter' | 'manual' | 'z.ai' } };
 
+function deriveUiStateFromSettings(settings: Settings) {
+  const entitlements = resolveEntitlements(settings);
+  const effectiveMode =
+    (entitlements.flags.aiModeEnabled || entitlements.flags.developerMode)
+      ? settings.mode
+      : 'offline';
+
+  return {
+    effectiveMode,
+    isPro: entitlements.isPro,
+    hasApiKey: entitlements.hasApiKey,
+    credits: entitlements.credits,
+  };
+}
+
 // Reducer function
 function popupReducer(state: PopupState, action: PopupAction): PopupState {
   switch (action.type) {
     case 'SETTINGS_LOADED': {
       const { settings } = action.payload;
-      const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false, developerMode: false };
-      const effectiveMode = (flags.aiModeEnabled || flags.developerMode) ? settings.mode : 'offline';
-      const hasApiKey = Boolean(settings.byok?.apiKey);
-      // Developer mode or BYOK or credits makes user "Pro"
-      const isPro = flags.developerMode || hasApiKey || (settings.credits?.remaining || 0) > 0;
+      const next = deriveUiStateFromSettings(settings);
 
       return {
         ...state,
-        mode: effectiveMode,
-        isPro,
+        mode: next.effectiveMode,
+        isPro: next.isPro,
         settings,
-        credits: settings.credits,
+        credits: next.credits,
         user: settings.user,
         trial: settings.trial,
-        hasApiKey,
+        hasApiKey: next.hasApiKey,
         apiKeyInput: '',
       };
     }
@@ -91,11 +102,14 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
     case 'CREDITS_UPDATED': {
       const credits = action.payload.credits;
       const hasExhausted = credits.remaining <= 0;
+      const derived = state.settings
+        ? deriveUiStateFromSettings({ ...state.settings, credits } as Settings)
+        : null;
       return {
         ...state,
         credits: credits,
         trial: { ...state.trial, hasExhausted: hasExhausted },
-        isPro: (state.settings?.flags?.developerMode) || state.hasApiKey || !hasExhausted, // Recalculate isPro with dev mode
+        isPro: derived ? derived.isPro : ((state.settings?.flags?.developerMode) || state.hasApiKey || !hasExhausted),
       };
     }
     // A-- THIS IS THE MISSING PIECE --A
@@ -108,21 +122,16 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
     }
     case 'SETTINGS_UPDATED': {
       const { settings } = action.payload;
-      const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false, developerMode: false };
-      const hasApiKey = Boolean(settings.byok?.apiKey);
-      // Developer mode or BYOK or credits makes user "Pro"
-      const isPro = flags.developerMode || hasApiKey || (settings.credits?.remaining || 0) > 0;
-      // Keep UI selection in sync when settings.mode changes (and gate AI when disabled)
-      const effectiveMode = (flags.aiModeEnabled || flags.developerMode) ? settings.mode : 'offline';
+      const next = deriveUiStateFromSettings(settings);
       return {
         ...state,
-        mode: effectiveMode,
+        mode: next.effectiveMode,
         settings,
-        isPro,
-        credits: settings.credits,
+        isPro: next.isPro,
+        credits: next.credits,
         user: settings.user,
         trial: settings.trial,
-        hasApiKey,
+        hasApiKey: next.hasApiKey,
       };
     }
     case 'SET_APIKEY_INPUT': {
@@ -243,7 +252,7 @@ export function usePopupController() {
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        const settings = await Storage.getSettings();
+        let settings = await Storage.getSettings();
         dispatch({ type: 'SETTINGS_LOADED', payload: { settings } });
 
         const userId = await getUserId();
@@ -252,11 +261,12 @@ export function usePopupController() {
           if (!settings.user?.id) {
             await Storage.updateSettings({ user: { id: userId } });
             const updatedSettings = await Storage.getSettings();
-            dispatch({ type: 'SETTINGS_UPDATED', payload: { settings: updatedSettings } });
+            settings = updatedSettings;
+            dispatch({ type: 'SETTINGS_UPDATED', payload: { settings } });
           }
 
-          // Only query the credit system for non-BYOK users (BYOK implies paid) and not in developer mode
-          if (!settings.byok?.apiKey && !settings.flags?.developerMode) {
+          const entitlement = resolveEntitlements(settings);
+          if (entitlement.shouldFetchRemoteCredits) {
             try {
               const creditStatus = await MonetizationClient.checkCredits(userId);
               const credits: CreditsState = {
@@ -271,18 +281,15 @@ export function usePopupController() {
               // Do not block startup on credit fetch failure; show a non-blocking toast
               showToast(UI_MESSAGES.failedToLoadSettings, 'info');
             }
-          } else if (settings.flags?.developerMode) {
-            // Set unlimited credits for developer mode
-            const credits: CreditsState = {
-              remaining: 999999, // Essentially unlimited for development
-              total: 999999,
-              lastReset: new Date().toISOString(),
-            };
-            dispatch({ type: 'CREDITS_UPDATED', payload: { credits } });
+          } else {
+            dispatch({ type: 'CREDITS_UPDATED', payload: { credits: entitlement.credits } });
           }
 
           const cohort = await ExperimentationClient.getCohort(userId);
           dispatch({ type: 'COHORT_UPDATED', payload: { cohort } });
+        } else {
+          const entitlement = resolveEntitlements(settings);
+          dispatch({ type: 'CREDITS_UPDATED', payload: { credits: entitlement.credits } });
         }
       } catch (error) {
         console.error('Failed to load settings or extras:', error);

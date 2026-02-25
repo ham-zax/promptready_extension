@@ -1,5 +1,5 @@
 // Hook Tests
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useByokManager } from '@/entrypoints/popup/hooks/useByokManager';
 import { useProManager } from '@/entrypoints/popup/hooks/useProManager';
@@ -16,9 +16,31 @@ vi.mock('@/lib/storage', () => ({
   },
 }));
 
+vi.mock('@/pro/monetization-client', () => ({
+  MonetizationClient: {
+    startTrial: vi.fn().mockResolvedValue({ success: true }),
+    createSubscription: vi.fn().mockResolvedValue({ success: true }),
+  },
+}));
+
+vi.mock('@/lib/api-validation', () => ({
+  validateApiKey: vi.fn().mockResolvedValue({ isValid: true, message: 'Valid API key' }),
+  debouncedValidateApiKey: vi.fn().mockResolvedValue({ isValid: true, message: 'Valid API key' }),
+}));
+
 describe('useByokManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (Storage.getSettings as any).mockResolvedValue({
+      byok: {
+        provider: 'openrouter',
+        apiKey: '',
+        apiBase: 'https://openrouter.ai/api/v1',
+        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+      },
+      trial: {},
+      flags: {},
+    });
   });
 
   it('should initialize with default values', () => {
@@ -95,7 +117,8 @@ describe('useByokManager', () => {
         provider: 'openrouter',
         apiKey: 'sk-or-v1-valid123',
         apiBase: 'https://openrouter.ai/api/v1',
-        selectedByokModel: 'anthropic/claude-3.5-sonnet',
+        model: 'arcee-ai/trinity-large-preview:free',
+        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
       },
       isPro: true,
       trial: { hasExhausted: false, showUpgradePrompt: false },
@@ -152,7 +175,7 @@ describe('useProManager', () => {
         startedAt: expect.any(String),
         expiresAt: expect.any(String),
       },
-      user: { email: 'test@example.com' },
+      user: { id: expect.any(String), email: 'test@example.com' },
     });
 
     expect(result.current.isPro).toBe(true);
