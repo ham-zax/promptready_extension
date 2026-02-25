@@ -52,3 +52,11 @@ MVP_INTEGRATION_TEST_REPORT.md
 # Task files
 # tasks.json
 # tasks/ 
+
+# Local Taskmaster state/artifacts
+.taskmaster/config.json
+.taskmaster/state.json
+.taskmaster/templates/
+
+# Local debug artifacts
+output/
