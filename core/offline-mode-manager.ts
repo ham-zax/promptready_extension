@@ -221,9 +221,14 @@ export class OfflineModeManager {
           );
           extractedContent = extractionResult.content;
           if (config.fallbacks.enableReadabilityFallback && this.shouldFallbackForCoverage(extractedContent, html)) {
-            extractedContent = await this.fallbackContentExtraction(html);
-            fallbacksUsed.push('readability-low-coverage-fallback');
-            warnings.push('Readability extraction coverage low; used fallback content extraction');
+            const fallbackCandidate = await this.fallbackContentExtraction(html);
+            if (this.shouldAdoptFallbackCandidate(html, extractedContent, fallbackCandidate)) {
+              extractedContent = fallbackCandidate;
+              fallbacksUsed.push('readability-low-coverage-fallback');
+              warnings.push('Readability extraction coverage low; used fallback content extraction');
+            } else {
+              warnings.push('Readability extraction coverage low; retained readability candidate after quality check');
+            }
           }
           console.log('[OfflineModeManager] Readability extraction successful');
         } else {
@@ -690,7 +695,255 @@ export class OfflineModeManager {
     if (extractedText.length === 0) {
       return true;
     }
-    return (extractedText.length / sourceText.length) < 0.45;
+    const textCoverage = extractedText.length / sourceText.length;
+    if (textCoverage < 0.45) {
+      return true;
+    }
+
+    const originalDoc = safeParseHTML(originalHtml);
+    const extractedDoc = safeParseHTML(extractedContent);
+    if (!originalDoc || !extractedDoc || !originalDoc.body || !extractedDoc.body) {
+      return false;
+    }
+
+    const sourceRoot = this.selectCoverageRoot(originalDoc);
+    const extractedRoot = this.selectCoverageRoot(extractedDoc);
+    const sourceSectionCount = this.countSubstantialSections(sourceRoot);
+    const extractedSectionCount = this.countSubstantialSections(extractedRoot);
+    const isLandingLikeComposite = sourceSectionCount >= 2 && sourceSectionCount <= 8;
+
+    const sourceHeadings = this.collectMeaningfulHeadings(sourceRoot);
+    const extractedHeadings = this.collectMeaningfulHeadings(extractedRoot);
+
+    if (isLandingLikeComposite && sourceHeadings.length >= 2 && sourceHeadings.length <= 10) {
+      const matchedHeadings = sourceHeadings.filter((heading) =>
+        extractedHeadings.some((candidate) => this.areHeadingsEquivalent(heading, candidate))
+      ).length;
+      const headingCoverage = matchedHeadings / sourceHeadings.length;
+      if (headingCoverage < 0.6) {
+        return true;
+      }
+
+      const leadHeading = sourceHeadings[0];
+      if (
+        leadHeading &&
+        !extractedHeadings.some((candidate) => this.areHeadingsEquivalent(leadHeading, candidate))
+      ) {
+        return true;
+      }
+    }
+
+    const sourceHeadingCount = sourceRoot.querySelectorAll('h1, h2, h3, h4').length;
+    const extractedHeadingCount = extractedRoot.querySelectorAll('h1, h2, h3, h4').length;
+    if (
+      sourceHeadingCount >= 4 &&
+      extractedHeadingCount < Math.max(2, Math.floor(sourceHeadingCount * 0.4))
+    ) {
+      return true;
+    }
+
+    const sourceLists = sourceRoot.querySelectorAll('li').length;
+    const extractedLists = extractedRoot.querySelectorAll('li').length;
+    if (sourceLists >= 8 && extractedLists < Math.floor(sourceLists * 0.25)) {
+      return true;
+    }
+
+    if (
+      isLandingLikeComposite &&
+      extractedSectionCount < Math.max(1, Math.floor(sourceSectionCount * 0.5))
+      && this.containsUiNoiseSignals(extractedText)
+    ) {
+      return true;
+    }
+
+    if (
+      isLandingLikeComposite &&
+      this.containsUiNoiseSignals(extractedText)
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private static selectCoverageRoot(doc: Document): HTMLElement {
+    const preferred = doc.querySelector(
+      'main, article, [role="main"], #content, .content, .main-content'
+    ) as HTMLElement | null;
+    return preferred ?? (doc.body as HTMLElement);
+  }
+
+  private static collectMeaningfulHeadings(root: HTMLElement): string[] {
+    const seen = new Set<string>();
+    const headings = Array.from(root.querySelectorAll('h1, h2, h3, h4'))
+      .map((el) => this.normalizeHeadingForComparison(el.textContent || ''))
+      .filter((value) => value.length >= 10)
+      .filter((value) => {
+        if (seen.has(value)) {
+          return false;
+        }
+        seen.add(value);
+        return true;
+      });
+    return headings;
+  }
+
+  private static normalizeHeadingForComparison(value: string): string {
+    return this.normalizeInputText(value)
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private static areHeadingsEquivalent(source: string, candidate: string): boolean {
+    if (!source || !candidate) {
+      return false;
+    }
+    if (source === candidate) {
+      return true;
+    }
+    if (source.length >= 20 && candidate.includes(source)) {
+      return true;
+    }
+    if (candidate.length >= 20 && source.includes(candidate)) {
+      return true;
+    }
+
+    const sourceTokens = source.split(' ').filter((token) => token.length > 2);
+    const candidateTokens = new Set(candidate.split(' ').filter((token) => token.length > 2));
+    if (sourceTokens.length === 0 || candidateTokens.size === 0) {
+      return false;
+    }
+    const overlap = sourceTokens.filter((token) => candidateTokens.has(token)).length;
+    return overlap >= Math.min(3, sourceTokens.length, candidateTokens.size);
+  }
+
+  private static countSubstantialSections(root: HTMLElement): number {
+    const structuralContainers: HTMLElement[] = [];
+    for (const child of Array.from(root.children)) {
+      if (!child || typeof (child as Element).tagName !== 'string') {
+        continue;
+      }
+      const element = child as HTMLElement;
+      const tag = element.tagName.toLowerCase();
+      if (tag === 'section' || tag === 'article' || tag === 'main' || tag === 'div') {
+        structuralContainers.push(element);
+      }
+    }
+
+    if (structuralContainers.length === 0) {
+      return 0;
+    }
+
+    return structuralContainers.filter((container) => {
+      const textLength = this.normalizeInputText(container.textContent || '').length;
+      const headingCount = container.querySelectorAll('h1, h2, h3').length;
+      const hasMeaningfulHeading = headingCount > 0 && textLength >= 40;
+      if (textLength < 80 && !hasMeaningfulHeading) {
+        return false;
+      }
+      const classAndId = `${container.className || ''} ${container.id || ''}`.toLowerCase();
+      if (/(nav|menu|header|footer|sidebar|breadcrumb|ad|promo|cookie|subscribe|widget|modal)/i.test(classAndId)) {
+        return false;
+      }
+      const linkDensity = this.calculateLinkDensity(container);
+      return linkDensity <= 0.5;
+    }).length;
+  }
+
+  private static containsUiNoiseSignals(text: string): boolean {
+    return /(subscribe|newsletter|related links|accept all .*cookie|cookie settings|join waitlist|sign up)/i.test(text);
+  }
+
+  private static shouldAdoptFallbackCandidate(
+    originalHtml: string,
+    readabilityContent: string,
+    fallbackContent: string
+  ): boolean {
+    if (!fallbackContent || this.normalizeInputText(extractTextContent(fallbackContent)).length === 0) {
+      return false;
+    }
+
+    const readabilityAnalysis = this.analyzeExtractionCandidate(originalHtml, readabilityContent);
+    const fallbackAnalysis = this.analyzeExtractionCandidate(originalHtml, fallbackContent);
+
+    if (fallbackAnalysis.textLength < Math.min(200, readabilityAnalysis.textLength * 0.55)) {
+      return false;
+    }
+
+    if (readabilityAnalysis.hasNoiseSignals && !fallbackAnalysis.hasNoiseSignals) {
+      if (fallbackAnalysis.textLength >= readabilityAnalysis.textLength * 0.6) {
+        return true;
+      }
+    }
+
+    if (!readabilityAnalysis.leadHeadingPresent && fallbackAnalysis.leadHeadingPresent) {
+      if (fallbackAnalysis.textLength >= readabilityAnalysis.textLength * 0.6) {
+        return true;
+      }
+    }
+
+    if (fallbackAnalysis.headingCoverage >= readabilityAnalysis.headingCoverage + 0.2) {
+      if (fallbackAnalysis.textLength >= readabilityAnalysis.textLength * 0.7) {
+        return true;
+      }
+    }
+
+    if (fallbackAnalysis.sectionCount > readabilityAnalysis.sectionCount) {
+      if (fallbackAnalysis.textLength >= readabilityAnalysis.textLength * 0.7) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private static analyzeExtractionCandidate(
+    originalHtml: string,
+    candidateHtml: string
+  ): {
+    textLength: number;
+    headingCoverage: number;
+    sectionCount: number;
+    hasNoiseSignals: boolean;
+    leadHeadingPresent: boolean;
+  } {
+    const sourceDoc = safeParseHTML(originalHtml);
+    const candidateDoc = safeParseHTML(candidateHtml);
+
+    const candidateText = this.normalizeInputText(extractTextContent(candidateHtml));
+    if (!sourceDoc || !sourceDoc.body || !candidateDoc || !candidateDoc.body) {
+      return {
+        textLength: candidateText.length,
+        headingCoverage: 0,
+        sectionCount: 0,
+        hasNoiseSignals: this.containsUiNoiseSignals(candidateText),
+        leadHeadingPresent: false,
+      };
+    }
+
+    const sourceRoot = this.selectCoverageRoot(sourceDoc);
+    const candidateRoot = this.selectCoverageRoot(candidateDoc);
+    const sourceHeadings = this.collectMeaningfulHeadings(sourceRoot);
+    const candidateHeadings = this.collectMeaningfulHeadings(candidateRoot);
+
+    const matchedHeadings = sourceHeadings.filter((heading) =>
+      candidateHeadings.some((candidate) => this.areHeadingsEquivalent(heading, candidate))
+    ).length;
+    const headingCoverage = sourceHeadings.length > 0 ? matchedHeadings / sourceHeadings.length : 1;
+    const leadHeading = sourceHeadings[0];
+    const leadHeadingPresent = !!leadHeading && candidateHeadings.some((heading) =>
+      this.areHeadingsEquivalent(leadHeading, heading)
+    );
+
+    return {
+      textLength: candidateText.length,
+      headingCoverage,
+      sectionCount: this.countSubstantialSections(candidateRoot),
+      hasNoiseSignals: this.containsUiNoiseSignals(candidateText),
+      leadHeadingPresent,
+    };
   }
 
   private static sanitizeRiskyMarkdown(markdown: string, warnings: string[]): string {
@@ -930,7 +1183,11 @@ export class OfflineModeManager {
         const { bestCandidate } = ScoringEngine.findBestCandidate(body);
         if (bestCandidate && bestCandidate.element && bestCandidate.score > 0) {
           console.log(`[OfflineModeManager] Using ScoringEngine result with score: ${bestCandidate.score}`);
-          const pruned = ScoringEngine.pruneNode(bestCandidate.element);
+          const selectedContainer = this.expandScoringCandidate(bestCandidate.element, body);
+          const pruned = ScoringEngine.pruneNode(selectedContainer);
+          if (this.normalizeInputText(extractTextContent(pruned.innerHTML)).length === 0) {
+            return selectedContainer.innerHTML;
+          }
           return pruned.innerHTML;
         }
       }
@@ -961,6 +1218,56 @@ export class OfflineModeManager {
     }
   
     return html;
+  }
+
+  private static expandScoringCandidate(candidate: HTMLElement, body: HTMLElement): HTMLElement {
+    let selected = candidate;
+    let current = candidate.parentElement as HTMLElement | null;
+    const bodyTextLength = this.normalizeInputText(body.textContent || '').length || 1;
+
+    while (current && current !== body) {
+      const currentTextLength = this.normalizeInputText(current.textContent || '').length;
+      const selectedTextLength = this.normalizeInputText(selected.textContent || '').length || 1;
+      const classAndId = `${current.className || ''} ${current.id || ''}`.toLowerCase();
+      const isLikelyNoiseContainer =
+        /(nav|menu|header|footer|sidebar|breadcrumb|ad|promo|cookie|subscribe|widget|modal)/i.test(classAndId);
+      const linkDensity = this.calculateLinkDensity(current);
+      const headingCount = current.querySelectorAll('h1, h2, h3, h4').length;
+      const sectionCount = current.querySelectorAll('section, article').length;
+      const role = (current.getAttribute('role') || '').toLowerCase();
+      const isPrimaryContainer =
+        current.tagName.toLowerCase() === 'main' ||
+        current.tagName.toLowerCase() === 'article' ||
+        role === 'main';
+
+      const expandsMeaningfully = currentTextLength >= selectedTextLength * 1.5;
+      const gainsStructure = headingCount >= 2 || sectionCount >= 2;
+      const withinReasonableBounds = isPrimaryContainer
+        ? currentTextLength <= bodyTextLength * 1.02
+        : currentTextLength <= bodyTextLength * 0.95;
+      const acceptableDensity = isPrimaryContainer ? linkDensity <= 0.55 : linkDensity <= 0.42;
+
+      if (
+        !isLikelyNoiseContainer &&
+        acceptableDensity &&
+        withinReasonableBounds &&
+        (expandsMeaningfully || gainsStructure)
+      ) {
+        selected = current;
+      }
+
+      current = current.parentElement as HTMLElement | null;
+    }
+
+    return selected;
+  }
+
+  private static calculateLinkDensity(el: HTMLElement): number {
+    const totalTextLength = this.normalizeInputText(el.textContent || '').length || 1;
+    const linkTextLength = Array.from(el.querySelectorAll('a')).reduce((sum, link) => {
+      return sum + this.normalizeInputText(link.textContent || '').length;
+    }, 0);
+    return linkTextLength / totalTextLength;
   }
 
   /**
@@ -1389,10 +1696,10 @@ export class OfflineModeManager {
 
     const title = metadata.title || 'Untitled Page';
     const url = metadata.url || '';
-    const date = metadata.capturedAt ? new Date(metadata.capturedAt).toISOString().split('T')[0] : 'Unknown Date';
+    const captured = metadata.capturedAt ? new Date(metadata.capturedAt).toISOString() : 'Unknown Date';
     const hash = metadata.selectionHash || 'N/A';
 
-    const citationHeader = `> Source: [${title}](${url})\n> Captured: ${date}\n> Hash: ${hash}\n\n`;
+    const citationHeader = `> Source: [${title}](${url})\n> Captured: ${captured}\n> Hash: ${hash}\n\n`;
 
     return citationHeader + result;
   }

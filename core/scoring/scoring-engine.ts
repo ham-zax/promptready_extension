@@ -3,7 +3,7 @@
 
 export class ScoringEngine {
   private static POSITIVE_KEYWORDS = /(content|article|body|main|story|product|detail|overview|spec|datasheet)/i;
-  private static NEGATIVE_KEYWORDS = /(nav|menu|header|footer|sidebar|breadcrumb|social|comment|ad|promo|widget|popup)/i;
+  private static NEGATIVE_KEYWORDS = /(nav|menu|header|footer|sidebar|breadcrumb|comment|ad|promo|widget|popup|newsletter|cookie|modal|social[-_ ]?(share|icons?|links?|buttons?)|share[-_ ]?(button|icons?|links?))/i;
 
   /**
    * Score an element by combining multiple heuristics.
@@ -22,11 +22,14 @@ export class ScoringEngine {
       }
 
       const text = (el.textContent || '').trim();
-      if (text.length < 50) return 0; // ignore tiny elements
+      const classAndTypeScore = this.scoreByClassName(el) + this.scoreByElementType(el);
+      if (text.length < 50) {
+        // Preserve short semantic nodes by default, but still prune explicit noise.
+        return classAndTypeScore < 0 ? classAndTypeScore : 0;
+      }
 
       let score = 0;
-      score += this.scoreByClassName(el);
-      score += this.scoreByElementType(el);
+      score += classAndTypeScore;
       score -= this.calculateLinkDensityPenalty(el);
       score += this.scoreByContentCharacteristics(el);
 
@@ -117,9 +120,9 @@ export class ScoringEngine {
     let bestCandidate: { element: HTMLElement; score: number } | null = null;
     let maxScore = -Infinity;
 
-    const candidates: HTMLElement[] = [];
-    // Collect all block-level elements as candidates
-    root.querySelectorAll('div, p, article, section, main, aside, header, footer, nav').forEach(el => {
+    const candidates: HTMLElement[] = [root];
+    // Prefer container-level blocks; avoid tiny inline leafs like single paragraphs.
+    root.querySelectorAll('article, main, section, div').forEach(el => {
       candidates.push(el as HTMLElement);
     });
 
@@ -153,11 +156,7 @@ export class ScoringEngine {
     for (const child of Array.from(node.children)) {
       const childEl = child as HTMLElement;
       const score = this.scoreNode(childEl);
-
-      console.log(`[BMAD_PRUNE_DBG] Pruning Candidate: <${childEl.tagName.toLowerCase()} id="${childEl.id}" class="${childEl.className}"> -- Score: ${score}`);
-
       if (score < NEGATIVE_SCORE_THRESHOLD) {
-        console.warn(`[BMAD_PRUNE] Pruning node with score ${score}:`, childEl);
         childEl.remove();
       } else {
         // If the child is not removed, prune its children

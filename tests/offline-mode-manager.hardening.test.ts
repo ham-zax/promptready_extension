@@ -56,6 +56,94 @@ describe('OfflineModeManager hardening regressions', () => {
     expect(result.markdown).not.toContain('SIDEBAR_NOISE_TOKEN');
   });
 
+  it('retains multi-section document structure during fallback extraction', async () => {
+    const html = `
+      <html>
+        <body>
+          <header>NAVIGATION LINKS HOME PRICING DOCS</header>
+          <main id="landing-content">
+            <section class="hero">
+              <h1>PromptReady — One-click clean Markdown from any page</h1>
+              <p>PromptReady extracts useful parts and preserves structure.</p>
+            </section>
+            <section class="comparison">
+              <h2>Before / After comparison</h2>
+              <div class="promo">Save 40% today! Subscribe to our newsletter.</div>
+              <p>${'Breaking down retrieval-augmented generation in production. '.repeat(90)}</p>
+              <footer>Subscribe to our newsletter | Related links | Footer text</footer>
+            </section>
+            <section class="social-proof">
+              <h2>Trusted by builders, researchers, and operators</h2>
+              <p>Teams use PromptReady when they need reliable context.</p>
+            </section>
+            <section class="faq">
+              <h2>Frequently asked questions</h2>
+              <ul>
+                <li>Is it local first?</li>
+                <li>Do I need an API key?</li>
+                <li>Will it preserve code and tables?</li>
+              </ul>
+            </section>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const result = await OfflineModeManager.processContent(
+      html,
+      'https://example.com/landing',
+      'PromptReady Landing',
+      baseConfig,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.processingStats.fallbacksUsed).toContain('readability-fallback');
+    expect(result.markdown).toContain('PromptReady — One-click clean Markdown from any page');
+    expect(result.markdown).toContain('Trusted by builders, researchers, and operators');
+    expect(result.markdown).toContain('Frequently asked questions');
+    expect(result.markdown).not.toContain('Save 40% today! Subscribe to our newsletter.');
+    expect(result.markdown).not.toContain('Subscribe to our newsletter | Related links | Footer text');
+  });
+
+  it('recovers hero section when readability captures only a dominant subsection', async () => {
+    const html = `
+      <html>
+        <body>
+          <main id="landing-content">
+            <section id="hero">
+              <h1>PromptReady — One-click clean Markdown from any page</h1>
+              <p>Cleaner input. Better model output.</p>
+            </section>
+            <section id="before-after">
+              <h2>Before / After comparison</h2>
+              <div class="promo">Save 40% today! Subscribe to our newsletter.</div>
+              <p>${'Breaking down retrieval-augmented generation in production. '.repeat(120)}</p>
+              <footer>Subscribe to our newsletter | Related links | Footer text</footer>
+            </section>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const defaultLikeConfig = {
+      ...baseConfig,
+      readabilityPreset: undefined,
+    };
+
+    const result = await OfflineModeManager.processContent(
+      html,
+      'https://promptready.app/',
+      'PromptReady Landing',
+      defaultLikeConfig,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.markdown).toContain('PromptReady — One-click clean Markdown from any page');
+    expect(result.markdown).toContain('Before / After comparison');
+    expect(result.markdown).not.toContain('Save 40% today! Subscribe to our newsletter.');
+    expect(result.markdown).not.toContain('Subscribe to our newsletter | Related links | Footer text');
+  });
+
   it('records non-negative timing and closes failed session state', async () => {
     const result = await OfflineModeManager.processContent(
       '',

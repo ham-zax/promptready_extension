@@ -2,7 +2,6 @@
 // Based on Architecture Section 7 (Core Modules)
 
 import { FileNamingService } from '../lib/fileNaming.js';
-import GracefulDegradationPipeline from '../core/graceful-degradation-pipeline.js';
 import type { PipelineResult } from '../core/graceful-degradation-pipeline.js';
 
 export interface CaptureResult {
@@ -189,7 +188,8 @@ export class ContentCapture {
 
   /**
    * Capture full page content (fallback when no selection)
-   * Uses graceful degradation pipeline for robust content extraction
+   * Captures a sanitized full-page snapshot. Extraction decisions are centralized
+   * in the offscreen pipeline to avoid double-processing loss.
    */
   static async captureFullPage(): Promise<CaptureResult> {
     try {
@@ -205,26 +205,15 @@ export class ContentCapture {
         console.warn('[ContentCapture] markHiddenNodes failed during captureFullPage:', e);
       }
 
-      // Use graceful degradation pipeline for robust extraction
-      console.log('captureFullPage: Executing graceful degradation pipeline...');
-      const pipelineResult = await GracefulDegradationPipeline.execute(document, {
-        debug: true,  // Enable debug to troubleshoot Reddit extraction
-        enableStage1: true,
-        enableStage2: true,
-        enableStage3: true,
-      });
-
-      console.log(
-        `captureFullPage: Pipeline completed - Stage: ${pipelineResult.stage}, Quality: ${pipelineResult.qualityScore}/100`
-      );
-
-      // Clone extracted content to ensure it's safe to manipulate
       const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = pipelineResult.content;
+      tempDiv.innerHTML = document.body?.innerHTML || document.documentElement?.innerHTML || '';
       this.removeUnwantedTags(tempDiv);
       this.fixRelativeUrls(tempDiv, window.location.href);
 
       const html = tempDiv.innerHTML;
+      if (!html.trim()) {
+        throw new Error('No capturable full-page HTML content found');
+      }
       console.log('captureFullPage: HTML content length:', html.length);
       console.log('captureFullPage: Generating selection hash...');
       const selectionHash = await FileNamingService.generateSelectionHash(html);
@@ -239,7 +228,6 @@ export class ContentCapture {
         title: this.extractPageTitle(),
         selectionHash,
         isSelection: false,
-        pipelineMetadata: pipelineResult,
       };
 
       console.log('captureFullPage: Capture completed successfully');
