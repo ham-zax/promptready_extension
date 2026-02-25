@@ -19,6 +19,7 @@
     "test:smoke": "vitest run tests/hooks.test.tsx tests/ByokSettings.test.tsx tests/offline-processor.test.ts tests/ai-proxy.byok-cors.test.ts tests/runtime-profile.test.ts",
     "test:offline:promptready": "vitest run tests/offline-promptready-iteration.test.ts",
     "test:offline:corpus": "vitest run tests/offline-fixture-regression.test.ts",
+    "test:offline:news": "vitest run tests/offline-news-fixture-regression.test.ts",
     "capture:fixture": "bash scripts/capture-fixture.sh",
     "capture:fixtures:core": "bash scripts/capture-core-fixtures.sh",
     "capture:fixtures:news": "bash scripts/capture-news-fixtures.sh",

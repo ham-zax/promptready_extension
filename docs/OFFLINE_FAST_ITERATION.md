@@ -21,6 +21,7 @@ What it does:
 - `iterate:offline:corpus`:
 - runs `tests/offline-promptready-iteration.test.ts`
 - runs `tests/offline-fixture-regression.test.ts`
+- runs `tests/offline-news-fixture-regression.test.ts`
 - optionally refreshes fixtures before tests (see env vars below)
 
 ## Why Rendered Capture Is Default

@@ -9,6 +9,10 @@ export interface QualityMetrics {
   headingCount: number;
   signalToNoiseRatio: number;
   structureScore: number;
+  temporalSignalCount: number;
+  bylineSignalCount: number;
+  orderedListCount: number;
+  retentionCueScore: number;
 }
 
 export interface QualityGateResult {
@@ -21,7 +25,7 @@ export interface QualityGateResult {
 export class QualityGateValidator {
   /**
    * Validates semantic query results (Stage 1)
-   * Strict threshold: 60+ score required
+   * Strict threshold: 55+ score required
    */
   static validateSemanticQuery(element: Element | null): QualityGateResult {
     if (!element) {
@@ -49,7 +53,7 @@ export class QualityGateValidator {
     if (metrics.structureScore < 10) {
       failureReasons.push(`Poor structure score: ${metrics.structureScore} < 10`);
     }
-    const passed = score >= 60 && failureReasons.length === 0;
+    const passed = score >= 55 && failureReasons.length === 0;
 
     return {
       passed,
@@ -165,6 +169,39 @@ export class QualityGateValidator {
     ).length;
     const structureScore = Math.min(100, semanticElements * 20 + headingCount * 5);
 
+    // Retention cue detection: helps rank candidates that preserve chronology and attribution.
+    const temporalSignalCount =
+      element.querySelectorAll(
+        'time, [datetime], [itemprop*="date"], [class*="date"], [class*="time"], [data-testid*="time"], [data-testid*="date"]'
+      ).length;
+    const bylineSignalCount =
+      element.querySelectorAll(
+        '[rel="author"], [itemprop*="author"], .byline, [class*="author"], [data-testid*="author"]'
+      ).length;
+    const orderedListCount = element.querySelectorAll('ol').length;
+
+    const textLower = text.toLowerCase();
+    const temporalTextHits = Math.min(
+      3,
+      (textLower.match(
+        /\b(\d{1,2}:\d{2}\s?(?:am|pm)?|\d{4}-\d{2}-\d{2}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2})\b/gi
+      ) || []).length
+    );
+    const bylineTextHits = /\bby\s+[a-z][a-z\s.'-]{2,60}\b/i.test(textLower) ? 1 : 0;
+    const numberedEntryHits = Math.min(
+      3,
+      (text.match(/(^|\n)\s*\d{1,2}[.)]\s+\S/gm) || []).length
+    );
+    const retentionCueScore = Math.min(
+      100,
+      temporalSignalCount * 20 +
+        bylineSignalCount * 18 +
+        orderedListCount * 12 +
+        temporalTextHits * 8 +
+        bylineTextHits * 8 +
+        numberedEntryHits * 8
+    );
+
     return {
       characterCount,
       paragraphCount,
@@ -173,6 +210,10 @@ export class QualityGateValidator {
       headingCount,
       signalToNoiseRatio,
       structureScore,
+      temporalSignalCount,
+      bylineSignalCount,
+      orderedListCount,
+      retentionCueScore,
     };
   }
 
@@ -184,30 +225,33 @@ export class QualityGateValidator {
 
     let score = 0;
 
-    // Character count scoring (0-30 points)
+    // Character count scoring (0-25 points)
     if (metrics.characterCount < 300) score += 0;
-    else if (metrics.characterCount < 1000) score += 15;
-    else if (metrics.characterCount < 5000) score += 25;
-    else score += 30;
+    else if (metrics.characterCount < 1000) score += 12;
+    else if (metrics.characterCount < 5000) score += 20;
+    else score += 25;
 
-    // Paragraph count scoring (0-20 points)
-    if (metrics.paragraphCount >= 5) score += 20;
-    else if (metrics.paragraphCount >= 3) score += 15;
-    else if (metrics.paragraphCount >= 1) score += 10;
+    // Paragraph count scoring (0-18 points)
+    if (metrics.paragraphCount >= 5) score += 18;
+    else if (metrics.paragraphCount >= 3) score += 14;
+    else if (metrics.paragraphCount >= 1) score += 8;
 
-    // Link density scoring (0-20 points)
-    if (metrics.linkDensity < 0.1) score += 20;
-    else if (metrics.linkDensity < 0.2) score += 15;
-    else if (metrics.linkDensity < 0.4) score += 10;
-    else if (metrics.linkDensity < 0.6) score += 5;
+    // Link density scoring (0-15 points)
+    if (metrics.linkDensity < 0.1) score += 15;
+    else if (metrics.linkDensity < 0.2) score += 12;
+    else if (metrics.linkDensity < 0.4) score += 8;
+    else if (metrics.linkDensity < 0.6) score += 4;
 
-    // Signal-to-noise ratio scoring (0-15 points)
-    if (metrics.signalToNoiseRatio > 0.5) score += 15;
-    else if (metrics.signalToNoiseRatio > 0.3) score += 10;
-    else if (metrics.signalToNoiseRatio > 0.1) score += 5;
+    // Signal-to-noise ratio scoring (0-10 points)
+    if (metrics.signalToNoiseRatio > 0.5) score += 10;
+    else if (metrics.signalToNoiseRatio > 0.3) score += 7;
+    else if (metrics.signalToNoiseRatio > 0.1) score += 3;
 
     // Structure score (0-15 points)
     score += Math.min(15, metrics.structureScore / 10);
+
+    // Retention cues (0-17 points)
+    score += Math.min(17, metrics.retentionCueScore / 6);
 
     return Math.round(Math.min(100, Math.max(0, score)));
   }
@@ -237,6 +281,10 @@ export class QualityGateValidator {
       `  - Signal-to-Noise: ${(metrics.signalToNoiseRatio * 100).toFixed(1)}%`
     );
     lines.push(`  - Structure Score: ${metrics.structureScore.toFixed(1)}`);
+    lines.push(`  - Temporal Signals: ${metrics.temporalSignalCount}`);
+    lines.push(`  - Byline Signals: ${metrics.bylineSignalCount}`);
+    lines.push(`  - Ordered Lists: ${metrics.orderedListCount}`);
+    lines.push(`  - Retention Cue Score: ${metrics.retentionCueScore.toFixed(1)}`);
 
     if (failureReasons.length > 0) {
       lines.push('');
@@ -258,6 +306,10 @@ export class QualityGateValidator {
       headingCount: 0,
       signalToNoiseRatio: 0,
       structureScore: 0,
+      temporalSignalCount: 0,
+      bylineSignalCount: 0,
+      orderedListCount: 0,
+      retentionCueScore: 0,
     };
   }
 }

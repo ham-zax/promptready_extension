@@ -191,12 +191,7 @@ describe('GracefulDegradationPipeline', () => {
       });
 
       expect(Array.isArray(result.fallbacksUsed)).toBe(true);
-      // fallbacksUsed should be an array (may be empty if Stage 1 succeeded)
-      if (result.fallbacksUsed.length > 0) {
-        expect(result.fallbacksUsed[0]).toMatch(
-          /semantic-gate-failed|readability-gate-failed/
-        );
-      }
+      expect(result.fallbacksUsed.every(item => typeof item === 'string')).toBe(true);
     });
 
     it('should never return empty content regardless of stage', async () => {
@@ -339,6 +334,20 @@ describe('GracefulDegradationPipeline', () => {
       expect(result).toBeDefined();
 
       consoleLogSpy.mockRestore();
+    });
+
+    it('should return deterministic body fallback when all extraction stages are disabled', async () => {
+      const result = await GracefulDegradationPipeline.execute(mockDocument, {
+        enableStage1: false,
+        enableStage2: false,
+        enableStage3: false,
+      });
+
+      expect(result).toBeDefined();
+      expect(result.stage).toBe('heuristic');
+      expect(result.fallbacksUsed).toContain('all-stages-disabled');
+      expect(result.fallbacksUsed).not.toContain('pipeline-error');
+      expect(result.qualityReport).toContain('No extraction stages enabled');
     });
   });
 

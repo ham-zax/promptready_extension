@@ -360,6 +360,40 @@ Reliable extraction summary remains here.
     expect(canonical).not.toContain('[](/AbdullahY36)');
   });
 
+  it('strips leading breadcrumb chrome and social embeds before the primary heading', () => {
+    const warnings: string[] = [];
+    const noisyPrelude = `- [News](https://timesofindia.indiatimes.com/)
+- [India News](https://timesofindia.indiatimes.com/india)
+- PM Modi Israel Visit Live: Netanyahu to host PM Modi for dinner; key MoUs to be inked on Feb 26
+THE TIMES OF INDIA | Feb 26, 2026, 00:17:30 IST
+
+# PM Modi Israel Visit Live: Netanyahu to host PM Modi for dinner; key MoUs to be inked on Feb 26
+
+Prime Minister Narendra Modi and Israeli Prime Minister Benjamin Netanyahu attend a technology and innovations exhibition.
+
+> &mdash; ANI (@ANI)[](https://twitter.com/ANI/status/2026730506428232065)
+
+Core article body paragraph remains here.`;
+
+    const canonical = OfflineModeManager.canonicalizeDeliveredMarkdown(
+      noisyPrelude,
+      {
+        title: 'PM Modi Israel Visit Live',
+        url: 'https://timesofindia.indiatimes.com/liveblog',
+        capturedAt: '2026-02-25T23:17:06.773Z',
+        selectionHash: 'toi-live-hash',
+      },
+      warnings
+    );
+
+    expect(canonical).not.toContain('- [News](');
+    expect(canonical).not.toContain('- [India News](');
+    expect(canonical).not.toContain('THE TIMES OF INDIA |');
+    expect(canonical).not.toContain('&mdash; ANI');
+    expect(canonical).toContain('# PM Modi Israel Visit Live');
+    expect(canonical).toContain('Core article body paragraph remains here.');
+  });
+
   it('normalizes excessive markdown spacing during canonicalization', () => {
     const warnings: string[] = [];
     const noisySpacing = `# Heading
@@ -441,6 +475,31 @@ Paragraph two.
       html,
       'https://example.com/live-stream',
       'Live Update Stream',
+      baseConfig,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.metadata.publishedAtText).toBe('14:43 (IST) Feb 25');
+    expect(result.markdown).toContain('> Published: 14:43 (IST) Feb 25');
+  });
+
+  it('extracts timestamp fragments from long noisy dateline text', async () => {
+    const html = `
+      <html>
+        <body>
+          <article>
+            <h1>Live Feed Coverage</h1>
+            <div class="dateline">14:43 (IST) Feb 25 PM Modi Israel Visit Live: Meeting with Israeli President Herzog Scheduled</div>
+            <p>${'Live feed details continue through the article body to keep extraction realistic and stable. '.repeat(20)}</p>
+          </article>
+        </body>
+      </html>
+    `;
+
+    const result = await OfflineModeManager.processContent(
+      html,
+      'https://example.com/live-feed',
+      'Live Feed Coverage',
       baseConfig,
     );
 

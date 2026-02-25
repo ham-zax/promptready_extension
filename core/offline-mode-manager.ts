@@ -109,6 +109,81 @@ export class OfflineModeManager {
 
   // Use IndexedDB for persistent, high-performance caching
   private static readonly DEFAULT_CACHE_TTL_HOURS = 24;
+  private static readonly URL_CONFIG_RULES: Array<{
+    id: string;
+    match: (normalizedUrl: string) => boolean;
+    apply: (config: OfflineModeConfig) => void;
+  }> = [
+    {
+      id: 'reddit',
+      match: (normalizedUrl) => normalizedUrl.includes('reddit.com'),
+      apply: (config) => {
+        config.readabilityPreset = 'reddit-post';
+        config.turndownPreset = 'standard';
+        config.postProcessing = {
+          ...config.postProcessing,
+          addTableOfContents: false,
+          optimizeForPlatform: 'standard',
+        };
+      },
+    },
+    {
+      id: 'technical-docs',
+      match: (normalizedUrl) =>
+        normalizedUrl.includes('github.com') ||
+        normalizedUrl.includes('docs.') ||
+        normalizedUrl.includes('api.'),
+      apply: (config) => {
+        config.readabilityPreset = 'technical-documentation';
+        config.turndownPreset = 'github';
+        config.postProcessing.optimizeForPlatform = 'github';
+      },
+    },
+    {
+      id: 'blog',
+      match: (normalizedUrl) =>
+        normalizedUrl.includes('blog') ||
+        normalizedUrl.includes('medium.com') ||
+        normalizedUrl.includes('substack.com'),
+      apply: (config) => {
+        config.readabilityPreset = 'blog-article';
+        config.turndownPreset = 'standard';
+        config.postProcessing.addTableOfContents = true;
+      },
+    },
+    {
+      id: 'wiki',
+      match: (normalizedUrl) =>
+        normalizedUrl.includes('wikipedia.org') ||
+        normalizedUrl.includes('wiki'),
+      apply: (config) => {
+        config.readabilityPreset = 'wiki-content';
+        config.turndownPreset = 'standard';
+        config.postProcessing.addTableOfContents = true;
+      },
+    },
+  ];
+
+  private static mergeConfig(
+    overrides?: Partial<OfflineModeConfig>
+  ): OfflineModeConfig {
+    return {
+      ...this.DEFAULT_CONFIG,
+      ...overrides,
+      postProcessing: {
+        ...this.DEFAULT_CONFIG.postProcessing,
+        ...(overrides?.postProcessing || {}),
+      },
+      performance: {
+        ...this.DEFAULT_CONFIG.performance,
+        ...(overrides?.performance || {}),
+      },
+      fallbacks: {
+        ...this.DEFAULT_CONFIG.fallbacks,
+        ...(overrides?.fallbacks || {}),
+      },
+    };
+  }
 
   /**
    * Main offline processing entry point
@@ -119,7 +194,7 @@ export class OfflineModeManager {
     title: string,
     customConfig?: Partial<OfflineModeConfig>
   ): Promise<OfflineProcessingResult> {
-    const config = { ...this.DEFAULT_CONFIG, ...customConfig };
+    const config = this.mergeConfig(customConfig);
     const cacheSourceHtml = html;
     const normalizedHtmlForKey = typeof html === 'string' ? html : '';
     const inFlightKey = await this.generateInFlightKey(normalizedHtmlForKey, url, config);
@@ -1288,7 +1363,7 @@ export class OfflineModeManager {
     if (/(limit my search|advanced search: by author|see the search faq|view more:|join reddit|ad-free experience)/i.test(text)) {
       penalty += 12;
     }
-    if (/<path d=|stroke-width=|transform=\"translate\(|<\/svg>/i.test(candidateHtml)) {
+    if (/<path d=|stroke-width=|transform="translate\(|<\/svg>/i.test(candidateHtml)) {
       penalty += 24;
     }
 
@@ -1318,7 +1393,7 @@ export class OfflineModeManager {
         anchorCount: 0,
         repeatedItemBlocks: 0,
         formLikeBlocks: 0,
-        containsVectorNoise: /<path d=|stroke-width=|transform=\"translate\(|<\/svg>/i.test(candidateHtml),
+        containsVectorNoise: /<path d=|stroke-width=|transform="translate\(|<\/svg>/i.test(candidateHtml),
       };
     }
 
@@ -1345,7 +1420,7 @@ export class OfflineModeManager {
       anchorCount: candidateRoot.querySelectorAll('a').length,
       repeatedItemBlocks: this.countRepeatedItemBlocks(candidateRoot),
       formLikeBlocks: this.countFormLikeBlocks(candidateRoot),
-      containsVectorNoise: /<path d=|stroke-width=|transform=\"translate\(|<\/svg>/i.test(candidateHtml),
+      containsVectorNoise: /<path d=|stroke-width=|transform="translate\(|<\/svg>/i.test(candidateHtml),
     };
   }
 
@@ -1412,20 +1487,37 @@ export class OfflineModeManager {
         );
       const isInlineDataUriNoise =
         /data:image\/svg\+xml/.test(normalized) ||
-        /svg\"><g d=\"m [\d\s\.\-lcz]+/.test(normalized);
+        /svg"><g d="m [\d\s.lcz-]+/.test(normalized);
       const isCounterNoise = /^\d{1,6}$/.test(trimmed) || /^links from:?$/i.test(trimmed) || /^past (hour|24 hours|week|month|year|all time)$/i.test(trimmed);
       const isRedditTimeFilterLine =
         /^\[(past hour|past 24 hours|past week|past month|past year|all time)\]\([^)]+\)$/i.test(trimmed);
       const isVectorPathLine =
-        /<path d=|stroke-width=|stroke-linecap=|stroke-linejoin=|transform=\"translate\(/i.test(trimmed) ||
+        /<path d=|stroke-width=|stroke-linecap=|stroke-linejoin=|transform="translate\(/i.test(trimmed) ||
         /<\/svg>/i.test(trimmed);
+      const isSocialActionLine =
+        /^(share|save|sharesave|copy link|print|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)$/i.test(trimmed) ||
+        /^\[(share|save|copy link|print|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)\]\([^)]+\)$/i.test(trimmed);
+      const isSocialIconMarkdown = /^!\[(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share)\]\(/i.test(trimmed);
+      const isStandaloneMarker = trimmed === '*' || trimmed === '•';
+      const isPreferencePromoLine = /^make us preferred source on google$/i.test(normalized);
       const isGithubChromeLine =
         /^\[skip to content\]\(#start-of-content\)$/i.test(trimmed) ||
         /^\[(sponsor|star)\]\(/i.test(trimmed) ||
         /^\]\(\/[^)]+\)\[?$/.test(trimmed) ||
         /^built by\s*\[?$/i.test(trimmed);
 
-      return !(isUiNoise || isInlineDataUriNoise || isCounterNoise || isRedditTimeFilterLine || isVectorPathLine || isGithubChromeLine);
+      return !(
+        isUiNoise ||
+        isInlineDataUriNoise ||
+        isCounterNoise ||
+        isRedditTimeFilterLine ||
+        isVectorPathLine ||
+        isSocialActionLine ||
+        isSocialIconMarkdown ||
+        isStandaloneMarker ||
+        isPreferencePromoLine ||
+        isGithubChromeLine
+      );
     });
 
     if (filtered.length !== lines.length) {
@@ -1547,7 +1639,26 @@ export class OfflineModeManager {
         /^\[\s*]\([^)]+\)\s*$/.test(trimmed) ||
         /^\[\s*$/.test(trimmed) ||
         /^\]\([^)]+\)\s*\[?\s*$/.test(trimmed) ||
-        /^[-•]\s*$/.test(trimmed)
+        /^[-•]\s*$/.test(trimmed) ||
+        /^\*\s*$/.test(trimmed)
+      ) {
+        removedCount++;
+        continue;
+      }
+
+      if (/^\[make us preferred source on google]\(https?:\/\/www\.google\.com\/preferences\/source\?/i.test(trimmed)) {
+        removedCount++;
+        continue;
+      }
+
+      if (/^(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share|save|copy link)$/i.test(trimmed)) {
+        removedCount++;
+        continue;
+      }
+
+      if (
+        /^>\s*&(?:mdash|#8212);/i.test(trimmed) ||
+        /^>\s*[—-]\s*@?[A-Za-z0-9_]+/.test(trimmed)
       ) {
         removedCount++;
         continue;
@@ -1561,10 +1672,14 @@ export class OfflineModeManager {
           /^[A-Za-z0-9_-]{10,}$/.test(altText) ||
           (/^[A-Za-z0-9_-]{12,}$/.test(altText.replace(/\s+/g, '')) && !/\s/.test(altText));
         const genericAlt = /^(image|photo|picture|logo|icon|avatar)$/i.test(altText);
+        const socialIconAlt = /^(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share)$/i.test(altText);
         const decorativeHost =
           /framerusercontent\.com|avatars\.githubusercontent\.com|gravatar\.com/.test(imageUrl);
+        const socialIconAsset =
+          imageUrl.endsWith('.svg') &&
+          /whatsapp|twitter|facebook|instagram|linkedin|telegram|share|icon/.test(imageUrl);
         const lowSignalAlt = !altText || looksLikeHashedAlt || genericAlt;
-        if (decorativeHost || lowSignalAlt) {
+        if (decorativeHost || socialIconAlt || socialIconAsset || lowSignalAlt) {
           removedCount++;
           continue;
         }
@@ -1618,6 +1733,63 @@ export class OfflineModeManager {
     return lines.slice(0, firstSignalLine).join('\n').trimEnd();
   }
 
+  private static stripLeadingNavigationPrelude(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    const firstHeadingIndex = lines.findIndex((line) => /^#{1,3}\s+/.test(line.trim()));
+    if (firstHeadingIndex <= 0) {
+      return markdown;
+    }
+
+    const headingLine = lines[firstHeadingIndex].trim().replace(/^#{1,6}\s+/, '');
+    const normalizedHeading = this.normalizeHeadingForComparison(headingLine);
+    const prelude = lines.slice(0, firstHeadingIndex);
+    const remainder = lines.slice(firstHeadingIndex);
+    const cleanedPrelude: string[] = [];
+    let removedCount = 0;
+
+    for (const line of prelude) {
+      const trimmed = line.trim();
+      const normalized = this.normalizeInputText(trimmed).toLowerCase();
+
+      if (!trimmed) {
+        cleanedPrelude.push(line);
+        continue;
+      }
+
+      const navLinkOnly = /^[-*]\s*\[[^\]]{1,80}\]\((?:https?:\/\/|\/)[^)]+\)$/.test(trimmed);
+      const breadcrumbLabelOnly = /^(home|news|latest|india news|world news|technology|business|sports|markets|opinion)$/i.test(normalized);
+      const publicationDateline =
+        /(?:^|\s)\|\s*[A-Za-z]{3,9}\s+\d{1,2},\s+\d{4},\s+\d{1,2}:\d{2}/.test(trimmed) &&
+        /(?:times|news|post|daily|tribune|herald|journal|express|chronicle|gazette)/i.test(trimmed);
+      const duplicateHeadingLine =
+        normalizedHeading.length > 0 &&
+        this.normalizeHeadingForComparison(trimmed).includes(normalizedHeading) &&
+        trimmed.length <= 180;
+
+      if (navLinkOnly || breadcrumbLabelOnly || publicationDateline || duplicateHeadingLine) {
+        removedCount++;
+        continue;
+      }
+
+      cleanedPrelude.push(line);
+    }
+
+    if (removedCount === 0) {
+      return markdown;
+    }
+
+    warnings.push('Removed leading navigation/breadcrumb chrome before article heading');
+    const preludeText = cleanedPrelude.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (!preludeText) {
+      return remainder.join('\n');
+    }
+    return `${preludeText}\n\n${remainder.join('\n')}`;
+  }
+
   private static collapseFragmentedWordRuns(markdown: string, warnings: string[]): string {
     if (!markdown) {
       return markdown;
@@ -1641,7 +1813,7 @@ export class OfflineModeManager {
       if (trimmed.length < 2 || trimmed.length > 24) {
         return false;
       }
-      return /^[A-Za-z][A-Za-z0-9&+\-\/]*$/.test(trimmed);
+      return /^[A-Za-z][A-Za-z0-9&+/-]*$/.test(trimmed);
     };
 
     let index = 0;
@@ -1672,6 +1844,47 @@ export class OfflineModeManager {
 
     if (collapsedRunCount > 0) {
       warnings.push('Collapsed fragmented word-run lines in markdown');
+    }
+
+    return output.join('\n');
+  }
+
+  private static normalizeMergedTokenBoundaries(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let inFence = false;
+    let changed = false;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (/^```/.test(trimmed)) {
+        inFence = !inFence;
+        output.push(line);
+        continue;
+      }
+
+      if (inFence || /^>/.test(trimmed)) {
+        output.push(line);
+        continue;
+      }
+
+      let next = line;
+      next = next.replace(/([A-Za-z])((?:https?:\/\/|www\.)[^\s]+)/g, '$1 $2');
+      next = next.replace(/([A-Za-z])(\d+\\\.\s+)/g, '$1 $2');
+      next = next.replace(/(\d+\\\.\s+[^.\n]{2,120}?)(?=\s+\d+\\\.\s+)/g, '$1\n');
+
+      if (next !== line) {
+        changed = true;
+      }
+      output.push(next);
+    }
+
+    if (changed) {
+      warnings.push('Normalized merged token boundaries in markdown');
     }
 
     return output.join('\n');
@@ -1820,32 +2033,13 @@ export class OfflineModeManager {
   static async getOptimalConfig(url: string, settings?: any): Promise<OfflineModeConfig> {
     // Use provided settings or load from storage (for backward compatibility)
     const actualSettings = settings || await Storage.getSettings();
-    const baseConfig = { ...this.DEFAULT_CONFIG };
+    const baseConfig = this.mergeConfig();
 
-    // Reddit-specific configuration
-    if (url.includes('reddit.com')) {
-      baseConfig.readabilityPreset = 'reddit-post';
-      baseConfig.turndownPreset = 'standard';
-      baseConfig.postProcessing = {
-        ...baseConfig.postProcessing,
-        addTableOfContents: false,
-        optimizeForPlatform: 'standard',
-      };
-      console.log('[OfflineModeManager] Using Reddit-specific configuration');
-    }
-    // GitHub configuration
-    else if (url.includes('github.com') || url.includes('docs.') || url.includes('api.')) {
-      baseConfig.readabilityPreset = 'technical-documentation';
-      baseConfig.turndownPreset = 'github';
-      baseConfig.postProcessing.optimizeForPlatform = 'github';
-    } else if (url.includes('blog') || url.includes('medium.com') || url.includes('substack.com')) {
-      baseConfig.readabilityPreset = 'blog-article';
-      baseConfig.turndownPreset = 'standard';
-      baseConfig.postProcessing.addTableOfContents = true;
-    } else if (url.includes('wikipedia.org') || url.includes('wiki')) {
-      baseConfig.readabilityPreset = 'wiki-content';
-      baseConfig.turndownPreset = 'standard';
-      baseConfig.postProcessing.addTableOfContents = true;
+    const normalizedUrl = (url || '').toLowerCase();
+    const matchedRule = this.URL_CONFIG_RULES.find((rule) => rule.match(normalizedUrl));
+    if (matchedRule) {
+      matchedRule.apply(baseConfig);
+      console.log(`[OfflineModeManager] Applied URL config rule: ${matchedRule.id}`);
     }
 
     // Apply user preferences
@@ -1865,7 +2059,7 @@ export class OfflineModeManager {
     title: string,
     config?: Partial<OfflineModeConfig>
   ): Promise<OfflineProcessingResult> {
-    const finalConfig = { ...this.DEFAULT_CONFIG, ...config };
+    const finalConfig = this.mergeConfig(config);
     
     if (html.length <= finalConfig.performance.chunkSize) {
       return this.processContent(html, url, title, finalConfig);
@@ -2022,6 +2216,30 @@ export class OfflineModeManager {
       }
     } catch (error) {
       console.warn('[OfflineModeManager] ScoringEngine fallback failed:', error);
+    }
+
+    // Keep runtime parity with the graceful pipeline by including it as a scored candidate.
+    try {
+      const { GracefulDegradationPipeline } = await import('./graceful-degradation-pipeline.js');
+      const pipelineResult = await GracefulDegradationPipeline.execute(doc, {
+        enableStage1: true,
+        enableStage2: true,
+        enableStage3: true,
+        minQualityScore: 0,
+        timeout: 2500,
+        debug: false,
+      });
+      if (
+        pipelineResult?.content &&
+        this.normalizeInputText(extractTextContent(pipelineResult.content)).length > 120
+      ) {
+        candidatePool.push({
+          source: `graceful-pipeline:${pipelineResult.stage}`,
+          html: this.sanitizeFallbackCandidateHtml(pipelineResult.content),
+        });
+      }
+    } catch (error) {
+      console.warn('[OfflineModeManager] Graceful pipeline candidate failed:', error);
     }
 
     // Try semantic extraction
@@ -2359,10 +2577,19 @@ export class OfflineModeManager {
         }
       }
       const text = this.normalizeInputText(element.textContent || '');
-      if (this.looksLikeTimestamp(text)) {
-        const isModified = /modified|updated|update/i.test(
-          `${element.getAttribute('itemprop') || ''} ${element.className || ''}`
-        );
+      const timestampFragments = this.extractTimestampFragments(text);
+      const isModified = /modified|updated|update/i.test(
+        `${element.getAttribute('itemprop') || ''} ${element.className || ''}`
+      );
+      if (timestampFragments.length > 0) {
+        for (const fragment of timestampFragments) {
+          if (isModified) {
+            pushCandidate(dateModifiedCandidates, fragment);
+          } else {
+            pushCandidate(datePublishedCandidates, fragment);
+          }
+        }
+      } else if (this.looksLikeTimestamp(text)) {
         if (isModified) {
           pushCandidate(dateModifiedCandidates, text);
         } else {
@@ -2495,6 +2722,37 @@ export class OfflineModeManager {
       return true;
     }
     return /\b\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4}\b/.test(normalized);
+  }
+
+  private static extractTimestampFragments(value: string): string[] {
+    if (!value) {
+      return [];
+    }
+
+    const normalized = this.normalizeInputText(value);
+    if (!normalized) {
+      return [];
+    }
+
+    const patterns = [
+      /(?:^|[^0-9])(\d{1,2}:\d{2}\s*(?:\([A-Z]{2,6}\)|[A-Z]{2,6})?\s*[A-Za-z]{3,9}\s+\d{1,2}(?:,\s*\d{2,4})?)/gi,
+      /(?:^|[^0-9])((?:[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{2,4}\s+\d{1,2}:\d{2}(?:\s*[AP]M)?(?:\s*[A-Z]{2,6})?))/gi,
+      /(?:^|[^0-9])(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4}\s+\d{1,2}:\d{2}(?:\s*[AP]M)?(?:\s*[A-Z]{2,6})?)/gi,
+      /(?:^|[^0-9])(\d{1,2}:\d{2}\s*(?:[AP]M)?(?:\s*[A-Z]{2,6})?)/gi,
+    ];
+
+    const fragments = new Set<string>();
+    for (const pattern of patterns) {
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(normalized)) !== null) {
+        const candidate = this.normalizeInputText(match[1] || '');
+        if (candidate && this.looksLikeTimestamp(candidate)) {
+          fragments.add(candidate);
+        }
+      }
+    }
+
+    return Array.from(fragments).slice(0, 4);
   }
 
   private static pickBestTimestamp(candidates: string[]): { text: string; iso?: string } | undefined {
@@ -2632,7 +2890,20 @@ export class OfflineModeManager {
 
     // Penalize for errors and warnings
     score -= Math.min(60, errors.length * 20);
-    score -= Math.min(22, warnings.length * 2);
+    const warningPenalty = warnings.reduce((total, warning) => {
+      const normalized = this.normalizeInputText(warning).toLowerCase();
+      if (!normalized) {
+        return total;
+      }
+      if (/malicious|xss|dom clobber|injection|invalid|unclosed|mismatched|table malformed|list structure/.test(normalized)) {
+        return total + 2;
+      }
+      if (/failed|fallback|truncated|hidden|invisible|security-only/.test(normalized)) {
+        return total + 1;
+      }
+      return total + 0.25;
+    }, 0);
+    score -= Math.min(18, Math.round(warningPenalty));
 
     const sourceTextLength = this.normalizeInputText(extractTextContent(originalHtml)).length;
     const markdownTextLength = this.normalizeInputText(markdown).length;
@@ -3061,8 +3332,10 @@ export class OfflineModeManager {
     result = this.stripResidualUiNoiseLines(result, warnings);
     result = this.stripUiNoiseCodeBlocks(result, warnings);
     result = this.stripLowSignalMediaArtifacts(result, warnings);
+    result = this.stripLeadingNavigationPrelude(result, warnings);
     result = this.normalizeMarkdownSpacing(result);
     result = this.collapseFragmentedWordRuns(result, warnings);
+    result = this.normalizeMergedTokenBoundaries(result, warnings);
     result = this.stripTerminalFooterCluster(result, warnings);
     result = this.ensurePrimaryHeading(result, normalizedMetadata.title);
 

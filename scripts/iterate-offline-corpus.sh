@@ -17,5 +17,6 @@ fi
 
 npm run test:offline:promptready
 npm run test:offline:corpus
+npm run test:offline:news
 
 echo 'Offline corpus iteration complete.'

@@ -12,6 +12,8 @@ describe('QualityGateValidator', () => {
           <body>
             <article>
               <h1>Main Article</h1>
+              <time datetime="2026-02-25T14:43:00Z">14:43 (IST) Feb 25</time>
+              <p class="byline">By PromptReady Reporter</p>
               <p>Paragraph one with substantial content. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
               <p>Paragraph two with more content about the topic at hand, including detailed explanations, concrete examples, and extended discussion points to ensure sufficient semantic depth for quality gate validation.</p>
               <p>Paragraph three continuing the discussion with valuable information, additional context, references to practical applications, and structured prose that mirrors long-form article writing.</p>
@@ -25,7 +27,7 @@ describe('QualityGateValidator', () => {
       const result = QualityGateValidator.validateSemanticQuery(article);
       
       expect(result.passed).toBe(true);
-      expect(result.score).toBeGreaterThanOrEqual(60);
+      expect(result.score).toBeGreaterThanOrEqual(55);
       expect(result.failureReasons).toHaveLength(0);
       expect(result.metrics.characterCount).toBeGreaterThan(500);
       expect(result.metrics.paragraphCount).toBeGreaterThanOrEqual(2);
@@ -329,6 +331,35 @@ describe('QualityGateValidator', () => {
       expect(result.metrics.signalToNoiseRatio).toBeGreaterThanOrEqual(0);
       expect(result.metrics.signalToNoiseRatio).toBeLessThanOrEqual(1);
     });
+
+    it('should detect retention cues (time/byline/ordered entries)', () => {
+      const dom = new (global as any).JSDOM(`
+        <!DOCTYPE html>
+        <html>
+          <body>
+            <article>
+              <header>
+                <h1>Live Updates</h1>
+                <time datetime="2026-02-25T14:43:00Z">14:43 (IST) Feb 25</time>
+                <p class="byline">By PromptReady Reporter</p>
+              </header>
+              <ol>
+                <li>First key update</li>
+                <li>Second key update</li>
+              </ol>
+            </article>
+          </body>
+        </html>
+      `);
+
+      const article = dom.window.document.querySelector('article');
+      const result = QualityGateValidator.validateSemanticQuery(article);
+
+      expect(result.metrics.temporalSignalCount).toBeGreaterThan(0);
+      expect(result.metrics.bylineSignalCount).toBeGreaterThan(0);
+      expect(result.metrics.orderedListCount).toBeGreaterThan(0);
+      expect(result.metrics.retentionCueScore).toBeGreaterThan(0);
+    });
   });
 
   describe('score generation', () => {
@@ -376,6 +407,8 @@ describe('QualityGateValidator', () => {
       expect(typeof report).toBe('string');
       expect(report.length).toBeGreaterThan(0);
       expect(report).toContain('Quality Gate Report');
+      expect(report).toContain('Retention Cue Score');
+      expect(report).toContain('Temporal Signals');
     });
   });
 });

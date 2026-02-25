@@ -30,6 +30,16 @@ export interface PipelineConfig {
   debug: boolean;
 }
 
+interface StageCandidate {
+  stage: PipelineResult['stage'];
+  content: string;
+  gateResult: QualityGateResult;
+  qualityScore: number;
+  qualityReport: string;
+  meetsThreshold: boolean;
+  selectionScore: number;
+}
+
 export class GracefulDegradationPipeline {
   private static readonly DEFAULT_CONFIG: PipelineConfig = {
     enableStage1: true,
@@ -52,6 +62,7 @@ export class GracefulDegradationPipeline {
     const startTime = Date.now();
     const finalConfig = { ...this.DEFAULT_CONFIG, ...config };
     const fallbacksUsed: string[] = [];
+    const candidates: StageCandidate[] = [];
 
     // Check for timeout violations
     const checkTimeout = () => {
@@ -67,21 +78,28 @@ export class GracefulDegradationPipeline {
       console.log('[Pipeline] 🔧 Config:', finalConfig);
       
       const redditResult = RedditShadowExtractor.extractContent(document);
-      if (redditResult && redditResult.metadata.qualityScore >= finalConfig.minQualityScore) {
-        const elapsed = Date.now() - startTime;
-        console.log('[Pipeline] ✅ Stage 0 (Reddit Shadow) succeeded:', redditResult.metadata);
-        if (finalConfig.debug) {
-          console.log('[Pipeline] 📊 Reddit content length:', redditResult.content.length);
-        }
-        return {
-          content: redditResult.content,
+      if (redditResult && this.hasMeaningfulContent(redditResult.content)) {
+        const redditValidation = this.validateRawHtml(redditResult.content, document);
+        const redditScore = Math.max(
+          redditValidation.score,
+          Math.min(100, Math.max(0, redditResult.metadata.qualityScore))
+        );
+        candidates.push({
           stage: 'reddit-shadow',
-          qualityScore: redditResult.metadata.qualityScore,
-          qualityReport: `Reddit Shadow DOM extraction: ${redditResult.metadata.strategy}, depth: ${redditResult.metadata.shadowDomDepth}, score: ${redditResult.metadata.qualityScore}`,
-          fallbacksUsed,
-          extractionTime: elapsed,
-          metadata: this.extractMetadata(document),
-        };
+          content: redditResult.content,
+          gateResult: {
+            ...redditValidation,
+            score: redditScore,
+            passed: redditScore >= 40,
+          },
+          qualityScore: redditScore,
+          qualityReport: `Reddit Shadow DOM extraction: ${redditResult.metadata.strategy}, depth: ${redditResult.metadata.shadowDomDepth}, score: ${redditScore}`,
+          meetsThreshold: redditScore >= finalConfig.minQualityScore,
+          selectionScore: redditScore + 4,
+        });
+        if (redditScore < finalConfig.minQualityScore) {
+          fallbacksUsed.push('reddit-shadow-low-quality');
+        }
       } else if (redditResult) {
         fallbacksUsed.push('reddit-shadow-low-quality');
         console.log('[Pipeline] ⚠️  Stage 0 (Reddit Shadow) quality too low:', redditResult.metadata.qualityScore, '< minQualityScore:', finalConfig.minQualityScore);
@@ -96,21 +114,12 @@ export class GracefulDegradationPipeline {
       if (finalConfig.enableStage1) {
         checkTimeout();
         const result = await this.executeStage1(document, finalConfig);
-        // Check both gate pass AND minQualityScore requirement
-        if (result.gateResult.passed && result.gateResult.score >= finalConfig.minQualityScore) {
-          const elapsed = Date.now() - startTime;
-          return {
-            content: result.content,
-            stage: 'semantic',
-            qualityScore: result.gateResult.score,
-            qualityReport: QualityGateValidator.generateReport(
-              result.gateResult
-            ),
-            fallbacksUsed,
-            extractionTime: elapsed,
-            metadata: this.extractMetadata(document),
-          };
-        } else {
+        if (this.hasMeaningfulContent(result.content)) {
+          candidates.push(
+            this.buildCandidate('semantic', result.content, result.gateResult, finalConfig)
+          );
+        }
+        if (!result.gateResult.passed || result.gateResult.score < finalConfig.minQualityScore) {
           fallbacksUsed.push('semantic-gate-failed');
           if (finalConfig.debug) {
             console.log(
@@ -125,21 +134,12 @@ export class GracefulDegradationPipeline {
       if (finalConfig.enableStage2) {
         checkTimeout();
         const result = await this.executeStage2(document, finalConfig);
-        // Check both gate pass AND minQualityScore requirement
-        if (result.gateResult.passed && result.gateResult.score >= finalConfig.minQualityScore) {
-          const elapsed = Date.now() - startTime;
-          return {
-            content: result.content,
-            stage: 'readability',
-            qualityScore: result.gateResult.score,
-            qualityReport: QualityGateValidator.generateReport(
-              result.gateResult
-            ),
-            fallbacksUsed,
-            extractionTime: elapsed,
-            metadata: this.extractMetadata(document),
-          };
-        } else {
+        if (this.hasMeaningfulContent(result.content)) {
+          candidates.push(
+            this.buildCandidate('readability', result.content, result.gateResult, finalConfig)
+          );
+        }
+        if (!result.gateResult.passed || result.gateResult.score < finalConfig.minQualityScore) {
           fallbacksUsed.push('readability-gate-failed');
           if (finalConfig.debug) {
             console.log(
@@ -155,24 +155,48 @@ export class GracefulDegradationPipeline {
         checkTimeout();
         const result = await this.executeStage3(document, finalConfig);
         fallbacksUsed.push('using-heuristic-fallback');
+        if (this.hasMeaningfulContent(result.content)) {
+          candidates.push(
+            this.buildCandidate('heuristic', result.content, result.gateResult, finalConfig)
+          );
+        }
+      }
+
+      const selected = this.selectBestCandidate(candidates, finalConfig);
+      if (selected) {
         const elapsed = Date.now() - startTime;
+        const rejected = candidates
+          .filter((candidate) => candidate !== selected)
+          .map((candidate) => `${candidate.stage}-candidate-rejected`);
         return {
-          content: result.content,
-          stage: 'heuristic',
-          qualityScore: result.gateResult.score,
-          qualityReport: QualityGateValidator.generateReport(
-            result.gateResult
-          ),
-          fallbacksUsed,
+          content: selected.content,
+          stage: selected.stage,
+          qualityScore: selected.qualityScore,
+          qualityReport: selected.qualityReport,
+          fallbacksUsed: Array.from(new Set([...fallbacksUsed, ...rejected])),
           extractionTime: elapsed,
           metadata: this.extractMetadata(document),
         };
       }
 
-      // Fallback if all stages disabled (shouldn't happen)
-      throw new Error(
-        'All pipeline stages disabled - cannot extract content'
-      );
+      const allExtractionStagesDisabled = !finalConfig.enableStage1 && !finalConfig.enableStage2 && !finalConfig.enableStage3;
+      const elapsed = Date.now() - startTime;
+      return {
+        content: document.body?.innerHTML || '',
+        stage: 'heuristic',
+        qualityScore: 0,
+        qualityReport: allExtractionStagesDisabled
+          ? 'No extraction stages enabled - returned body fallback'
+          : 'No valid stage candidates met quality thresholds - returned body fallback',
+        fallbacksUsed: Array.from(
+          new Set([
+            ...fallbacksUsed,
+            allExtractionStagesDisabled ? 'all-stages-disabled' : 'no-valid-stage-candidate',
+          ])
+        ),
+        extractionTime: elapsed,
+        metadata: this.extractMetadata(document),
+      };
     } catch (error) {
       console.error('[Pipeline] Unexpected error:', error);
       // Return best-effort content
@@ -206,13 +230,11 @@ export class GracefulDegradationPipeline {
       const element = document.querySelector(selector);
       if (element) {
         const gateResult = QualityGateValidator.validateSemanticQuery(element);
-        if (gateResult.passed || config.debug) {
-          const content = element.innerHTML;
-          return {
-            content,
-            gateResult,
-          };
-        }
+        const content = element.innerHTML;
+        return {
+          content,
+          gateResult,
+        };
       }
     }
 
@@ -324,6 +346,123 @@ export class GracefulDegradationPipeline {
       title: document.title || '',
       timestamp: new Date().toISOString(),
     };
+  }
+
+  private static validateRawHtml(
+    html: string,
+    sourceDocument: Document
+  ): QualityGateResult {
+    const temp = sourceDocument.createElement('div');
+    temp.innerHTML = html;
+    return QualityGateValidator.validateHeuristicScoring(temp);
+  }
+
+  private static buildCandidate(
+    stage: PipelineResult['stage'],
+    content: string,
+    gateResult: QualityGateResult,
+    config: PipelineConfig
+  ): StageCandidate {
+    const qualityScore = Math.min(100, Math.max(0, gateResult.score));
+    return {
+      stage,
+      content,
+      gateResult,
+      qualityScore,
+      qualityReport: QualityGateValidator.generateReport(gateResult),
+      meetsThreshold: gateResult.passed && qualityScore >= config.minQualityScore,
+      selectionScore: this.computeSelectionScore(stage, gateResult, content),
+    };
+  }
+
+  private static selectBestCandidate(
+    candidates: StageCandidate[],
+    config: PipelineConfig
+  ): StageCandidate | null {
+    const viable = candidates.filter((candidate) =>
+      this.hasMeaningfulContent(candidate.content)
+    );
+    if (viable.length === 0) {
+      return null;
+    }
+
+    const thresholdMet = viable.filter((candidate) => candidate.meetsThreshold);
+    const pool = thresholdMet.length > 0 ? thresholdMet : viable;
+    const stagePriority: Record<PipelineResult['stage'], number> = {
+      'readability': 4,
+      'heuristic': 3,
+      'reddit-shadow': 2,
+      'semantic': 1,
+    };
+    const sorted = [...pool].sort((a, b) => {
+      if (b.selectionScore !== a.selectionScore) {
+        return b.selectionScore - a.selectionScore;
+      }
+      if (b.qualityScore !== a.qualityScore) {
+        return b.qualityScore - a.qualityScore;
+      }
+      return stagePriority[b.stage] - stagePriority[a.stage];
+    });
+
+    if (config.debug) {
+      console.log(
+        '[Pipeline] Candidate ranking:',
+        sorted.map((candidate) => ({
+          stage: candidate.stage,
+          selectionScore: candidate.selectionScore,
+          qualityScore: candidate.qualityScore,
+          meetsThreshold: candidate.meetsThreshold,
+          contentLength: candidate.content.length,
+        }))
+      );
+    }
+
+    return sorted[0] ?? null;
+  }
+
+  private static computeSelectionScore(
+    stage: PipelineResult['stage'],
+    gateResult: QualityGateResult,
+    content: string
+  ): number {
+    const stageBias: Record<PipelineResult['stage'], number> = {
+      readability: 6,
+      heuristic: 4,
+      'reddit-shadow': 3,
+      semantic: 2,
+    };
+    const base = gateResult.score;
+    const metrics = gateResult.metrics;
+    const retentionBoost = Math.min(18, metrics.retentionCueScore / 5);
+    const structureBoost = Math.min(10, metrics.structureScore / 10);
+    const passedBoost = gateResult.passed ? 12 : 0;
+    const linkPenalty = Math.min(20, metrics.linkDensity * 24);
+    const shortPenalty = content.length < 220 ? 10 : 0;
+
+    return Math.max(
+      0,
+      Math.min(
+        160,
+        base +
+          retentionBoost +
+          structureBoost +
+          passedBoost +
+          stageBias[stage] -
+          linkPenalty -
+          shortPenalty
+      )
+    );
+  }
+
+  private static hasMeaningfulContent(content: string): boolean {
+    if (!content) {
+      return false;
+    }
+    const text = content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (text.length >= 80) {
+      return true;
+    }
+    return /<(h1|h2|h3|p|li|article|section|main)\b/i.test(content);
   }
 }
 

@@ -378,7 +378,7 @@ export function usePopupController() {
           });
           break;
 
-        case 'PROCESSING_COMPLETE':
+        case 'PROCESSING_COMPLETE': {
           dispatch({
             type: 'PROCESSING_COMPLETE',
             payload: message.payload,
@@ -402,6 +402,7 @@ export function usePopupController() {
             }
           })();
           break;
+        }
 
         case 'PROCESSING_ERROR':
           dispatch({
@@ -447,20 +448,21 @@ export function usePopupController() {
 
     browser.runtime.onMessage.addListener(messageListener);
     return () => browser.runtime.onMessage.removeListener(messageListener);
-  }, [showToast]);
+  }, [showToast, state.exportData?.markdown]);
 
   // Handler functions
   const handleModeToggle = useCallback(async () => {
     const settings = await Storage.getSettings();
     const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false, developerMode: false };
 
-    // Developer mode bypasses all restrictions
-    if (!flags.aiModeEnabled && !flags.developerMode) {
-      showToast(UI_MESSAGES.failedToLoadSettings, 'info');
+    const newMode = state.mode === 'offline' ? 'ai' : 'offline';
+
+    // Only block transitions into AI mode when AI is disabled.
+    // Users should always be able to switch back to offline mode.
+    if (newMode === 'ai' && !flags.aiModeEnabled && !flags.developerMode) {
+      showToast('AI mode is disabled in settings.', 'info');
       return;
     }
-
-    const newMode = state.mode === 'offline' ? 'ai' : 'offline';
 
     // Gate AI mode behind Pro/BYOK/Trial for Phase 2, unless in developer mode
     if (newMode === 'ai' && !flags.developerMode && !state.isPro && state.trial?.hasExhausted) {
