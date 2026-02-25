@@ -108,6 +108,7 @@ export class OfflineModeManager {
     customConfig?: Partial<OfflineModeConfig>
   ): Promise<OfflineProcessingResult> {
     const config = { ...this.DEFAULT_CONFIG, ...customConfig };
+    const cacheSourceHtml = html;
     const normalizedHtmlForKey = typeof html === 'string' ? html : '';
     const inFlightKey = await this.generateInFlightKey(normalizedHtmlForKey, url, config);
     const existingInFlight = this.inFlightRequests.get(inFlightKey);
@@ -148,7 +149,7 @@ export class OfflineModeManager {
 
       // Check cache first
       if (config.performance.enableCaching) {
-        const cacheKey = await this.generateCacheKey(html, url, config);
+        const cacheKey = await this.generateCacheKey(cacheSourceHtml, url, config);
 
         // Track cache retrieval time
         const { result: cached, duration: cacheTime } = await this.performance.measureAsyncOperation(
@@ -199,6 +200,10 @@ export class OfflineModeManager {
         html = '<p>Content sanitized due to security filtering.</p>';
       }
 
+      const preparedExtraction = this.prepareHtmlForExtraction(html);
+      const extractionHtml = preparedExtraction.html;
+      warnings.push(...preparedExtraction.warnings);
+
       // Step 1: Content extraction with Readability
       this.performance.captureMemorySnapshot('readability_start');
       this.performance.recordProcessingSnapshot('readability_start');
@@ -211,7 +216,7 @@ export class OfflineModeManager {
           : ReadabilityConfigManager.getConfigForUrl(url);
 
         if (readabilityConfig) {
-          const doc = safeParseHTML(html);
+          const doc = safeParseHTML(extractionHtml);
           if (!doc) {
             throw new Error('Failed to parse HTML for Readability processing');
           }
@@ -220,9 +225,9 @@ export class OfflineModeManager {
             () => ReadabilityConfigManager.extractContent(doc, url, readabilityConfig)
           );
           extractedContent = extractionResult.content;
-          if (config.fallbacks.enableReadabilityFallback && this.shouldFallbackForCoverage(extractedContent, html)) {
-            const fallbackCandidate = await this.fallbackContentExtraction(html);
-            if (this.shouldAdoptFallbackCandidate(html, extractedContent, fallbackCandidate)) {
+          if (config.fallbacks.enableReadabilityFallback && this.shouldFallbackForCoverage(extractedContent, extractionHtml)) {
+            const fallbackCandidate = await this.fallbackContentExtraction(extractionHtml);
+            if (this.shouldAdoptFallbackCandidate(extractionHtml, extractedContent, fallbackCandidate)) {
               extractedContent = fallbackCandidate;
               fallbacksUsed.push('readability-low-coverage-fallback');
               warnings.push('Readability extraction coverage low; used fallback content extraction');
@@ -237,7 +242,7 @@ export class OfflineModeManager {
       } catch (error) {
         console.warn('[OfflineModeManager] Readability extraction failed:', error);
         if (config.fallbacks.enableReadabilityFallback) {
-          extractedContent = await this.fallbackContentExtraction(html);
+          extractedContent = await this.fallbackContentExtraction(extractionHtml);
           fallbacksUsed.push('readability-fallback');
           warnings.push('Used fallback content extraction');
         } else {
@@ -316,12 +321,14 @@ export class OfflineModeManager {
       this.performance.recordProcessingSnapshot('post_processing_complete');
 
       // Step 4: Generate metadata and insert cite-first block
-      const selectionHash = await this.generateCacheKey(html, url, config);
+      const selectionHash = await this.generateCacheKey(cacheSourceHtml, url, config);
       const metadata = this.generateMetadata(title, url, selectionHash);
       processedMarkdown = this.normalizeUnicodeWhitespace(processedMarkdown);
       processedMarkdown = this.sanitizeRiskyMarkdown(processedMarkdown, warnings);
+      processedMarkdown = this.stripResidualUiNoiseLines(processedMarkdown, warnings);
+      processedMarkdown = this.ensurePrimaryHeading(processedMarkdown, metadata.title);
       if (!processedMarkdown || processedMarkdown.trim().length === 0) {
-        const sparseFallback = this.buildSparseContentFallback(html, warnings);
+        const sparseFallback = this.buildSparseContentFallback(extractionHtml, warnings);
         if (sparseFallback) {
           processedMarkdown = sparseFallback;
           warnings.push('Used sparse content fallback');
@@ -332,7 +339,7 @@ export class OfflineModeManager {
       processedMarkdown = this.insertCiteFirstBlock(processedMarkdown, metadata);
 
       // Step 5: Quality assessment
-      const qualityScore = this.assessQuality(processedMarkdown, html, warnings, errors);
+      const qualityScore = this.assessQuality(processedMarkdown, extractionHtml, warnings, errors);
 
       const totalTime = Date.now() - startTime;
 
@@ -341,7 +348,7 @@ export class OfflineModeManager {
         readabilityTime,
         turndownTime,
         postProcessingTime,
-        html.length,
+        extractionHtml.length,
         extractedContent.length,
         processedMarkdown.length,
         fallbacksUsed
@@ -359,9 +366,9 @@ export class OfflineModeManager {
       // Record successful extraction
       this.performance.recordExtraction({
         extractionTime: totalTime,
-        contentLength: html.length,
+        contentLength: extractionHtml.length,
         contentQuality: qualityScore,
-        charThreshold: html.length > config.performance.maxContentLength ? 'truncated' : 'within_limit',
+        charThreshold: extractionHtml.length > config.performance.maxContentLength ? 'truncated' : 'within_limit',
         presetUsed: config.readabilityPreset || 'auto',
         timestamp: Date.now(),
       });
@@ -393,7 +400,7 @@ export class OfflineModeManager {
 
       // Cache the result
       if (config.performance.enableCaching) {
-        const cacheKey = await this.generateCacheKey(html, url, config);
+        const cacheKey = await this.generateCacheKey(cacheSourceHtml, url, config);
         await CacheManager.set(cacheKey, result, this.DEFAULT_CACHE_TTL_HOURS);
       }
 
@@ -568,6 +575,131 @@ export class OfflineModeManager {
       .replace(joinerPattern, '$1 ')
       .replace(/(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u180E)/g, '')
       .replace(/[\u00A0\u2000-\u200A\u2028\u2029]/g, ' ');
+  }
+
+  private static prepareHtmlForExtraction(
+    html: string
+  ): { html: string; warnings: string[] } {
+    const warnings: string[] = [];
+    const doc = safeParseHTML(html);
+    if (!doc || !doc.body) {
+      return { html, warnings };
+    }
+
+    const body = doc.body as HTMLElement;
+    this.removeCommentNodes(body);
+
+    removeUnwantedElements(body, [
+      'template',
+      '[markdownload-hidden=\"true\"]',
+      '[data-nosnippet]',
+      '[data-ad]',
+      '[data-ad-container]',
+      '[data-testid*=\"cookie\"]',
+      '[id*=\"cookie\"]',
+      '[class*=\"cookie\"]',
+      '[class*=\"consent\"]',
+      '[class*=\"newsletter\"]',
+      '[class*=\"subscribe\"]',
+      '[class*=\"popup\"]',
+      '[class*=\"modal\"]',
+      '[aria-modal=\"true\"]',
+      '[role=\"dialog\"]',
+      '[role=\"alertdialog\"]',
+      'dialog',
+      'form[action*=\"subscribe\"]',
+      'form[id*=\"subscribe\"]',
+      'form[class*=\"subscribe\"]',
+      'iframe',
+    ]);
+
+    this.removeHiddenOrMarkedElements(body);
+    this.removeKeywordNoiseBlocks(body);
+    this.cleanupEmptyContainers(body);
+
+    const cleanedHtml = body.innerHTML.trim();
+    if (cleanedHtml.length === 0) {
+      return { html, warnings };
+    }
+    if (cleanedHtml !== html.trim()) {
+      warnings.push('Applied pre-extraction boilerplate cleanup');
+    }
+    return { html: cleanedHtml, warnings };
+  }
+
+  private static removeKeywordNoiseBlocks(root: HTMLElement): void {
+    const candidates = Array.from(
+      root.querySelectorAll('div, section, aside, dialog, form, p, li, span')
+    ) as HTMLElement[];
+
+    for (const el of candidates) {
+      if (!el.parentElement) {
+        continue;
+      }
+      if (el.querySelector('article, main, section h1, section h2, pre, code, table')) {
+        continue;
+      }
+
+      const text = this.normalizeInputText(el.textContent || '').toLowerCase();
+      if (text.length < 30 || text.length > 320) {
+        continue;
+      }
+
+      const classAndId = `${el.className || ''} ${el.id || ''}`.toLowerCase();
+      const signalHits = [
+        /cookie|consent|privacy|tracking/.test(text),
+        /subscribe|newsletter|sign up|join waitlist/.test(text),
+        /popup|modal|overlay|sponsored|advert/.test(text),
+        /accept all|manage preferences|allow all|continue/.test(text),
+        /cookie|consent|subscribe|newsletter|popup|modal|promo|advert|ad/.test(classAndId),
+      ].filter(Boolean).length;
+
+      if (signalHits < 2) {
+        continue;
+      }
+
+      const anchorCount = el.querySelectorAll('a').length;
+      const buttonCount = el.querySelectorAll('button').length;
+      const headingCount = el.querySelectorAll('h1, h2, h3, h4').length;
+      if (headingCount > 0 && signalHits < 3) {
+        continue;
+      }
+      if (anchorCount + buttonCount === 0 && signalHits < 3) {
+        continue;
+      }
+
+      el.remove();
+    }
+  }
+
+  private static removeHiddenOrMarkedElements(root: HTMLElement): void {
+    const hiddenElements = Array.from(
+      root.querySelectorAll(
+        '[markdownload-hidden=\"true\"], [hidden], [aria-hidden=\"true\"], [style*=\"display:none\"], [style*=\"display: none\"], [style*=\"visibility:hidden\"], [style*=\"visibility: hidden\"]'
+      )
+    );
+    for (const el of hiddenElements) {
+      if (!el.closest('pre, code, .highlight')) {
+        el.remove();
+      }
+    }
+  }
+
+  private static cleanupEmptyContainers(root: HTMLElement): void {
+    const emptyContainers = Array.from(
+      root.querySelectorAll('p:empty, div:empty, span:empty, section:empty, article:empty, aside:empty')
+    );
+    for (const el of emptyContainers) {
+      el.remove();
+    }
+
+    const whitespaceOnly = Array.from(
+      root.querySelectorAll('p, div, span, section, article, aside')
+    ).filter((el) => (el.textContent || '').trim().length === 0 && el.children.length === 0);
+
+    for (const el of whitespaceOnly) {
+      el.remove();
+    }
   }
 
   private static removeCommentNodes(root: Node): void {
@@ -853,7 +985,7 @@ export class OfflineModeManager {
   }
 
   private static containsUiNoiseSignals(text: string): boolean {
-    return /(subscribe|newsletter|related links|accept all .*cookie|cookie settings|join waitlist|sign up)/i.test(text);
+    return /(subscribe|newsletter|related links|accept all .*cookie|cookie settings|join waitlist|sign up|tracking cookies?|popup ad|manage preferences|allow all cookies)/i.test(text);
   }
 
   private static shouldAdoptFallbackCandidate(
@@ -967,6 +1099,60 @@ export class OfflineModeManager {
       .replace(/%3c\/?script%3e/gi, ' ');
 
     return this.normalizeUnicodeWhitespace(sanitized);
+  }
+
+  private static stripResidualUiNoiseLines(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    const filtered = lines.filter((line) => {
+      const normalized = this.normalizeInputText(line).toLowerCase();
+      if (!normalized) {
+        return true;
+      }
+      if (/^#{1,6}\s/.test(line)) {
+        return true;
+      }
+
+      const isUiNoise =
+        normalized.length <= 200 &&
+        (
+          /accept all .*cookies?|manage (cookie|privacy) preferences|allow all cookies/.test(normalized) ||
+          /subscribe to (our )?newsletter|join (the )?waitlist|sign up (for|to)/.test(normalized) ||
+          /popup ad|tracking cookies? to continue|related links \| footer text/.test(normalized)
+        );
+
+      return !isUiNoise;
+    });
+
+    if (filtered.length !== lines.length) {
+      warnings.push('Removed residual UI-noise lines from markdown');
+    }
+    return filtered.join('\n');
+  }
+
+  private static ensurePrimaryHeading(markdown: string, title: string): string {
+    const normalizedTitle = this.normalizeInputText(title);
+    if (!normalizedTitle) {
+      return markdown;
+    }
+
+    const body = markdown.trimStart();
+    if (!body) {
+      return `# ${normalizedTitle}`;
+    }
+
+    const h1Match = body.match(/^#\s+(.+)$/m);
+    if (h1Match && this.areHeadingsEquivalent(
+      this.normalizeHeadingForComparison(normalizedTitle),
+      this.normalizeHeadingForComparison(h1Match[1])
+    )) {
+      return markdown;
+    }
+
+    return `# ${normalizedTitle}\n\n${markdown}`;
   }
 
   private static hasSecuritySignalWarning(warnings: string[]): boolean {
@@ -1161,8 +1347,11 @@ export class OfflineModeManager {
    * Fallback content extraction when Readability fails
    * Now uses ScoringEngine for better heuristic-based selection
    */
-  private static async fallbackContentExtraction(html: string): Promise<string> {
-    const doc = safeParseHTML(html);
+  private static async fallbackContentExtraction(
+    html: string
+  ): Promise<string> {
+    const prepared = this.prepareHtmlForExtraction(html);
+    const doc = safeParseHTML(prepared.html);
     if (!doc) {
       return html;
     }
@@ -1217,7 +1406,7 @@ export class OfflineModeManager {
       return body.innerHTML;
     }
   
-    return html;
+    return prepared.html;
   }
 
   private static expandScoringCandidate(candidate: HTMLElement, body: HTMLElement): HTMLElement {

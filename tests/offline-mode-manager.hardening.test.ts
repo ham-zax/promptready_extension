@@ -144,6 +144,57 @@ describe('OfflineModeManager hardening regressions', () => {
     expect(result.markdown).not.toContain('Subscribe to our newsletter | Related links | Footer text');
   });
 
+  it('removes inline consent/popup noise while preserving landing content structure', async () => {
+    const html = `
+      <html>
+        <body>
+          <main id="landing-content">
+            <section id="hero">
+              <h1>PromptReady — One-click clean Markdown from any page</h1>
+              <p>Cleaner input. Better model output.</p>
+              <p>PromptReady extracts the useful parts, preserves structure, and gives you citation-ready text in one click.</p>
+            </section>
+            <div>
+              ANNOYING POPUP AD Accept all 500 tracking cookies to continue.
+              <button>Accept all</button>
+            </div>
+            <section id="benefits">
+              <h2>Core benefits</h2>
+              <ul>
+                <li>Preserves code fences</li>
+                <li>Adds clean citations</li>
+                <li>Privacy-first local parsing</li>
+              </ul>
+            </section>
+            <section id="before-after">
+              <h2>Before / After comparison</h2>
+              <p>${'Breaking down retrieval-augmented generation in production. '.repeat(80)}</p>
+            </section>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const defaultLikeConfig = {
+      ...baseConfig,
+      readabilityPreset: undefined,
+    };
+
+    const result = await OfflineModeManager.processContent(
+      html,
+      'https://promptready.app/',
+      'PromptReady — One-click clean Markdown from any page',
+      defaultLikeConfig,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.markdown).toContain('# PromptReady — One-click clean Markdown from any page');
+    expect(result.markdown).toContain('Core benefits');
+    expect(result.markdown).toContain('Before / After comparison');
+    expect(result.markdown).not.toContain('ANNOYING POPUP AD');
+    expect(result.markdown).not.toContain('Accept all 500 tracking cookies to continue');
+  });
+
   it('records non-negative timing and closes failed session state', async () => {
     const result = await OfflineModeManager.processContent(
       '',
