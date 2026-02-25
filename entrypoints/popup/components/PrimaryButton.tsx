@@ -22,10 +22,10 @@ export function PrimaryButton({
     <button
       onClick={onClick}
       disabled={disabled || loading}
-      className={`w-full py-3 px-4 rounded-lg font-medium text-sm transition-all ${
+      className={`w-full py-3 px-5 rounded-full border font-semibold text-sm transform-gpu transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
         disabled || loading
-          ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-          : 'bg-brand-primary hover:opacity-90 text-brand-primary-foreground shadow-sm hover:shadow-md active:scale-[0.98]'
+          ? 'bg-muted border-border text-muted-foreground cursor-not-allowed'
+          : 'bg-brand-primary border-[#c90000] hover:bg-[#d20000] text-brand-primary-foreground shadow-sm hover:shadow-[0_8px_20px_rgba(231,0,0,0.2)] active:scale-[0.985]'
       }`}
     >
       {loading ? (

@@ -82,7 +82,7 @@ describe('ModeToggle', () => {
       />
     );
 
-    await screen.findByText('Limited • Upgrade');
+    await screen.findByText('Upgrade required for AI mode');
     const aiButton = screen.getByLabelText('AI Mode');
     fireEvent.click(aiButton);
 

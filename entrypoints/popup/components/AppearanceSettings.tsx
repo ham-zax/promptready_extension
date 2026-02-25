@@ -6,7 +6,7 @@ import { Settings } from '@/lib/types';
 import { Palette } from 'lucide-react';
 
 interface AppearanceSettingsProps {
-  settings: Settings;
+  settings?: Settings;
   onSettingsChange: (settings: Partial<Settings>) => void;
 }
 
@@ -15,7 +15,7 @@ export function AppearanceSettings({
   onSettingsChange,
 }: AppearanceSettingsProps) {
   // Get UI settings with defaults
-  const uiSettings = settings.ui || {
+  const uiSettings = settings?.ui || {
     theme: 'auto',
     animations: true,
     compactMode: false,
@@ -50,12 +50,12 @@ export function AppearanceSettings({
             onChange={(e) => handleUIChange({ theme: e.target.value as 'auto' | 'light' | 'dark' })}
             className="w-full px-3 py-2 bg-background border border-border text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition-all cursor-pointer"
           >
-            <option value="auto">System Default</option>
+            <option value="auto">Match Browser</option>
             <option value="light">Light</option>
             <option value="dark">Dark</option>
           </select>
           <p className="text-xs text-muted-foreground mt-1.5 leading-snug">
-            Choose how PromptReady appears in your browser
+            Keep visuals consistent with your preferred browser theme
           </p>
         </div>
       </div>

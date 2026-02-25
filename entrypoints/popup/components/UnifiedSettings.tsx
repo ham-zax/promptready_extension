@@ -10,7 +10,7 @@ import { Settings as SettingsIcon, Bot, CheckCircle2, AlertTriangle, ChevronLeft
 
 interface UnifiedSettingsProps {
   isExpanded: boolean;
-  settings: Settings;
+  settings?: Settings;
   onSettingsChange: (settings: Partial<Settings>) => void;
   isPro: boolean;
   hasApiKey: boolean;
@@ -25,6 +25,41 @@ export function UnifiedSettings({
   isPro,
   hasApiKey,
 }: UnifiedSettingsProps) {
+  const effectiveSettings: Settings = settings ?? {
+    mode: 'offline',
+    templates: { bundles: [] },
+    byok: {
+      provider: 'openrouter',
+      apiBase: 'https://openrouter.ai/api/v1',
+      apiKey: '',
+      selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+    },
+    privacy: { telemetryEnabled: false },
+    flags: {
+      aiModeEnabled: true,
+      byokEnabled: true,
+      trialEnabled: true,
+    },
+    processing: {
+      profile: 'standard',
+      readabilityPreset: 'standard',
+      turndownPreset: 'standard',
+      customOptions: {
+        preserveCodeBlocks: true,
+        includeImages: true,
+        preserveTables: true,
+        preserveLinks: true,
+      },
+    },
+    ui: {
+      theme: 'auto',
+      animations: true,
+      compactMode: false,
+      keepPopupOpen: true,
+      autoCloseDelay: 3000,
+    },
+  };
+
   const [currentView, setCurrentView] = useState<View>('main');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
@@ -46,9 +81,9 @@ export function UnifiedSettings({
   };
 
   const renderMainSettings = () => (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-in fade-in duration-300">
       {/* AI Configuration Section */}
-      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm">
+      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm transition-all duration-200 ease-out">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-2">
             <Bot className="w-5 h-5 text-brand-primary" />
@@ -63,28 +98,28 @@ export function UnifiedSettings({
 
         {hasApiKey ? (
           <div className="space-y-3">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="bg-brand-surface border border-brand-border rounded-lg p-3">
               <div className="flex items-center space-x-2">
-                <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <span className="text-sm font-medium text-green-800">
-                  API key configured ({settings.byok.provider})
+                <CheckCircle2 className="w-4 h-4 text-brand-primary" />
+                <span className="text-sm font-medium text-foreground">
+                  API key configured ({effectiveSettings.byok.provider})
                 </span>
               </div>
             </div>
 
             <button
               onClick={() => setCurrentView('byok')}
-              className="w-full px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 active:scale-[0.98] transition-all text-sm font-medium"
+              className="w-full px-3 py-2 border border-border text-foreground rounded-lg hover:bg-muted active:scale-[0.98] transition-all duration-200 ease-out text-sm font-medium"
             >
               Manage API Configuration
             </button>
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <div className="bg-muted border border-border rounded-lg p-3">
               <div className="flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 text-amber-600" />
-                <span className="text-sm font-medium text-amber-800">
+                <AlertTriangle className="w-4 h-4 text-brand-primary" />
+                <span className="text-sm font-medium text-foreground">
                   No API key configured
                 </span>
               </div>
@@ -93,13 +128,13 @@ export function UnifiedSettings({
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setCurrentView('byok')}
-                className="px-3 py-2 bg-brand-surface text-brand-primary border border-brand-border rounded-lg hover:bg-brand-primary hover:text-white active:scale-[0.98] transition-all text-sm font-medium"
+                className="px-3 py-2 bg-brand-surface text-brand-primary border border-brand-border rounded-lg hover:bg-brand-primary hover:text-white active:scale-[0.98] transition-all duration-200 ease-out text-sm font-medium"
               >
                 Add API Key
               </button>
               <button
                 onClick={() => setShowUpgradeModal(true)}
-                className="px-3 py-2 bg-brand-primary text-brand-primary-foreground rounded-lg hover:opacity-90 active:scale-[0.98] transition-all text-sm font-medium shadow-sm"
+                className="px-3 py-2 bg-brand-primary text-brand-primary-foreground border border-[#c90000] rounded-lg hover:bg-[#d20000] active:scale-[0.98] transition-all duration-200 ease-out text-sm font-medium shadow-sm"
               >
                 Start Free Trial
               </button>
@@ -109,23 +144,23 @@ export function UnifiedSettings({
       </div>
 
       {/* Processing Profiles */}
-      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm">
+      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm transition-all duration-200 ease-out">
         <ProcessingProfiles
-          settings={settings}
+          settings={effectiveSettings}
           onSettingsChange={onSettingsChange}
         />
       </div>
 
       {/* Appearance */}
-      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm">
+      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm transition-all duration-200 ease-out">
         <AppearanceSettings
-          settings={settings}
+          settings={effectiveSettings}
           onSettingsChange={onSettingsChange}
         />
       </div>
 
       {/* Popup Behavior */}
-      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm">
+      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm transition-all duration-200 ease-out">
         <div className="flex items-center space-x-2 mb-3">
           <MousePointerClick className="w-5 h-5 text-muted-foreground" />
           <h3 className="font-semibold text-foreground">Popup Behavior</h3>
@@ -136,17 +171,17 @@ export function UnifiedSettings({
             <input
               id="keepPopupOpen"
               type="checkbox"
-              checked={settings.ui?.keepPopupOpen ?? false}
+              checked={effectiveSettings.ui?.keepPopupOpen ?? false}
               onChange={(e) => onSettingsChange({
                 ui: {
-                  ...(settings.ui || { theme: 'auto', animations: true, compactMode: false, keepPopupOpen: false, autoCloseDelay: 2000 }),
+                  ...(effectiveSettings.ui || { theme: 'auto', animations: true, compactMode: false, keepPopupOpen: false, autoCloseDelay: 2000 }),
                   keepPopupOpen: e.target.checked
                 }
               })}
               className="w-4 h-4 rounded border-gray-300 text-brand-primary focus:ring-brand-primary cursor-pointer"
             />
           </div>
-          {!settings.ui?.keepPopupOpen && (
+          {!effectiveSettings.ui?.keepPopupOpen && (
             <div className="flex items-center justify-between">
               <label htmlFor="autoCloseDelay" className="text-sm text-foreground font-medium">Auto-close delay (seconds)</label>
               <input
@@ -154,14 +189,14 @@ export function UnifiedSettings({
                 type="number"
                 min="1"
                 max="10"
-                value={(settings.ui?.autoCloseDelay ?? 2000) / 1000}
-                onChange={(e) => onSettingsChange({
-                  ui: {
-                    ...(settings.ui || { theme: 'auto', animations: true, compactMode: false, keepPopupOpen: false, autoCloseDelay: 2000 }),
-                    autoCloseDelay: parseInt(e.target.value) * 1000
-                  }
-                })}
-                className="w-20 p-1.5 border border-gray-300 rounded-lg text-sm focus:ring-brand-primary focus:border-brand-primary"
+                value={(effectiveSettings.ui?.autoCloseDelay ?? 2000) / 1000}
+              onChange={(e) => onSettingsChange({
+                ui: {
+                  ...(effectiveSettings.ui || { theme: 'auto', animations: true, compactMode: false, keepPopupOpen: false, autoCloseDelay: 2000 }),
+                  autoCloseDelay: parseInt(e.target.value) * 1000
+                }
+              })}
+                className="w-20 p-1.5 border border-border bg-background rounded-lg text-sm text-foreground focus:ring-brand-primary focus:border-brand-primary"
               />
             </div>
           )}
@@ -169,16 +204,16 @@ export function UnifiedSettings({
       </div>
 
       {/* Privacy */}
-      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm">
+      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm transition-all duration-200 ease-out">
         <PrivacySettings
-          settings={settings}
+          settings={effectiveSettings}
           onSettingsChange={onSettingsChange}
         />
       </div>
 
       {/* Account Status */}
-      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm">
-        <ProStatusSettings settings={settings} />
+      <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm transition-all duration-200 ease-out">
+        <ProStatusSettings settings={effectiveSettings} />
       </div>
     </div>
   );
@@ -193,7 +228,7 @@ export function UnifiedSettings({
         <span>Back to Settings</span>
       </button>
       <SimplifiedByokSetup
-        settings={settings}
+        settings={effectiveSettings}
         onComplete={handleByokComplete}
         onCancel={() => setCurrentView('main')}
       />
