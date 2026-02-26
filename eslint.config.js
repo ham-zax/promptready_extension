@@ -4,6 +4,7 @@ import typescriptParser from '@typescript-eslint/parser'
 import react from 'eslint-plugin-react'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
+import regexp from 'eslint-plugin-regexp'
 
 export default [
   // Base JavaScript rules
@@ -75,6 +76,7 @@ export default [
       'react': react,
       'react-hooks': reactHooks,
       'react-refresh': reactRefresh,
+      'regexp': regexp,
     },
     rules: {
       // TypeScript rules
@@ -105,6 +107,11 @@ export default [
       'no-control-regex': 'off', // Allow control characters in regex for parsing
       'no-class-assign': 'error',
       'no-cond-assign': 'warn',
+      // Regex safety/maintainability checks
+      'regexp/no-super-linear-backtracking': 'warn',
+      'regexp/no-trivially-nested-quantifier': 'warn',
+      'regexp/no-misleading-capturing-group': 'warn',
+      'regexp/no-useless-flag': 'warn',
     },
     settings: {
       react: {

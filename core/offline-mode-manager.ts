@@ -1332,7 +1332,7 @@ export class OfflineModeManager {
       warnings.add('DOM clobber conflict detected');
     }
 
-    if (/\bxmlns(?::\w+)?\s*=|\bdata-[\w-]+\s*=|\baria-[\w-]+\s*=/i.test(html)) {
+    if (/\b(?:xmlns(?::\w+)?|data-[\w-]+|aria-[\w-]+)\s*=/i.test(html)) {
       warnings.add('namespace custom attribute normalization applied');
     }
 
@@ -1901,8 +1901,8 @@ export class OfflineModeManager {
     }
 
     let sanitized = markdown
-      .replace(/\b(?:annoying\s+)?popup\s*ad\s*accept\s*all(?:\s+\d+)?[\s\S]{0,180}?cookies?\s+to\s+continue\.?/gi, '')
-      .replace(/\baccept\s*all(?:\s+\d+)?[\s\S]{0,180}?(?:tracking\s+)?cookies?\s+to\s+continue\.?/gi, '')
+      .replace(/\b(?:annoying\s+)?popup\s*ad\s*accept\s*all(?:\s+\d+)?[^\n]{0,180}?cookies?\s+to\s+continue\.?/gi, '')
+      .replace(/\baccept\s*all(?:\s+\d+)?[^\n]{0,180}?(?:tracking\s+)?cookies?\s+to\s+continue\.?/gi, '')
       .replace(/\bwelcome to reddit,\s*the front page of the internet\.[\s\S]{0,120}?communities\./gi, '')
       .replace(/!\[[^\]]*]\(data:image\/svg\+xml,[^)]+\)/gi, '')
       .replace(/^\s*-\s*\[(save|share)\]\(#\)\s*$/gim, '')
@@ -1927,7 +1927,12 @@ export class OfflineModeManager {
           /accept all .*cookies?|manage (cookie|privacy) preferences|allow all cookies/.test(normalized) ||
           /popup ad|popup adaccept|tracking cookies? to continue/.test(normalized) ||
           /limit my search to|advanced search: by author|see the search faq|join reddit|view more:/.test(normalized) ||
-          /welcome to reddit.*front page of the internet/.test(normalized)
+          /welcome to reddit.*front page of the internet/.test(normalized) ||
+          /donate\s*\|\s*create account\s*\|\s*log in/.test(normalized) ||
+          /privacy policy\s*\|\s*about wikipedia/.test(normalized) ||
+          /raw input\s+[a-z0-9.-]+\.[a-z]{2,}\/\S+\s+donate\s*\|\s*create account\s*\|\s*log in/.test(normalized) ||
+          /prompt ready output selecting main content/.test(normalized) ||
+          /^wikipedia page\s*reddit thread$/.test(normalized)
         );
 	      const isInlineDataUriNoise =
 	        /data:image\/svg\+xml/.test(normalized) ||

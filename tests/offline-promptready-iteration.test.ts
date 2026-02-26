@@ -93,6 +93,8 @@ describe('offline promptready extraction iteration', () => {
 
     expect(result.markdown).not.toContain('ANNOYING POPUP AD');
     expect(result.markdown).not.toContain('Accept all 500 tracking cookies to continue');
+    expect(result.markdown).not.toContain('Donate | Create account | Log in');
+    expect(result.markdown).not.toContain('Privacy policy | About Wikipedia');
 
     const suspiciousLines = collectSuspiciousSingleTokenLines(result.markdown);
     expect(suspiciousLines.length).toBeLessThanOrEqual(3);
