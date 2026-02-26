@@ -40,7 +40,7 @@ describe('MonetizationClient fallback logging', () => {
       })
     );
 
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: false,
       status: 405,
     } as Response);
@@ -50,6 +50,7 @@ describe('MonetizationClient fallback logging', () => {
 
     expect(result.balance).toBeGreaterThan(100000);
     expect(result.weeklyCap).toBeGreaterThan(100000);
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(warnSpy).not.toHaveBeenCalled();
   });
 

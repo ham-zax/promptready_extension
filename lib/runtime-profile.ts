@@ -15,6 +15,12 @@ export interface RuntimeProfileValidationResult {
   warnings: string[];
 }
 
+declare const __PROMPTREADY_RUNTIME_DEVELOPMENT__: boolean | undefined;
+declare const __PROMPTREADY_DEV_OPEN_ACCESS__: boolean | undefined;
+declare const __PROMPTREADY_DEV_FORCE_PREMIUM__: boolean | undefined;
+declare const __PROMPTREADY_DEV_FORCE_DEVELOPER_MODE__: boolean | undefined;
+declare const __PROMPTREADY_USE_MOCK_MONETIZATION__: boolean | undefined;
+
 const DEV_DEFAULT_MONETIZATION_BASE = 'http://127.0.0.1:8788';
 const DEV_DEFAULT_BYOK_PROXY = 'http://127.0.0.1:8788/byok/proxy';
 const DEV_DEFAULT_TRAFILATURA_URL = 'http://127.0.0.1:8089';
@@ -45,12 +51,58 @@ function readString(name: string): string | undefined {
   return value ? value : undefined;
 }
 
-function resolveRuntimeDevelopmentFlag(): boolean {
-  const explicit = readBoolean('WXT_RUNTIME_DEVELOPMENT');
-  if (typeof explicit === 'boolean') {
-    return explicit;
+const BUILD_RUNTIME_DEVELOPMENT =
+  typeof __PROMPTREADY_RUNTIME_DEVELOPMENT__ !== 'undefined'
+    ? __PROMPTREADY_RUNTIME_DEVELOPMENT__
+    : undefined;
+const BUILD_DEV_OPEN_ACCESS =
+  typeof __PROMPTREADY_DEV_OPEN_ACCESS__ !== 'undefined'
+    ? __PROMPTREADY_DEV_OPEN_ACCESS__
+    : undefined;
+const BUILD_DEV_FORCE_PREMIUM =
+  typeof __PROMPTREADY_DEV_FORCE_PREMIUM__ !== 'undefined'
+    ? __PROMPTREADY_DEV_FORCE_PREMIUM__
+    : undefined;
+const BUILD_DEV_FORCE_DEVELOPER_MODE =
+  typeof __PROMPTREADY_DEV_FORCE_DEVELOPER_MODE__ !== 'undefined'
+    ? __PROMPTREADY_DEV_FORCE_DEVELOPER_MODE__
+    : undefined;
+const BUILD_USE_MOCK_MONETIZATION =
+  typeof __PROMPTREADY_USE_MOCK_MONETIZATION__ !== 'undefined'
+    ? __PROMPTREADY_USE_MOCK_MONETIZATION__
+    : undefined;
+
+export interface RuntimeDevelopmentDetectionInput {
+  explicit?: boolean;
+  envDev?: boolean;
+  envMode?: string;
+  hasHotReload?: boolean;
+}
+
+export function detectRuntimeDevelopment(input: RuntimeDevelopmentDetectionInput): boolean {
+  if (typeof input.explicit === 'boolean') {
+    return input.explicit;
   }
-  return Boolean((import.meta as any)?.env?.DEV);
+  if (input.envDev === true) {
+    return true;
+  }
+  if (typeof input.envMode === 'string' && input.envMode.toLowerCase() === 'development') {
+    return true;
+  }
+  if (input.hasHotReload) {
+    return true;
+  }
+  return false;
+}
+
+function resolveRuntimeDevelopmentFlag(): boolean {
+  const env = (import.meta as any)?.env;
+  return detectRuntimeDevelopment({
+    explicit: readBoolean('WXT_RUNTIME_DEVELOPMENT') ?? BUILD_RUNTIME_DEVELOPMENT,
+    envDev: env?.DEV === true,
+    envMode: typeof env?.MODE === 'string' ? env.MODE : undefined,
+    hasHotReload: Boolean((import.meta as any)?.hot),
+  });
 }
 
 let cachedProfile: RuntimeProfile | null = null;
@@ -73,10 +125,11 @@ export function getRuntimeProfile(): RuntimeProfile {
 
   const isDevelopment = resolveRuntimeDevelopmentFlag();
 
-  const openAccessEnabled = readBoolean('WXT_DEV_OPEN_ACCESS') ?? isDevelopment;
-  const premiumBypassEnabled = readBoolean('WXT_DEV_FORCE_PREMIUM') ?? isDevelopment;
-  const enforceDeveloperMode = readBoolean('WXT_DEV_FORCE_DEVELOPER_MODE') ?? isDevelopment;
-  const useMockMonetization = readBoolean('WXT_USE_MOCK_MONETIZATION') ?? isDevelopment;
+  const openAccessEnabled = readBoolean('WXT_DEV_OPEN_ACCESS') ?? BUILD_DEV_OPEN_ACCESS ?? isDevelopment;
+  const premiumBypassEnabled = readBoolean('WXT_DEV_FORCE_PREMIUM') ?? BUILD_DEV_FORCE_PREMIUM ?? isDevelopment;
+  const enforceDeveloperMode =
+    readBoolean('WXT_DEV_FORCE_DEVELOPER_MODE') ?? BUILD_DEV_FORCE_DEVELOPER_MODE ?? isDevelopment;
+  const useMockMonetization = readBoolean('WXT_USE_MOCK_MONETIZATION') ?? BUILD_USE_MOCK_MONETIZATION ?? isDevelopment;
 
   const monetizationApiBase =
     readString('WXT_MONETIZATION_API_BASE') ??

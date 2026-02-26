@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateRuntimeProfile, type RuntimeProfile } from '@/lib/runtime-profile';
+import { detectRuntimeDevelopment, validateRuntimeProfile, type RuntimeProfile } from '@/lib/runtime-profile';
 
 function makeProfile(overrides: Partial<RuntimeProfile> = {}): RuntimeProfile {
   const profile: RuntimeProfile = {
@@ -17,6 +17,34 @@ function makeProfile(overrides: Partial<RuntimeProfile> = {}): RuntimeProfile {
 }
 
 describe('runtime profile validation', () => {
+  it('treats development mode as development when no explicit env override exists', () => {
+    const result = detectRuntimeDevelopment({
+      envDev: false,
+      envMode: 'development',
+      hasHotReload: false,
+    });
+    expect(result).toBe(true);
+  });
+
+  it('keeps production false when no development signals exist', () => {
+    const result = detectRuntimeDevelopment({
+      envDev: false,
+      envMode: 'production',
+      hasHotReload: false,
+    });
+    expect(result).toBe(false);
+  });
+
+  it('respects explicit runtime override even if local dev signals are present', () => {
+    const result = detectRuntimeDevelopment({
+      explicit: false,
+      envDev: true,
+      envMode: 'development',
+      hasHotReload: true,
+    });
+    expect(result).toBe(false);
+  });
+
   it('allows development profile and emits no errors', () => {
     const result = validateRuntimeProfile(makeProfile());
     expect(result.errors).toHaveLength(0);

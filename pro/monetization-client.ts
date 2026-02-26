@@ -56,6 +56,16 @@ export class MonetizationClient {
     return getRuntimeProfile().useMockMonetization;
   }
 
+  private static shouldFailOpenWithoutNetwork(): boolean {
+    const profile = getRuntimeProfile();
+    return (
+      profile.isDevelopment ||
+      profile.openAccessEnabled ||
+      profile.premiumBypassEnabled ||
+      profile.useMockMonetization
+    );
+  }
+
   private static shouldSuppressFallbackLog(status?: number): boolean {
     const profile = getRuntimeProfile();
     if (
@@ -87,7 +97,7 @@ export class MonetizationClient {
    * Checks a user's credit balance by calling the backend endpoint.
    */
   static async checkCredits(userId: string): Promise<CheckCreditsResponse> {
-    if (this.isMockMode()) {
+    if (this.shouldFailOpenWithoutNetwork()) {
       return this.unlimitedCredits();
     }
 
