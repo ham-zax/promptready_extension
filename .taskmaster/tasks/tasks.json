@@ -2,7 +2,7 @@
   "master": {
     "tasks": [
       {
-        "id": "1",
+        "id": 1,
         "title": "Define Dev Runtime Policy and Enforcement Matrix",
         "description": "Establish a single source of truth for runtime behavior across development/staging/production, with explicit guarantees: development mode must be fully offline-capable and premium features must be enabled during development.",
         "details": "Create a policy matrix covering extraction providers, network access, monetization gates, auth behavior, API key requirements, and fallback behavior per environment. Include hard-fail rules to prevent accidental remote calls in development and explicit toggles for production behavior.",
@@ -72,7 +72,7 @@
         ]
       },
       {
-        "id": "2",
+        "id": 2,
         "title": "Implement Environment Profiles and Guardrails",
         "description": "Introduce explicit environment profiles in extension and workers that enforce behavior by policy (dev/staging/prod), removing implicit booleans and hardcoded dev shortcuts.",
         "details": "Replace ad-hoc DEV_MODE and local URL assumptions with centralized config. Ensure dev profile enables premium capabilities without requiring external trial/billing services. Add runtime assertions that reject misconfigured production profiles containing dev secrets or bypasses.",
@@ -108,7 +108,7 @@
         ]
       },
       {
-        "id": "3",
+        "id": 3,
         "title": "Build Self-Hosted Trafilatura Extraction Service",
         "description": "Create a lightweight extraction service on the user's small server using Trafilatura as a fallback provider for difficult pages.",
         "details": "Implement HTTP API (`POST /extract`) accepting `url` or `html`, plus options (`targetSelector`, `removeSelector`, timeout, output mode). Return normalized payload with markdown/text/html, metadata, diagnostics, and extraction timing. Package with reproducible deployment docs and health checks.",
@@ -156,7 +156,7 @@
         ]
       },
       {
-        "id": "4",
+        "id": 4,
         "title": "Refactor Extraction to Provider Interface with Fallback Chain",
         "description": "Introduce a provider abstraction in extension processing flow and route through local pipeline first, then Trafilatura fallback based on quality thresholds and failure modes.",
         "details": "Define provider contract and strategy resolver. Keep existing graceful-degradation/offline pipeline as primary in development and production. Invoke Trafilatura only when configured and quality gate fails or extraction errors occur. Persist provider decision + diagnostics for observability.",
@@ -191,7 +191,7 @@
         ]
       },
       {
-        "id": "5",
+        "id": 5,
         "title": "Enable Premium Experience in Development Without External Billing",
         "description": "Ensure all premium UX and processing capabilities are enabled in development while decoupling from remote trial/subscription dependencies.",
         "details": "Implement development entitlement policy: premium features on, credit exhaustion bypassed, BYOK optional. Remove implicit dependence on mock monetization imports in production paths and provide clear dev adapters behind profile flags.",
@@ -226,7 +226,7 @@
         ]
       },
       {
-        "id": "6",
+        "id": 6,
         "title": "Eliminate BYOK CORS Failures in Development",
         "description": "Guarantee that BYOK requests in development do not hit browser CORS barriers by routing through a first-party proxy endpoint under our control.",
         "details": "Route extension BYOK traffic to local/worker proxy (`/api/proxy`-style endpoint) with strict CORS handling and OPTIONS preflight support. Avoid direct browser calls to third-party AI hosts in development. Standardize headers, error payloads, and timeout behavior so UI receives predictable failures.",
@@ -274,7 +274,7 @@
         ]
       },
       {
-        "id": "7",
+        "id": 7,
         "title": "Modernize Legacy Paths and Remove Stale Implementations",
         "description": "Update old code paths, placeholders, and mock-first imports that conflict with current architecture and production intent.",
         "details": "Audit entrypoints/core/pro/lib for stale TODO placeholders, hardcoded secrets, duplicate logic, and outdated contracts. Replace with current provider/auth/config architecture. Remove unreachable branches and dead compatibility shims where safe, while preserving external behavior.",
@@ -311,7 +311,7 @@
         ]
       },
       {
-        "id": "8",
+        "id": 8,
         "title": "Reference-Guided Hardening and Test Expansion",
         "description": "Use real-world extraction/proxy implementations as references and convert findings into concrete robustness tests and implementation checklists.",
         "details": "Benchmark architecture decisions against maintained projects (Trafilatura, Mozilla Readability wrappers, Postlight Parser/API patterns, Cloudflare Worker proxy/CORS patterns). Capture adopted patterns, rejected patterns, and rationale. Add fixture suites for edge pages and provider-fallback behavior.",
@@ -337,7 +337,7 @@
         ]
       },
       {
-        "id": "9",
+        "id": 9,
         "title": "Verification Pipeline and CI Exit Criteria",
         "description": "Establish mandatory verification gates for refactor completion and future regression prevention.",
         "details": "Define pass criteria for `compile`, unit tests, integration tests, and targeted end-to-end scenarios (offline extraction, dev premium behavior, BYOK proxy, Trafilatura fallback). Add CI job sequencing and failure triage guidance to keep releases safe.",
@@ -386,7 +386,7 @@
         ]
       },
       {
-        "id": "10",
+        "id": 10,
         "title": "Stabilize Test Harness and Local Verification Baseline",
         "description": "Repair failing test/lint infrastructure so modernization work can be validated continuously instead of accumulating regressions.",
         "details": "Fix Vitest environment assumptions (global JSDOM usage), update test setup and mocks, and scope linting so runtime and test code produce actionable diagnostics. Ensure compile + core suites are reliable before deep refactors.",
@@ -434,7 +434,7 @@
         ]
       },
       {
-        "id": "11",
+        "id": 11,
         "title": "Production-Harden Dev Open Access Overrides",
         "description": "Replace temporary development-open hardcoded bypasses with explicit environment-controlled policy before production rollout.",
         "details": "Current development implementation intentionally forces open access (FORCE_OPEN_ACCESS_DURING_DEVELOPMENT) and fail-open monetization behavior to unblock local workflows. Before any production rollout, move these toggles to explicit env/runtime profile flags, default them to fail-closed in production, and add startup assertions that reject unsafe production configs.",
@@ -475,7 +475,7 @@
         "updatedAt": "2026-02-25T14:33:20.836Z"
       },
       {
-        "id": "12",
+        "id": 12,
         "title": "Offline Extractor E2E Stability on Real Pages",
         "description": "Expand offline extractor regression coverage against real-world page structures (Wikipedia/docs/news/forum) to prevent extraction drift.",
         "details": "Add deterministic fixtures from representative page HTML captures and assert extraction quality, heading structure, citation block consistency, and fallback behavior under minimal/noisy DOM conditions.",
@@ -516,7 +516,7 @@
         "updatedAt": "2026-02-25T14:29:08.079Z"
       },
       {
-        "id": "13",
+        "id": 13,
         "title": "Fix OfflineModeManager Critical Defects (leak, timing, extraction order, chunking/hash)",
         "description": "Patch verified defects in OfflineModeManager that degrade extraction quality and runtime stability: active session leak, mixed clock timing bug, ScoringEngine bypass, and fragile fallback chunk/hash behavior.",
         "details": "Implement minimal-risk fixes in `core/offline-mode-manager.ts` and targeted regression tests. Keep behavior backward-compatible with existing provider chain and runtime profile policy.\n\nAcceptance criteria:\n1) sessions are cleaned up/evicted and do not grow unbounded;\n2) failed run timing uses consistent wall clock;\n3) fallback extraction prioritizes ScoringEngine pruning before semantic fallback;\n4) split fallback avoids cutting tags when DOMParser path unavailable/fails;\n5) fallback hash collision risk reduced in degraded environments.\n6) extractor tests pass.",
@@ -595,7 +595,7 @@
         "updatedAt": "2026-02-25T13:49:24.258Z"
       },
       {
-        "id": "14",
+        "id": 14,
         "title": "Extractor Runtime Hardening: dedup, monitoring singleton, diagnostics, malformed/XSS warnings",
         "description": "Execute remaining hardening work identified in review: prevent concurrent duplicate extraction work, prevent orphaned monitor intervals, preserve stack diagnostics, and add practical warning signals for malformed/XSS-like inputs to satisfy edge-case expectations.",
         "details": "Scope:\n1) Add in-flight request coalescing to OfflineModeManager.processContent keyed by cacheKey/config to avoid duplicate heavy work for concurrent identical requests.\n2) Make startRealTimeMonitoring singleton-safe by reusing/stopping an existing interval before starting a new one.\n3) Enrich failure diagnostics by storing stack/context in errors while preserving user-safe message.\n4) Add lightweight pre-parse risk detectors + post-extraction warning hooks (malformed structure/XSS protocol/event-handler markers/control-char/unicode anomaly hints) and wire into warnings output.\n5) Run targeted suites: edge-cases, edge-cases-extended, malformed-html, offline hardening tests.\n\nKeep behavior backward-compatible and avoid introducing network dependencies.",
@@ -655,7 +655,7 @@
         "updatedAt": "2026-02-25T14:23:17.199Z"
       },
       {
-        "id": "15",
+        "id": 15,
         "title": "Stabilize local monetization fail-open runtime and suppress expected 405 noise",
         "description": "Ensure local/unpacked development builds stay in development policy mode and do not surface misleading monetization warnings for expected fail-open HTTP statuses.",
         "details": "Added explicit `WXT_RUNTIME_DEVELOPMENT` profile override support, updated local build scripts to force dev-open runtime toggles, and hardened MonetizationClient logging so development/offline fallback statuses (401/403/404/405) do not pollute popup diagnostics while preserving production warnings for real server failures. Added regression tests for 405 suppression and production 500 warning preservation.",
@@ -667,7 +667,7 @@
         "updatedAt": "2026-02-25T18:54:24.723Z"
       },
       {
-        "id": "16",
+        "id": 16,
         "title": "Harden offline extraction against consent/promo overlay contamination",
         "description": "Prevent inline cookie/popup/newsletter UI noise from leaking into captured markdown while preserving primary page structure on general websites.",
         "details": "Implement a shared pre-extraction cleanup step in OfflineModeManager that removes hidden/marked overlay nodes, applies keyword-based noise block pruning, and runs deterministic empty-container cleanup before Readability/fallback extraction. Add markdown-level residual noise line stripping and ensure primary heading recovery when extractor omits H1. Preserve cache key identity from source HTML to avoid cache miss regressions when cleaned HTML differs from source.",
@@ -679,7 +679,7 @@
         "updatedAt": "2026-02-25T19:14:55.164Z"
       },
       {
-        "id": "17",
+        "id": 17,
         "title": "Extraction V2: candidate ranking, boilerplate suppression, and coherence normalization",
         "description": "Implement a cohesive extraction upgrade that improves content retention while suppressing nav/footer/cta boilerplate across general websites, driven by fixture regression gates.",
         "details": "Scope:\n1) Expand fixture corpus with modern marketing/landing pages and real captures (including mindsdb).\n2) Add deterministic quality assertions for boilerplate leakage and fragmentation.\n3) Implement extraction-level ranking improvements (boilerplate/linkfarm penalties, structural retention boosts).\n4) Add markdown normalization pass for fragmented line reflow and footer/legal cluster removal with conservative heuristics.\n5) Validate via targeted suites and snapshots.\n\nAcceptance criteria:\n- mindsdb-style footer/legal sitemap sections are removed from core output.\n- no word-per-line fragmentation blocks in core narrative sections.\n- existing docs/news/forum fixtures remain passing.\n- no regression to citation/header insertion rules.",
@@ -756,7 +756,7 @@
         "updatedAt": "2026-02-25T20:28:00.172Z"
       },
       {
-        "id": "18",
+        "id": 18,
         "title": "Extraction V3: single-pass orchestration and robust cross-site retention",
         "description": "Re-architect extraction so one canonical offscreen pipeline owns decisions, improves timestamp/section retention, and suppresses boilerplate on general websites without site-specific hacks.",
         "details": "Scope:\n1) Remove double-extraction decision drift by enforcing capture-snapshot-only in content side and single orchestrator ownership offscreen.\n2) Build multi-candidate ranking with objective utility and boilerplate penalties across readability/heuristic/semantic/feed/jsonld candidates.\n3) Add structured metadata retention (timestamps, byline, publish/update times) with confidence scoring and safe markdown header integration.\n4) Expand fixture corpus and empirical benchmark loop for docs/news/forums/landing pages with deterministic quality gates.\n\nAcceptance criteria:\n- PromptReady and MindsDB retain core sections while suppressing nav/footer/cta noise.\n- TOI/news-style fixtures preserve meaningful time markers when present in source.\n- No regression in existing fixture suites and compile/test pipelines.\n- Architecture keeps extraction decisions in one canonical pipeline owner.",
@@ -782,7 +782,7 @@
             "id": 2,
             "title": "Implement candidate pool and objective ranking model",
             "description": "Evaluate multiple extraction candidates and select by deterministic scoring instead of first-passing stage.",
-            "details": "Include readability, heuristic-scored root, semantic blocks, feed/list candidates, and metadata-enriched candidates; score content utility, retention, and boilerplate risk.",
+            "details": "Include readability, heuristic-scored root, semantic blocks, feed/list candidates, and metadata-enriched candidates; score content utility, retention, and boilerplate risk.\n<info added on 2026-02-26T19:33:02.114Z>\nExtracted candidate ranking and selection policy into dedicated pure-function modules core/extraction-candidate-orchestrator.ts and core/candidate-selection-policy.ts, plus offline URL config rules in core/offline-url-config-rules.ts, and wired OfflineModeManager to use them. Implemented bounded-cost Readability arbitration via fallbackContentExtractionSelection options with includeGracefulPipeline disabled for Readability-success flows, avoiding expensive graceful-degradation pipeline candidate generation while keeping deep candidate coverage on full fallback paths. Added focused unit tests covering ranking, policy scoring/adoption, and URL rules in tests/extraction-candidate-orchestrator.test.ts, tests/candidate-selection-policy.test.ts, and tests/offline-url-config-rules.test.ts. Resolved the reddit offline corpus timeout and preserved quality gates with npm run verify:offline.\n</info added on 2026-02-26T19:33:02.114Z>",
             "status": "in-progress",
             "dependencies": [
               "18.1"
@@ -851,7 +851,7 @@
         "expansionPrompt": "Decompose remaining work into four implementation tracks: (1) stabilize candidate orchestration by formalizing a single candidate model and deterministic score/tie-break rules in `core/offline-mode-manager.ts` (`fallbackContentExtraction`, `resolveReadabilityCandidate`, `computeCandidateSelectionScore`); (2) harden boilerplate suppression with conservative structural/link-density signals and regression-safe thresholds (no site-specific branches); (3) upgrade metadata retention to confidence-ranked publish/update/byline selection and validate cite-header rendering paths (`extractSourceMetadataSignals`, `extractJsonLdMetadataSignals`, `insertCiteFirstBlock`); (4) expand deterministic regression gates to include cross-publisher news fixtures (including TOI-style time markers) in offline corpus tests and iteration scripts, then run compile + focused offline suites to lock the baseline."
       },
       {
-        "id": "19",
+        "id": 19,
         "title": "Harden rendered fixture capture auto-tuning and enforce deeper landing-page retention",
         "description": "Improve offline fixture capture robustness for JS/lazy pages by adding rendered auto-tune retry heuristics and strengthen PromptReady regression assertions to retain deeper page sections.",
         "details": "Implemented in `scripts/capture-fixture.sh`: new rendered defaults, optional auto-tune retry (`OFFLINE_RENDER_AUTOTUNE`, retry viewport/wait envs), and safer retry acceptance criteria that reject low-heading/low-size regressions. Updated `docs/OFFLINE_FAST_ITERATION.md` with new env controls. Refreshed PromptReady and MindsDB fixtures with rendered capture and strengthened PromptReady extraction tests in `tests/offline-promptready-iteration.test.ts` and `tests/offline-fixture-regression.test.ts` to assert deeper-section retention (e.g., trusted-by and pricing blocks) while preserving noise suppression.",
@@ -870,7 +870,9 @@
       "completedCount": 19,
       "tags": [
         "master"
-      ]
+      ],
+      "created": "2026-02-26T19:28:31.501Z",
+      "description": "Tasks for master context"
     }
   }
 }

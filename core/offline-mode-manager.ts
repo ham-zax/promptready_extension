@@ -8,6 +8,14 @@ import { ExportMetadata } from '../lib/types.js';
 import { CacheManager } from '../lib/cache-manager.js';
 import { PerformanceMetrics } from './performance-metrics.js';
 import { safeParseHTML, extractSemanticContent, removeUnwantedElements, extractTextContent, fixRelativeUrls } from '../lib/dom-utils.js';
+import {
+  computeCandidateSelectionScore as computeCandidateSelectionPolicyScore,
+  shouldAdoptFallbackCandidate as shouldAdoptFallbackCandidateByPolicy,
+} from './candidate-selection-policy.js';
+import type { CandidateAnalysis } from './candidate-selection-policy.js';
+import { applyOfflineUrlConfigRule } from './offline-url-config-rules.js';
+import { rankExtractionCandidates } from './extraction-candidate-orchestrator.js';
+import type { ExtractionCandidate } from './extraction-candidate-orchestrator.js';
 import type { PipelineConfig, PipelineResult } from './graceful-degradation-pipeline.js';
 
 export interface OfflineModeConfig {
@@ -47,18 +55,6 @@ export interface OfflineProcessingResult {
   errors: string[];
 }
 
-interface CandidateAnalysis {
-  textLength: number;
-  headingCoverage: number;
-  sectionCount: number;
-  hasNoiseSignals: boolean;
-  leadHeadingPresent: boolean;
-  anchorCount: number;
-  repeatedItemBlocks: number;
-  formLikeBlocks: number;
-  containsVectorNoise: boolean;
-}
-
 interface TurndownConfigManagerLike {
   convert(html: string, presetName?: string): Promise<string>;
 }
@@ -75,6 +71,15 @@ interface GracefulDegradationPipelineLike {
     document: Document,
     config?: Partial<PipelineConfig>
   ): Promise<Pick<PipelineResult, 'content' | 'stage'>>;
+}
+
+interface FallbackSelection {
+  source: string;
+  html: string;
+}
+
+interface FallbackSelectionOptions {
+  includeGracefulPipeline?: boolean;
 }
 
 export class OfflineModeManager {
@@ -131,60 +136,6 @@ export class OfflineModeManager {
 
   // Use IndexedDB for persistent, high-performance caching
   private static readonly DEFAULT_CACHE_TTL_HOURS = 24;
-  private static readonly URL_CONFIG_RULES: Array<{
-    id: string;
-    match: (normalizedUrl: string) => boolean;
-    apply: (config: OfflineModeConfig) => void;
-  }> = [
-    {
-      id: 'reddit',
-      match: (normalizedUrl) => normalizedUrl.includes('reddit.com'),
-      apply: (config) => {
-        config.readabilityPreset = 'reddit-post';
-        config.turndownPreset = 'standard';
-        config.postProcessing = {
-          ...config.postProcessing,
-          addTableOfContents: false,
-          optimizeForPlatform: 'standard',
-        };
-      },
-    },
-    {
-      id: 'technical-docs',
-      match: (normalizedUrl) =>
-        normalizedUrl.includes('github.com') ||
-        normalizedUrl.includes('docs.') ||
-        normalizedUrl.includes('api.'),
-      apply: (config) => {
-        config.readabilityPreset = 'technical-documentation';
-        config.turndownPreset = 'github';
-        config.postProcessing.optimizeForPlatform = 'github';
-      },
-    },
-    {
-      id: 'blog',
-      match: (normalizedUrl) =>
-        normalizedUrl.includes('blog') ||
-        normalizedUrl.includes('medium.com') ||
-        normalizedUrl.includes('substack.com'),
-      apply: (config) => {
-        config.readabilityPreset = 'blog-article';
-        config.turndownPreset = 'standard';
-        config.postProcessing.addTableOfContents = true;
-      },
-    },
-    {
-      id: 'wiki',
-      match: (normalizedUrl) =>
-        normalizedUrl.includes('wikipedia.org') ||
-        normalizedUrl.includes('wiki'),
-      apply: (config) => {
-        config.readabilityPreset = 'wiki-content';
-        config.turndownPreset = 'standard';
-        config.postProcessing.addTableOfContents = true;
-      },
-    },
-  ];
 
   private static mergeConfig(
     overrides?: Partial<OfflineModeConfig>
@@ -492,8 +443,12 @@ export class OfflineModeManager {
 	      } catch (error) {
         console.warn('[OfflineModeManager] Readability extraction failed:', error);
         if (config.fallbacks.enableReadabilityFallback) {
-          extractedContent = await this.fallbackContentExtraction(extractionHtml);
+          const fallbackSelection = await this.fallbackContentExtractionSelection(extractionHtml);
+          extractedContent = fallbackSelection?.html || extractionHtml;
           fallbacksUsed.push('readability-fallback');
+          if (fallbackSelection?.source) {
+            fallbacksUsed.push(`readability-fallback-source:${fallbackSelection.source}`);
+          }
           warnings.push('Used fallback content extraction');
         } else {
           throw error;
@@ -1649,11 +1604,27 @@ export class OfflineModeManager {
       return readabilityContent;
     }
 
-    const fallbackCandidate = await this.fallbackContentExtraction(extractionHtml);
-    if (!fallbackCandidate || this.normalizeInputText(extractTextContent(fallbackCandidate)).length === 0) {
+    const selection = await this.fallbackContentExtractionSelection(extractionHtml, [
+      {
+        source: 'readability-primary',
+        html: readabilityContent,
+      },
+    ], {
+      includeGracefulPipeline: false,
+    });
+    if (!selection || this.normalizeInputText(extractTextContent(selection.html)).length === 0) {
       return readabilityContent;
     }
 
+    if (selection.source === 'readability-primary') {
+      const coverageLow = this.shouldFallbackForCoverage(readabilityContent, extractionHtml);
+      if (coverageLow) {
+        warnings.push('Readability extraction coverage low; retained readability candidate after quality ranking');
+      }
+      return readabilityContent;
+    }
+
+    const fallbackCandidate = selection.html;
     const coverageLow = this.shouldFallbackForCoverage(readabilityContent, extractionHtml);
     const shouldAdopt = this.shouldAdoptFallbackCandidate(
       extractionHtml,
@@ -1661,13 +1632,18 @@ export class OfflineModeManager {
       fallbackCandidate
     );
 
-    if (shouldAdopt) {
+    if (coverageLow || shouldAdopt) {
       if (coverageLow) {
         fallbacksUsed.push('readability-low-coverage-fallback');
         warnings.push('Readability extraction coverage low; used fallback content extraction');
       } else {
         fallbacksUsed.push('readability-ranked-fallback');
         warnings.push('Selected higher-quality fallback candidate over readability output');
+      }
+      if (typeof process !== 'undefined' && (process as any)?.env?.OFFLINE_DEBUG_CANDIDATES === '1') {
+        console.log('[OfflineModeManager] Selected fallback candidate over readability', {
+          source: selection.source,
+        });
       }
       return fallbackCandidate;
     }
@@ -1709,47 +1685,12 @@ export class OfflineModeManager {
       });
     }
 
-    if (fallbackAnalysis.textLength < Math.min(200, readabilityAnalysis.textLength * 0.55)) {
-      return false;
-    }
-
-    if (readabilityAnalysis.textLength < 220 && fallbackAnalysis.textLength >= 1200) {
-      return true;
-    }
-
-    if (fallbackAnalysis.hasNoiseSignals && !readabilityAnalysis.hasNoiseSignals) {
-      return fallbackScore >= readabilityScore + 14;
-    }
-
-    if (fallbackScore >= readabilityScore + 10) {
-      return true;
-    }
-
-    if (readabilityAnalysis.hasNoiseSignals && !fallbackAnalysis.hasNoiseSignals) {
-      if (fallbackAnalysis.textLength >= readabilityAnalysis.textLength * 0.6) {
-        return true;
-      }
-    }
-
-    if (!readabilityAnalysis.leadHeadingPresent && fallbackAnalysis.leadHeadingPresent) {
-      if (fallbackAnalysis.textLength >= readabilityAnalysis.textLength * 0.6) {
-        return true;
-      }
-    }
-
-    if (fallbackAnalysis.headingCoverage >= readabilityAnalysis.headingCoverage + 0.2) {
-      if (fallbackAnalysis.textLength >= readabilityAnalysis.textLength * 0.7) {
-        return true;
-      }
-    }
-
-    if (fallbackAnalysis.sectionCount > readabilityAnalysis.sectionCount) {
-      if (fallbackAnalysis.textLength >= readabilityAnalysis.textLength * 0.7) {
-        return true;
-      }
-    }
-
-    return fallbackScore >= readabilityScore + 6;
+    return shouldAdoptFallbackCandidateByPolicy({
+      readabilityAnalysis,
+      fallbackAnalysis,
+      readabilityScore,
+      fallbackScore,
+    });
   }
 
   private static computeCandidateSelectionScore(
@@ -1759,31 +1700,19 @@ export class OfflineModeManager {
   ): number {
     const details = analysis ?? this.analyzeExtractionCandidate(originalHtml, candidateHtml);
     const sourceTextLength = Math.max(1, this.normalizeInputText(extractTextContent(originalHtml)).length);
-    const textCoverage = Math.min(1, details.textLength / sourceTextLength);
-    const sectionScore = Math.min(1, details.sectionCount / 6);
     const candidateRoot = this.extractCandidateRoot(candidateHtml);
     const linkDensity = candidateRoot ? this.calculateLinkDensity(candidateRoot) : 0;
     const boilerplatePenalty = this.calculateBoilerplatePenalty(candidateHtml);
     const feedLike = this.isLikelyFeedCandidate(details, linkDensity);
     const formSidebarLike = details.formLikeBlocks >= 3 && details.repeatedItemBlocks < 4;
-
-    let score = 0;
-    score += details.headingCoverage * 34;
-    score += textCoverage * 24;
-    score += sectionScore * 14;
-    score += details.leadHeadingPresent ? 16 : 0;
-    score += feedLike ? 10 : 0;
-    score -= details.hasNoiseSignals ? 14 : 0;
-    score -= formSidebarLike ? 22 : 0;
-    score -= details.containsVectorNoise ? 18 : 0;
-
-    const densityThreshold = feedLike ? 0.78 : 0.45;
-    if (linkDensity > densityThreshold) {
-      score -= Math.min(18, (linkDensity - densityThreshold) * 60);
-    }
-    score -= boilerplatePenalty;
-
-    return Math.max(0, Math.min(100, score));
+    return computeCandidateSelectionPolicyScore({
+      analysis: details,
+      sourceTextLength,
+      linkDensity,
+      boilerplatePenalty,
+      isFeedLike: feedLike,
+      isFormSidebarLike: formSidebarLike,
+    });
   }
 
   private static extractCandidateRoot(candidateHtml: string): HTMLElement | null {
@@ -2525,11 +2454,9 @@ export class OfflineModeManager {
     const actualSettings = settings || await Storage.getSettings();
     const baseConfig = this.mergeConfig();
 
-    const normalizedUrl = (url || '').toLowerCase();
-    const matchedRule = this.URL_CONFIG_RULES.find((rule) => rule.match(normalizedUrl));
-    if (matchedRule) {
-      matchedRule.apply(baseConfig);
-      console.log(`[OfflineModeManager] Applied URL config rule: ${matchedRule.id}`);
+    const appliedRuleId = applyOfflineUrlConfigRule(url, baseConfig);
+    if (appliedRuleId) {
+      console.log(`[OfflineModeManager] Applied URL config rule: ${appliedRuleId}`);
     }
 
     // Apply user processing profile overrides (when present). Defaults are treated as "auto".
@@ -2675,29 +2602,61 @@ export class OfflineModeManager {
    * Now uses ScoringEngine for better heuristic-based selection
    */
   private static async fallbackContentExtraction(
-    html: string
+    html: string,
+    seedCandidates: ExtractionCandidate[] = [],
+    options: FallbackSelectionOptions = {}
   ): Promise<string> {
+    const selection = await this.fallbackContentExtractionSelection(html, seedCandidates, options);
+    if (selection) {
+      return selection.html;
+    }
+    return typeof html === 'string' ? html : '';
+  }
+
+  private static async fallbackContentExtractionSelection(
+    html: string,
+    seedCandidates: ExtractionCandidate[] = [],
+    options: FallbackSelectionOptions = {}
+  ): Promise<FallbackSelection | null> {
     const normalizedHtml = typeof html === 'string' ? html : '';
     if (!normalizedHtml.trim()) {
-      return '';
+      return null;
     }
 
     try {
       const prepared = this.prepareHtmlForExtraction(normalizedHtml);
       const doc = safeParseHTML(prepared.html);
       if (!doc) {
-        return normalizedHtml;
+        return {
+          source: 'source-html',
+          html: normalizedHtml,
+        };
       }
 
       // For npm pages, look for README specifically
       if (doc.querySelector('[data-testid="readme"]')) {
         const readme = doc.querySelector('[data-testid="readme"]');
         if (readme) {
-          return readme.innerHTML;
+          return {
+            source: 'npm-readme',
+            html: readme.innerHTML,
+          };
         }
       }
 
-      const candidatePool: Array<{ source: string; html: string }> = [];
+      const candidatePool: ExtractionCandidate[] = [];
+      for (const candidate of seedCandidates) {
+        if (!candidate || typeof candidate.html !== 'string') {
+          continue;
+        }
+        if (!candidate.html.trim()) {
+          continue;
+        }
+        candidatePool.push({
+          source: candidate.source || 'seed',
+          html: this.sanitizeFallbackCandidateHtml(candidate.html),
+        });
+      }
       const primaryRoot = doc.querySelector('main, article, [role="main"], #content, .content, .main-content') as HTMLElement | null;
       if (primaryRoot && this.normalizeInputText(primaryRoot.textContent || '').length > 120) {
         candidatePool.push({
@@ -2737,30 +2696,34 @@ export class OfflineModeManager {
         console.warn('[OfflineModeManager] ScoringEngine fallback failed:', error);
       }
 
-      // Keep runtime parity with the graceful pipeline by including it as a scored candidate.
-      try {
-        const GracefulDegradationPipeline = await this.getGracefulDegradationPipeline();
-        if (GracefulDegradationPipeline) {
-          const pipelineResult = await GracefulDegradationPipeline.execute(doc, {
-            enableStage1: true,
-            enableStage2: true,
-            enableStage3: true,
-            minQualityScore: 0,
-            timeout: 2500,
-            debug: false,
-          });
-          if (
-            pipelineResult?.content &&
-            this.normalizeInputText(extractTextContent(pipelineResult.content)).length > 120
-          ) {
-            candidatePool.push({
-              source: `graceful-pipeline:${pipelineResult.stage}`,
-              html: this.sanitizeFallbackCandidateHtml(pipelineResult.content),
+      const includeGracefulPipeline = options.includeGracefulPipeline ?? seedCandidates.length === 0;
+      // Keep runtime parity with the graceful pipeline by including it as a scored candidate
+      // only on full fallback paths (readability-failure), not on readability-success arbitration.
+      if (includeGracefulPipeline) {
+        try {
+          const GracefulDegradationPipeline = await this.getGracefulDegradationPipeline();
+          if (GracefulDegradationPipeline) {
+            const pipelineResult = await GracefulDegradationPipeline.execute(doc, {
+              enableStage1: true,
+              enableStage2: true,
+              enableStage3: true,
+              minQualityScore: 0,
+              timeout: 2500,
+              debug: false,
             });
+            if (
+              pipelineResult?.content &&
+              this.normalizeInputText(extractTextContent(pipelineResult.content)).length > 120
+            ) {
+              candidatePool.push({
+                source: `graceful-pipeline:${pipelineResult.stage}`,
+                html: this.sanitizeFallbackCandidateHtml(pipelineResult.content),
+              });
+            }
           }
+        } catch (error) {
+          console.warn('[OfflineModeManager] Graceful pipeline candidate failed:', error);
         }
-      } catch (error) {
-        console.warn('[OfflineModeManager] Graceful pipeline candidate failed:', error);
       }
 
       // Try semantic extraction
@@ -2810,36 +2773,43 @@ export class OfflineModeManager {
       const sourceTextLength = this.normalizeInputText(extractTextContent(prepared.html)).length;
       const minLengthThreshold = Math.min(220, Math.max(80, Math.floor(sourceTextLength * 0.08)));
 
-      const ranked = candidatePool
-        .map((candidate) => ({
-          source: candidate.source,
-          html: typeof candidate.html === 'string' ? candidate.html : '',
-          textLength: this.normalizeInputText(extractTextContent(candidate.html || '')).length,
-        }))
-        .filter((candidate) => candidate.textLength > 0)
-        .filter((candidate) => candidate.textLength >= minLengthThreshold)
-        .map((candidate) => ({
-          ...candidate,
-          score: this.computeCandidateSelectionScore(prepared.html, candidate.html),
-        }))
-        .sort((a, b) => b.score - a.score);
+      const ranking = rankExtractionCandidates({
+        sourceHtml: prepared.html,
+        candidates: candidatePool,
+        minLengthThreshold,
+        measureTextLength: (candidateHtml) =>
+          this.normalizeInputText(extractTextContent(candidateHtml)).length,
+        analyze: (sourceHtml, candidateHtml) =>
+          this.analyzeExtractionCandidate(sourceHtml, candidateHtml),
+        score: (sourceHtml, candidateHtml, analysis) =>
+          this.computeCandidateSelectionScore(sourceHtml, candidateHtml, analysis),
+      });
 
       if (typeof process !== 'undefined' && (process as any)?.env?.OFFLINE_DEBUG_CANDIDATES === '1') {
-        console.log('[OfflineModeManager] Fallback candidate ranking', ranked.map((entry) => ({
+        console.log('[OfflineModeManager] Fallback candidate ranking', ranking.ranked.map((entry) => ({
           source: entry.source,
           score: entry.score,
-          length: this.normalizeInputText(extractTextContent(entry.html)).length,
+          length: entry.textLength,
         })));
       }
 
-      if (ranked.length > 0) {
-        return ranked[0].html;
+      if (ranking.selected) {
+        return {
+          source: ranking.selected.source,
+          html: ranking.selected.html,
+        };
       }
 
-      return prepared.html || normalizedHtml;
+      return {
+        source: 'prepared-html',
+        html: prepared.html || normalizedHtml,
+      };
     } catch (error) {
       console.warn('[OfflineModeManager] fallbackContentExtraction failed; returning normalized source HTML:', error);
-      return normalizedHtml;
+      return {
+        source: 'source-html',
+        html: normalizedHtml,
+      };
     }
   }
 
