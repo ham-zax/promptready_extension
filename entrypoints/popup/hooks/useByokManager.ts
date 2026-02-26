@@ -32,14 +32,6 @@ const DEFAULT_PROVIDERS = {
     apiBase: 'https://openrouter.ai/api/v1',
     defaultModel: 'arcee-ai/trinity-large-preview:free',
   },
-  manual: {
-    apiBase: 'https://api.openai.com/v1',
-    defaultModel: 'gpt-4',
-  },
-  'z.ai': {
-    apiBase: 'https://api.z.ai/api/coding/paas/v4',
-    defaultModel: 'z.ai-flash',
-  },
 };
 
 export function useByokManager(): ByokState & ByokActions {
@@ -64,10 +56,10 @@ export function useByokManager(): ByokState & ByokActions {
         if (byokConfig) {
           setState(prev => ({
             ...prev,
-            provider: byokConfig.provider || 'openrouter',
+            provider: 'openrouter',
             apiKey: byokConfig.apiKey || '',
-            apiBase: byokConfig.apiBase || DEFAULT_PROVIDERS[byokConfig.provider || 'openrouter'].apiBase,
-            selectedModel: byokConfig.selectedByokModel || DEFAULT_PROVIDERS[byokConfig.provider || 'openrouter'].defaultModel,
+            apiBase: byokConfig.apiBase || DEFAULT_PROVIDERS.openrouter.apiBase,
+            selectedModel: byokConfig.selectedByokModel || DEFAULT_PROVIDERS.openrouter.defaultModel,
             hasApiKey: Boolean(byokConfig.apiKey),
           }));
         }
@@ -80,18 +72,16 @@ export function useByokManager(): ByokState & ByokActions {
   }, []);
 
   // Update defaults when provider changes
-  const setProvider = useCallback((provider: ByokState['provider']) => {
-    setState(prev => {
-      const providerDefaults = DEFAULT_PROVIDERS[provider];
-      return {
-        ...prev,
-        provider,
-        apiBase: providerDefaults.apiBase,
-        selectedModel: providerDefaults.defaultModel,
-        isValid: false,
-        validationMessage: '',
-      };
-    });
+  const setProvider = useCallback((_provider: ByokState['provider']) => {
+    // OpenRouter-only workflow: retain API compatibility while forcing canonical provider.
+    setState(prev => ({
+      ...prev,
+      provider: 'openrouter',
+      apiBase: DEFAULT_PROVIDERS.openrouter.apiBase,
+      selectedModel: DEFAULT_PROVIDERS.openrouter.defaultModel,
+      isValid: false,
+      validationMessage: '',
+    }));
   }, []);
 
   const setApiKey = useCallback((apiKey: string) => {

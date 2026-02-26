@@ -182,6 +182,13 @@ export async function validateZAI(apiKey: string): Promise<ValidationResult> {
 export async function validateApiKey(request: ValidationRequest): Promise<ValidationResult> {
   const { provider, apiKey, apiBase } = request;
 
+  if (provider !== 'openrouter') {
+    return {
+      isValid: false,
+      message: 'Only OpenRouter BYOK is supported right now.',
+    };
+  }
+
   if (!apiKey || apiKey.trim().length === 0) {
     return {
       isValid: false,
@@ -190,37 +197,21 @@ export async function validateApiKey(request: ValidationRequest): Promise<Valida
   }
 
   // Basic key format validation
-  if (provider === 'openrouter' && !apiKey.startsWith('sk-or-v1-')) {
+  if (!apiKey.startsWith('sk-or-v1-')) {
     return {
       isValid: false,
       message: 'OpenRouter keys should start with "sk-or-v1-"',
     };
   }
 
-  // Note: Removed sk- prefix validation for manual API keys as many OpenAI-compatible
-  // services use different key formats
-
-  if (provider === 'manual' && (!apiBase || !isValidUrl(apiBase))) {
+  if (!apiBase || !isValidUrl(apiBase)) {
     return {
       isValid: false,
-      message: 'Please enter a valid API base URL',
+      message: 'Please enter a valid OpenRouter API base URL',
     };
   }
 
-  // Provider-specific validation
-  switch (provider) {
-    case 'openrouter':
-      return validateOpenRouter(apiKey);
-    case 'manual':
-      return validateOpenAI(apiKey, apiBase);
-    case 'z.ai':
-      return validateZAI(apiKey);
-    default:
-      return {
-        isValid: false,
-        message: 'Unknown provider',
-      };
-  }
+  return validateOpenRouter(apiKey);
 }
 
 // Helper function for URL validation

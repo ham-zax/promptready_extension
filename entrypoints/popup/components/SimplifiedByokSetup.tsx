@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Settings } from '@/lib/types';
 import { Storage } from '@/lib/storage';
 import { validateApiKey } from '@/lib/api-validation';
-import { Globe, Wrench, Zap, Bot } from 'lucide-react';
+import { Globe, Bot } from 'lucide-react';
 
 interface SimplifiedByokSetupProps {
   settings: Settings;
@@ -10,7 +10,7 @@ interface SimplifiedByokSetupProps {
   onCancel: () => void;
 }
 
-type Provider = 'openrouter' | 'manual' | 'z.ai';
+type Provider = 'openrouter';
 
 type ProviderInfo = {
   name: string;
@@ -29,39 +29,17 @@ const PROVIDERS: Record<Provider, ProviderInfo> = {
     placeholder: 'sk-or-v1-...',
     defaultBase: 'https://openrouter.ai/api/v1',
   },
-  manual: {
-    name: 'OpenAI Compatible',
-    description: 'Use any OpenAI-compatible API',
-    icon: <Wrench className="w-5 h-5 text-gray-500" />,
-    placeholder: 'sk-...',
-    defaultBase: 'https://api.openai.com/v1',
-  },
-  'z.ai': {
-    name: 'Z.AI',
-    description: 'Fast and affordable AI API',
-    icon: <Zap className="w-5 h-5 text-yellow-500" />,
-    placeholder: 'Enter your Z.AI API key',
-    defaultBase: 'https://api.z.ai/api/coding/paas/v4',
-    fixedBase: true,
-  },
 };
 
 export function SimplifiedByokSetup({ settings, onComplete, onCancel }: SimplifiedByokSetupProps) {
-  const [provider, setProvider] = useState<Provider>('openrouter');
+  const provider: Provider = 'openrouter';
   const [apiKey, setApiKey] = useState('');
-  const [apiBase, setApiBase] = useState('');
+  const [apiBase] = useState('https://openrouter.ai/api/v1');
   const [isValidating, setIsValidating] = useState(false);
   const [validationStatus, setValidationStatus] = useState<{
     isValid: boolean;
     message: string;
   } | null>(null);
-
-  useEffect(() => {
-    const currentProvider = PROVIDERS[provider];
-    if (!currentProvider.fixedBase) {
-      setApiBase(currentProvider.defaultBase);
-    }
-  }, [provider]);
 
   const handleValidate = async () => {
     if (!apiKey.trim()) {
@@ -74,9 +52,9 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
 
     try {
       const result = await validateApiKey({
-        provider,
+        provider: 'openrouter',
         apiKey,
-        apiBase: provider === 'z.ai' ? PROVIDERS['z.ai'].defaultBase : apiBase,
+        apiBase,
       });
 
       setValidationStatus(result);
@@ -97,14 +75,13 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
     }
 
     try {
-      const selectedModel = provider === 'openrouter' ? 'arcee-ai/trinity-large-preview:free' :
-        provider === 'manual' ? 'gpt-4' : 'z.ai-flash';
+      const selectedModel = 'arcee-ai/trinity-large-preview:free';
 
       await Storage.updateSettings({
         byok: {
-          provider,
+          provider: 'openrouter',
           apiKey,
-          apiBase: provider === 'z.ai' ? PROVIDERS['z.ai'].defaultBase : apiBase,
+          apiBase: 'https://openrouter.ai/api/v1',
           model: selectedModel,
           selectedByokModel: selectedModel,
         },
@@ -139,32 +116,21 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
         </p>
       </div>
 
-      {/* Provider Selection */}
+      {/* Provider Selection (OpenRouter-only) */}
       <div className="mb-6">
         <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-3">
-          Choose AI Provider
+          AI Provider
         </label>
-        <div className="grid grid-cols-1 gap-2.5">
-          {Object.entries(PROVIDERS).map(([key, providerInfo]) => (
-            <button
-              key={key}
-              onClick={() => setProvider(key as Provider)}
-              className={`p-3 rounded-xl border transition-all text-left group ${provider === key
-                  ? 'border-brand-primary bg-brand-surface shadow-sm'
-                  : 'border-gray-200 hover:border-brand-primary/40 hover:bg-gray-50 active:scale-[0.98]'
-                }`}
-            >
-              <div className="flex items-center space-x-3">
-                <div className={`p-2 rounded-lg ${provider === key ? 'bg-white' : 'bg-gray-100 group-hover:bg-white'} transition-colors`}>
-                  {providerInfo.icon}
-                </div>
-                <div>
-                  <div className={`font-semibold text-sm ${provider === key ? 'text-brand-primary' : 'text-gray-900'}`}>{providerInfo.name}</div>
-                  <div className="text-[11px] text-gray-500 mt-0.5">{providerInfo.description}</div>
-                </div>
-              </div>
-            </button>
-          ))}
+        <div className="p-3 rounded-xl border border-brand-primary bg-brand-surface shadow-sm">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 rounded-lg bg-white transition-colors">
+              {currentProvider.icon}
+            </div>
+            <div>
+              <div className="font-semibold text-sm text-brand-primary">{currentProvider.name}</div>
+              <div className="text-[11px] text-gray-500 mt-0.5">{currentProvider.description}</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -184,21 +150,17 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
           />
         </div>
 
-        {/* API Base URL */}
-        {!currentProvider.fixedBase && (
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1.5">
-              API Base URL
-            </label>
-            <input
-              type="url"
-              value={apiBase}
-              onChange={(e) => setApiBase(e.target.value)}
-              placeholder={currentProvider.defaultBase}
-              className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition-all shadow-sm"
-            />
-          </div>
-        )}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1.5">
+            API Base URL
+          </label>
+          <input
+            type="url"
+            value={apiBase}
+            readOnly
+            className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-600 cursor-not-allowed"
+          />
+        </div>
 
         {/* Validation Status */}
         {validationStatus && (

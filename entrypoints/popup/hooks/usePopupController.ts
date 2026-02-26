@@ -333,6 +333,10 @@ export function usePopupController() {
                   showToast(UI_MESSAGES.contentExported, 'success');
                   break;
                 case 'PROCESSING_ERROR':
+                  if (msg?.payload?.fallbackUsed) {
+                    // Expected degradation path: AI attempt failed and pipeline continues in offline mode.
+                    break;
+                  }
                   dispatch({
                     type: 'PROCESSING_ERROR',
                     payload: { error: msg?.payload?.error || 'Unknown error' },
@@ -405,6 +409,10 @@ export function usePopupController() {
         }
 
         case 'PROCESSING_ERROR':
+          if (message?.payload?.fallbackUsed) {
+            // Expected degradation path: AI attempt failed and pipeline continues in offline mode.
+            break;
+          }
           dispatch({
             type: 'PROCESSING_ERROR',
             payload: { error: message.payload.error },

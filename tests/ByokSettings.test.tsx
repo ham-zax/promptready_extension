@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe('ByokSettings', () => {
-  it('shows BYOK Choice view when provider is not set', () => {
+  it('renders OpenRouter-only configuration view when provider is not set', () => {
     const settings = {
       mode: 'offline',
       templates: { bundles: [] },
@@ -56,19 +56,20 @@ describe('ByokSettings', () => {
       />
     );
 
-    // Choice view contains the heading text from ByokChoice
-    expect(screen.getByText('Connect your AI Provider')).toBeTruthy();
-
-    // The two provider buttons should be visible
-    expect(screen.getByText('OpenRouter')).toBeTruthy();
-    expect(screen.getByText('Manual')).toBeTruthy();
+    expect(screen.getByText('AI Configuration')).toBeTruthy();
+    expect(screen.getByText('API Key (OpenRouter)')).toBeTruthy();
+    expect(onSettingsChange).not.toHaveBeenCalled();
   });
 
-  it('selecting a provider calls onSettingsChange and shows configuration view', () => {
+  it('shows OpenRouter model configuration when API key exists', () => {
     const settings = {
       mode: 'offline',
       templates: { bundles: [] },
-      byok: {} as any,
+      byok: {
+        provider: 'openrouter',
+        apiBase: 'https://openrouter.ai/api/v1',
+        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+      } as any,
       flags: { byokEnabled: true },
     } as unknown as Settings;
 
@@ -84,22 +85,14 @@ describe('ByokSettings', () => {
         onApiKeyChange={onApiKeyChange}
         onApiKeySave={onApiKeySave}
         onApiKeyTest={onApiKeyTest}
-        hasApiKey={false}
-        apiKeyInput={''}
+        hasApiKey={true}
+        apiKeyInput={'sk-or-v1-test'}
       />
     );
 
-    // Click OpenRouter choice
-    const openRouterBtn = screen.getByText('OpenRouter');
-    fireEvent.click(openRouterBtn);
-
-    // onSettingsChange should be called with byok.provider set to 'openrouter'
-    expect(onSettingsChange).toHaveBeenCalled();
-    const callArg = onSettingsChange.mock.calls[0][0] as any;
-    expect(callArg?.byok?.provider).toBe('openrouter');
-
-    // After choosing provider the configuration view should be visible (API Key label)
-    expect(screen.getByText(/API Key/i)).toBeTruthy();
+    expect(screen.getByText('API Key (OpenRouter)')).toBeTruthy();
+    expect(screen.getByText('Model')).toBeTruthy();
+    expect(onSettingsChange).not.toHaveBeenCalled();
   });
 
   it('shows Remove Key button only when hasApiKey is true and confirms removal', () => {

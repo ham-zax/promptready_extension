@@ -32,7 +32,6 @@ export function SettingsPanel({
   apiKeyInput,
   settingsView,
   onSetSettingsView,
-  byokProvider,
   onSetByokProvider,
 }: SettingsPanelProps) {
   if (!isExpanded) return null;
@@ -80,7 +79,6 @@ export function SettingsPanel({
             onApiKeyTest={onApiKeyTest}
             hasApiKey={hasApiKey}
             apiKeyInput={apiKeyInput}
-            provider={byokProvider}
           />
         );
       default:

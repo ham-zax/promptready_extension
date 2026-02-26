@@ -37,12 +37,7 @@ describe('API Validation Service', () => {
       expect(result.message).toBe('OpenRouter keys should start with "sk-or-v1-"');
     });
 
-    it('should not enforce sk- prefix for manual providers', async () => {
-      (global.fetch as any).mockResolvedValue({
-        ok: false,
-        status: 401,
-      });
-
+    it('rejects non-openrouter providers for BYOK', async () => {
       const result = await validateApiKey({
         provider: 'manual',
         apiKey: 'invalid-key-format',
@@ -50,10 +45,10 @@ describe('API Validation Service', () => {
       });
 
       expect(result.isValid).toBe(false);
-      expect(result.message).toBe('Invalid API key. Please check your OpenAI-compatible key.');
+      expect(result.message).toBe('Only OpenRouter BYOK is supported right now.');
     });
 
-    it('should validate API base URL format', async () => {
+    it('rejects non-openrouter providers before API base validation', async () => {
       const result = await validateApiKey({
         provider: 'manual',
         apiKey: 'sk-validkey123',
@@ -61,7 +56,7 @@ describe('API Validation Service', () => {
       });
 
       expect(result.isValid).toBe(false);
-      expect(result.message).toBe('Please enter a valid API base URL');
+      expect(result.message).toBe('Only OpenRouter BYOK is supported right now.');
     });
   });
 
@@ -224,7 +219,7 @@ describe('API Validation Service', () => {
   });
 
   describe('Error handling', () => {
-    it('should handle unknown provider', async () => {
+    it('handles unknown provider via openrouter-only guard', async () => {
       const result = await validateApiKey({
         provider: 'unknown' as any,
         apiKey: 'some-key',
@@ -232,7 +227,7 @@ describe('API Validation Service', () => {
       });
 
       expect(result.isValid).toBe(false);
-      expect(result.message).toBe('Unknown provider');
+      expect(result.message).toBe('Only OpenRouter BYOK is supported right now.');
     });
 
     it('should provide fallback error message', async () => {

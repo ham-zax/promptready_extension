@@ -68,6 +68,10 @@ export default function RefactoredPopup() {
 
         checkAutoClose();
       } else if (message.type === 'PROCESSING_ERROR') {
+        if (message?.payload?.fallbackUsed) {
+          // Expected degradation path: AI attempt failed and pipeline continues in offline mode.
+          return;
+        }
         setIsProcessing(false);
         setProcessingComplete(false);
         setAutoCloseCountdown(null);

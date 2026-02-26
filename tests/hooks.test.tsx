@@ -67,7 +67,7 @@ describe('useByokManager', () => {
     const { result } = renderHook(() => useByokManager());
 
     await waitFor(() => {
-      expect(result.current.provider).toBe('manual');
+      expect(result.current.provider).toBe('openrouter');
       expect(result.current.apiKey).toBe('sk-test123');
       expect(result.current.apiBase).toBe('https://api.custom.com/v1');
       expect(result.current.selectedModel).toBe('custom-model');
@@ -75,16 +75,16 @@ describe('useByokManager', () => {
     });
   });
 
-  it('should update provider and reset defaults', () => {
+  it('forces OpenRouter provider and defaults even when a different provider is requested', () => {
     const { result } = renderHook(() => useByokManager());
 
     act(() => {
       result.current.setProvider('manual');
     });
 
-    expect(result.current.provider).toBe('manual');
-    expect(result.current.apiBase).toBe('https://api.openai.com/v1');
-    expect(result.current.selectedModel).toBe('gpt-4');
+    expect(result.current.provider).toBe('openrouter');
+    expect(result.current.apiBase).toBe('https://openrouter.ai/api/v1');
+    expect(result.current.selectedModel).toBe('arcee-ai/trinity-large-preview:free');
     expect(result.current.isValid).toBe(false);
   });
 

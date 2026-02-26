@@ -176,4 +176,28 @@ describe('usePopupController mode toggle guard', () => {
 
     expect(mocks.updateSettings).not.toHaveBeenCalledWith({ mode: 'ai' });
   });
+
+  it('ignores PROCESSING_ERROR when fallbackUsed=true', async () => {
+    let runtimeListener: ((message: any) => void) | undefined;
+    mocks.addListener.mockImplementation((listener: any) => {
+      runtimeListener = listener;
+    });
+
+    mocks.getSettings.mockResolvedValue(makeSettings());
+
+    const { result } = renderHook(() => usePopupController());
+
+    await waitFor(() => {
+      expect(result.current.state.processing.status).toBe('idle');
+    });
+
+    act(() => {
+      runtimeListener?.({
+        type: 'PROCESSING_ERROR',
+        payload: { error: 'AI request failed', fallbackUsed: true },
+      });
+    });
+
+    expect(result.current.state.processing.status).toBe('idle');
+  });
 });
