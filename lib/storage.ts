@@ -133,10 +133,10 @@ export class Storage {
         return { ...DEFAULT_SETTINGS };
       }
 
-      const result = await browser.storage.local.get([STORAGE_KEYS.SETTINGS]);
-      const stored = result[STORAGE_KEYS.SETTINGS];
+      const result = (await browser.storage.local.get([STORAGE_KEYS.SETTINGS])) as Record<string, unknown>;
+      const storedRaw = result[STORAGE_KEYS.SETTINGS];
 
-      if (!stored) {
+      if (!storedRaw || typeof storedRaw !== 'object') {
         const newSettings = { ...DEFAULT_SETTINGS };
         if (!newSettings.user) {
           newSettings.user = { id: '' };
@@ -145,11 +145,11 @@ export class Storage {
         return this.applyRuntimeOverrides(newSettings);
       }
 
+      const stored = storedRaw as Partial<Settings>;
+
       // Migrate legacy mode values
-      let migratedMode = stored.mode;
-      if (stored.mode === 'general' || stored.mode === 'code_docs') {
-        migratedMode = 'offline'; // Both legacy modes become offline mode
-      }
+      const rawMode = (stored as any).mode;
+      const migratedMode: Settings['mode'] = rawMode === 'ai' ? 'ai' : 'offline';
 
       const settings = { ...DEFAULT_SETTINGS, ...stored, mode: migratedMode };
 
@@ -173,7 +173,7 @@ export class Storage {
       };
 
       // Save migrated settings if mode was changed
-      if (stored.mode !== migratedMode) {
+      if (rawMode !== migratedMode) {
         await browser.storage.local.set({
           [STORAGE_KEYS.SETTINGS]: settings,
         });
@@ -329,14 +329,12 @@ export class Storage {
         return; // Telemetry disabled
       }
 
-      const result = await browser.storage.local.get([STORAGE_KEYS.TELEMETRY]);
-      const events = result[STORAGE_KEYS.TELEMETRY] || [];
-
-      // Add new event
-      events.push(event);
+      const result = (await browser.storage.local.get([STORAGE_KEYS.TELEMETRY])) as Record<string, unknown>;
+      const raw = result[STORAGE_KEYS.TELEMETRY];
+      const existing = Array.isArray(raw) ? (raw as TelemetryEvent[]) : [];
 
       // Keep only last 1000 events to prevent storage bloat
-      const trimmedEvents = events.slice(-1000);
+      const trimmedEvents = [...existing, event].slice(-1000);
       await browser.storage.local.set(
         {
           [STORAGE_KEYS.TELEMETRY]: trimmedEvents,
@@ -351,8 +349,9 @@ export class Storage {
 
   static async getTelemetryEvents(): Promise<TelemetryEvent[]> {
     try {
-      const result = await browser.storage.local.get([STORAGE_KEYS.TELEMETRY]);
-      return result[STORAGE_KEYS.TELEMETRY] || [];
+      const result = (await browser.storage.local.get([STORAGE_KEYS.TELEMETRY])) as Record<string, unknown>;
+      const raw = result[STORAGE_KEYS.TELEMETRY];
+      return Array.isArray(raw) ? (raw as TelemetryEvent[]) : [];
     } catch (error) {
       console.error('Failed to get telemetry events:', error);
       return [];

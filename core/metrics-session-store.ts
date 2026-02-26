@@ -77,8 +77,12 @@ export class SessionMetricsStore {
 
     try {
       if (typeof browser !== 'undefined' && browser.storage?.session) {
-        const result = await browser.storage.session.get(this.STORAGE_KEY);
-        const metrics = result[this.STORAGE_KEY] || [];
+        const result = (await browser.storage.session.get(
+          this.STORAGE_KEY
+        )) as Record<string, unknown>;
+        const raw = result[this.STORAGE_KEY];
+        const metrics = Array.isArray(raw) ? (raw as PipelineMetric[]) : [];
+
         this.metricsCache = metrics;
         this.cacheTimestamp = Date.now();
         return metrics;

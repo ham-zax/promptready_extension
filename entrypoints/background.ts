@@ -42,6 +42,19 @@ export default defineBackground(() => {
 /**
  * Enhanced content processing pipeline with offline capabilities
  */
+type ExportData = {
+  markdown: string;
+  json: any;
+  metadata: any;
+  qualityReport?: any;
+};
+
+function isExportData(value: unknown): value is ExportData {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as any;
+  return typeof v.markdown === 'string' && 'json' in v && 'metadata' in v;
+}
+
 class EnhancedContentProcessor {
   private readonly offscreenPath = '/offscreen.html' as const;
   private readonly EXPORT_DATA_KEY = 'currentExportData';
@@ -84,12 +97,7 @@ class EnhancedContentProcessor {
   /**
    * Store export data in session storage to survive service worker termination
    */
-  private async setCurrentExportData(data: {
-    markdown: string;
-    json: any;
-    metadata: any;
-    qualityReport?: any;
-  } | null): Promise<void> {
+  private async setCurrentExportData(data: ExportData | null): Promise<void> {
     try {
       if (data) {
         await browser.storage.session.set({ [this.EXPORT_DATA_KEY]: data });
@@ -105,15 +113,11 @@ class EnhancedContentProcessor {
   /**
    * Retrieve export data from session storage
    */
-  private async getCurrentExportData(): Promise<{
-    markdown: string;
-    json: any;
-    metadata: any;
-    qualityReport?: any;
-  } | null> {
+  private async getCurrentExportData(): Promise<ExportData | null> {
     try {
-      const result = await browser.storage.session.get([this.EXPORT_DATA_KEY]);
-      return result[this.EXPORT_DATA_KEY] || null;
+      const result = (await browser.storage.session.get([this.EXPORT_DATA_KEY])) as Record<string, unknown>;
+      const raw = result[this.EXPORT_DATA_KEY];
+      return isExportData(raw) ? raw : null;
     } catch (error: any) {
       console.error('Failed to retrieve export data:', error);
       return null;
@@ -690,10 +694,10 @@ class EnhancedContentProcessor {
 
         // Try to inject content script dynamically
         try {
-          await browser.scripting.executeScript({
-            target: { tabId },
-            files: ['content-scripts/content.js']
-          });
+	          await browser.scripting.executeScript({
+	            target: { tabId },
+	            files: ['/content-scripts/content.js']
+	          });
 
           console.log('[Background] Content script injected, retrying message...');
 
@@ -773,10 +777,10 @@ class EnhancedContentProcessor {
 
               // Attempt to inject content script and retry once
               try {
-                await browser.scripting.executeScript({
-                  target: { tabId },
-                  files: ['content-scripts/content.js'],
-                });
+	                await browser.scripting.executeScript({
+	                  target: { tabId },
+	                  files: ['/content-scripts/content.js'],
+	                });
                 // Short delay to allow the content script to initialize
                 await new Promise((r) => setTimeout(r, 150));
 
@@ -1371,23 +1375,21 @@ class EnhancedContentProcessor {
       console.error(`[Background] Critical message broadcast failed: ${message.type}`, error);
     }
 
-    try {
-      // Store the failed message in session storage for UI to poll
-      const failedMessages = await browser.storage.session.get(['failed_broadcasts']) || { failed_broadcasts: [] };
-      const messages = failedMessages.failed_broadcasts || [];
+	    try {
+	      // Store the failed message in session storage for UI to poll
+	      const result = (await browser.storage.session.get(['failed_broadcasts'])) as Record<string, unknown>;
+	      const rawMessages = result.failed_broadcasts;
+	      const messages = Array.isArray(rawMessages) ? (rawMessages as any[]) : [];
 
-      messages.push({
-        ...message,
-        timestamp: new Date().toISOString(),
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+	      messages.push({
+	        ...message,
+	        timestamp: new Date().toISOString(),
+	        error: error instanceof Error ? error.message : 'Unknown error'
+	      });
 
-      // Keep only the last 10 failed messages
-      if (messages.length > 10) {
-        messages.splice(0, messages.length - 10);
-      }
-
-      await browser.storage.session.set({ failed_broadcasts: messages });
+	      // Keep only the last 10 failed messages
+	      const trimmed = messages.length > 10 ? messages.slice(-10) : messages;
+	      await browser.storage.session.set({ failed_broadcasts: trimmed });
 
       if (!isExpectedFailure) {
         console.log(`[Background] Critical message stored for polling: ${message.type}`);
@@ -1434,10 +1436,10 @@ class EnhancedContentProcessor {
     // If not present, inject it
     if (!pingOk) {
       try {
-        await browser.scripting.executeScript({
-          target: { tabId },
-          files: ['content-scripts/content.js'],
-        });
+	        await browser.scripting.executeScript({
+	          target: { tabId },
+	          files: ['/content-scripts/content.js'],
+	        });
         await new Promise((r) => setTimeout(r, 150));
         pingOk = await this.ensureContentScript(tabId);
       } catch (injectErr: any) {

@@ -15,8 +15,8 @@ export async function getUserId(): Promise<string> {
 
   try {
     // 1) Prefer a persisted ID to avoid repeated API calls and noisy logs
-    const stored = await browser.storage.local.get('userId');
-    const existing: string | undefined = stored?.userId;
+    const stored = (await browser.storage.local.get('userId')) as Record<string, unknown>;
+    const existing = typeof stored.userId === 'string' ? stored.userId : undefined;
     if (existing && typeof existing === 'string' && existing.length > 0) {
       cachedUserId = existing;
       return existing;
