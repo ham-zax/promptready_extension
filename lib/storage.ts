@@ -5,6 +5,7 @@ import { browser } from 'wxt/browser';
 import { CapturePolicy, Settings, TelemetryEvent } from './types.js';
 import { getRuntimeProfile, type RuntimeProfile } from './runtime-profile.js';
 import { DEFAULT_EXTRACTION_TUNING, normalizeExtractionTuning } from '../core/domain/extraction/policies.js';
+import { normalizeByokProvider } from './byok-provider.js';
 
 // =============================================================================
 // Storage Keys
@@ -56,6 +57,23 @@ function normalizeCapturePolicy(policy: unknown): CapturePolicy {
     scrollStepDelayMs: clampNumber(source.scrollStepDelayMs, 0, 1_000, DEFAULT_CAPTURE_POLICY.scrollStepDelayMs),
     minTextGainRatio: clampNumber(source.minTextGainRatio, 0, 2, DEFAULT_CAPTURE_POLICY.minTextGainRatio),
     minHeadingGain: Math.floor(clampNumber(source.minHeadingGain, 0, 20, DEFAULT_CAPTURE_POLICY.minHeadingGain)),
+  };
+}
+
+function normalizeByokSettings(byok: unknown): Settings['byok'] {
+  const source = (byok && typeof byok === 'object') ? (byok as Partial<Settings['byok']>) : {};
+  const providerNormalization = normalizeByokProvider(source.provider);
+  const selectedByokModel =
+    source.selectedByokModel ||
+    source.model ||
+    DEFAULT_SETTINGS.byok.selectedByokModel;
+
+  return {
+    ...DEFAULT_SETTINGS.byok,
+    ...source,
+    provider: providerNormalization.canonicalProvider,
+    model: source.model || selectedByokModel,
+    selectedByokModel,
   };
 }
 
@@ -210,27 +228,23 @@ export class Storage {
         },
       };
 
-      // Ensure user ID exists (check for both missing and empty string)
-      if (!settings.user || !settings.user.id) {
+      const userIdMissing = !settings.user || !settings.user.id;
+      if (userIdMissing) {
         if (!settings.user) settings.user = {};
         settings.user.id = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-        // Save the generated ID
-        await browser.storage.local.set({
-          [STORAGE_KEYS.SETTINGS]: settings,
-        });
       }
 
-      // Ensure selectedByokModel exists for backward compatibility (may previously have been 'model')
-      settings.byok = {
-        ...DEFAULT_SETTINGS.byok,
-        ...(settings.byok || {}),
-        selectedByokModel:
-          (settings.byok && (settings.byok.selectedByokModel || settings.byok.model)) ||
-          DEFAULT_SETTINGS.byok.selectedByokModel,
-      };
+      // Canonicalize BYOK provider/model for OpenRouter-only workflow.
+      const beforeByok = settings.byok;
+      settings.byok = normalizeByokSettings(settings.byok);
+      const providerMigrated =
+        (beforeByok?.provider || 'openrouter') !== settings.byok.provider;
+      const selectedModelMigrated =
+        (beforeByok?.selectedByokModel || beforeByok?.model || DEFAULT_SETTINGS.byok.selectedByokModel) !==
+        settings.byok.selectedByokModel;
 
-      // Save migrated settings if mode was changed
-      if (rawMode !== migratedMode) {
+      // Save migrated settings if mode/byok/user fields were changed
+      if (rawMode !== migratedMode || providerMigrated || selectedModelMigrated || userIdMissing) {
         await browser.storage.local.set({
           [STORAGE_KEYS.SETTINGS]: settings,
         });
@@ -254,13 +268,15 @@ export class Storage {
       const currentSettings = await this.getSettings();
       // Deep-merge for nested objects we manage (byok, privacy, templates)
       const { byok, privacy, templates, credits, user, trial, processing, ...rest } = (updates || {}) as any;
+      const nextByok = normalizeByokSettings({
+        ...currentSettings.byok,
+        ...(byok || {}),
+      });
       const newSettings: Settings = {
         ...currentSettings,
         ...rest,
-        byok: {
-          ...currentSettings.byok,
-          ...(byok || {})
-        }, privacy: {
+        byok: nextByok,
+        privacy: {
           ...currentSettings.privacy,
           ...(privacy || {})
         }, templates: {

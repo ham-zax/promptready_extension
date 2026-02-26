@@ -236,6 +236,35 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
             </select>
           </div>
 
+          {/* Capture Strategy */}
+          <div className="bg-muted border border-border rounded-lg p-3">
+            <h6 className="text-xs font-semibold text-foreground mb-3">Capture Strategy</h6>
+            <label className="flex items-start space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.processing?.capturePolicy?.deepCaptureEnabled ?? false}
+                onChange={(e) => {
+                  onSettingsChange({
+                    processing: {
+                      ...settings.processing,
+                      capturePolicy: {
+                        ...settings.processing?.capturePolicy,
+                        deepCaptureEnabled: e.target.checked,
+                      },
+                    } as any,
+                  });
+                }}
+                className="w-4 h-4 rounded border-border text-brand-primary focus:ring-brand-primary mt-0.5"
+              />
+              <div className="min-w-0">
+                <span className="text-sm text-foreground font-medium">Enable deep capture (full-page only)</span>
+                <p className="text-xs text-muted-foreground mt-1 leading-snug">
+                  Performs bounded scroll-and-settle before snapshot selection. Selection captures remain exact and fast.
+                </p>
+              </div>
+            </label>
+          </div>
+
           {/* Custom Options */}
           <div className="bg-muted border border-border rounded-lg p-3">
             <h6 className="text-xs font-semibold text-foreground mb-3">Data Retention</h6>

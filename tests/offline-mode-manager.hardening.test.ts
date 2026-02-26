@@ -772,6 +772,41 @@ Paragraph two.
     }
   });
 
+  it('does not merge heading with paragraph text across blank lines', () => {
+    const manager = OfflineModeManager as any;
+    const warnings: string[] = [];
+    const input = [
+      '## Overview',
+      '',
+      'Short intro line.',
+      '',
+      'Second paragraph stays independent.',
+    ].join('\n');
+
+    const output = manager.mergeSplitHeadings(input, warnings);
+
+    expect(output).toContain('## Overview\n\nShort intro line.');
+    expect(output).toContain('Second paragraph stays independent.');
+    expect(warnings).not.toContain('Merged one split heading line');
+  });
+
+  it('merges true split headings only when continuation is immediate next line', () => {
+    const manager = OfflineModeManager as any;
+    const warnings: string[] = [];
+    const input = [
+      '## Turn messy pages into',
+      'precise LLM context',
+      '',
+      'Body paragraph.',
+    ].join('\n');
+
+    const output = manager.mergeSplitHeadings(input, warnings);
+
+    expect(output).toContain('## Turn messy pages into precise LLM context');
+    expect(output).toContain('\n\nBody paragraph.');
+    expect(warnings).toContain('Merged one split heading line');
+  });
+
   it('keeps real-time monitoring singleton-safe across repeated starts', () => {
     const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
     const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');

@@ -10,6 +10,7 @@ import { CaptureDiagnostics, Settings } from '../../lib/types';
 import { MarkdownPostProcessor } from '../../core/post-processor.js';
 import { PerformanceMetrics } from '../../core/performance-metrics.js';
 import { getRuntimeProfile, validateRuntimeProfile, assertRuntimeProfileSafe } from '../../lib/runtime-profile.js';
+import { normalizeByokProvider } from '../../lib/byok-provider.js';
 
 interface ProcessingMessage {
   type: 'ENHANCED_OFFSCREEN_PROCESS';
@@ -241,17 +242,22 @@ export class EnhancedOffscreenProcessor {
 
     try {
       const runtimeProfile = getRuntimeProfile();
-      const provider = settings.byok?.provider || 'openrouter';
+      const providerNormalization = normalizeByokProvider(settings.byok?.provider);
+      const provider = providerNormalization.canonicalProvider;
       const apiKey = settings.byok?.apiKey || '';
       const model = settings.byok?.model || settings.byok?.selectedByokModel || 'arcee-ai/trinity-large-preview:free';
 
-      if (provider !== 'openrouter') {
+      if (!providerNormalization.isSupported || provider !== 'openrouter') {
         const warningCode = 'ai_fallback:provider_not_supported';
         console.warn('[AI Mode] Unsupported BYOK provider. OpenRouter is the only supported provider.');
         this.sendProgress('Only OpenRouter BYOK is supported. Using offline mode...', 50, 'fallback');
         const offlineResult = await this.processOfflineMode(html, url, title, config);
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
         return offlineResult;
+      }
+
+      if (providerNormalization.wasLegacyAlias) {
+        console.info('[AI Mode] Normalized legacy BYOK provider alias to OpenRouter.');
       }
 
       if (!apiKey.trim()) {
@@ -280,19 +286,22 @@ export class EnhancedOffscreenProcessor {
       );
 
       const processedMarkdown = byokResult.content;
+      const aiWarnings = providerNormalization.wasLegacyAlias
+        ? ['ai_provider_normalized:legacy_alias']
+        : [];
 
       this.sendProgress('Post-processing AI response...', 80, 'postprocessing');
       const postResult = MarkdownPostProcessor.process(processedMarkdown, {});
       const exportJson = this.generateStructuredExport(postResult, url, title);
 
-      this.sendComplete(postResult.markdown, exportJson, { title, url }, {}, [], html);
+      this.sendComplete(postResult.markdown, exportJson, { title, url }, {}, aiWarnings, html);
 
       return {
         exportMd: postResult.markdown,
         exportJson,
         metadata: { title, url },
         stats: {},
-        warnings: [],
+        warnings: aiWarnings,
         originalHtml: html,
       };
     } catch (error) {

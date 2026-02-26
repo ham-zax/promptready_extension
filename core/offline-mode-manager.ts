@@ -4259,11 +4259,14 @@ export class OfflineModeManager {
         continue;
       }
 
-      let j = i + 1;
-      while (j < lines.length && lines[j].trim() === '') {
-        j++;
-      }
+      const j = i + 1;
       if (j >= lines.length) {
+        merged.push(line);
+        continue;
+      }
+
+      // Respect paragraph boundaries: do not merge across intentional blank lines.
+      if ((lines[j] ?? '').trim() === '') {
         merged.push(line);
         continue;
       }
