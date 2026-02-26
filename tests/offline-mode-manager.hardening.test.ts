@@ -639,6 +639,38 @@ Paragraph two.
     expect(a).not.toBe(b);
   });
 
+  it('fails closed to a single chunk when no safe boundary exists near the split edge', () => {
+    const manager = OfflineModeManager as any;
+    const html = `<div data-payload="${'x'.repeat(5000)}"></div>`;
+
+    const chunks: string[] = manager.splitByBoundaries(html, 120);
+
+    expect(chunks).toEqual([html]);
+  });
+
+  it('cleans up in-flight request state when setup fails before pipeline execution', async () => {
+    const manager = OfflineModeManager as any;
+    const originalGenerateSessionId = manager.generateSessionId;
+    manager.generateSessionId = vi.fn(() => {
+      throw new Error('session bootstrap failed');
+    });
+
+    try {
+      const result = await OfflineModeManager.processContent(
+        '<html><body><article><h1>Setup Failure</h1><p>body</p></article></body></html>',
+        'https://example.com/setup-failure',
+        'Setup Failure',
+        baseConfig,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.errors.some((error) => /session bootstrap failed/i.test(error))).toBe(true);
+      expect(manager.inFlightRequests.size).toBe(0);
+    } finally {
+      manager.generateSessionId = originalGenerateSessionId;
+    }
+  });
+
   it('coalesces concurrent identical requests into one in-flight execution', async () => {
     const html = `
       <html><body>

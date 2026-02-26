@@ -318,27 +318,30 @@ export class OfflineModeManager {
     const warnings: string[] = [];
     const errors: string[] = [];
     let fallbacksUsed: string[] = [];
-
-    // Initialize real-time tracking
-    const sessionId = this.generateSessionId();
-    this.activeSessions.set(sessionId, {
-      startTime,
-      htmlLength: html?.length || 0,
-      config,
-      status: 'active',
-      lastUpdate: startTime,
-    });
-    this.pruneSessionStore();
-
-    // Initialize performance tracking (non-fatal if monitoring itself fails)
-    try {
-      this.performance.captureMemorySnapshot('processing_start');
-      this.performance.recordProcessingSnapshot('processing_start');
-    } catch (performanceError) {
-      console.warn('[OfflineModeManager] Failed to initialize performance tracking:', performanceError);
-    }
+    let sessionId: string | null = null;
 
     try {
+      // Initialize real-time tracking
+      sessionId = this.generateSessionId();
+      const activeSessionId = sessionId;
+      this.activeSessions.set(activeSessionId, {
+        startTime,
+        htmlLength: html?.length || 0,
+        config,
+        status: 'active',
+        lastUpdate: startTime,
+      });
+      this.pruneSessionStore();
+
+      // Initialize performance tracking (non-fatal if monitoring itself fails)
+      try {
+        this.performance.captureMemorySnapshot('processing_start');
+        this.performance.recordProcessingSnapshot('processing_start');
+      } catch (performanceError) {
+        console.warn('[OfflineModeManager] Failed to initialize performance tracking:', performanceError);
+      }
+
+      try {
       console.log('[OfflineModeManager] Starting offline processing...');
 
       // Check cache first
@@ -354,7 +357,7 @@ export class OfflineModeManager {
         if (cached) {
           this.performance.recordCacheHit(cacheTime);
           this.performance.recordProcessingSnapshot('cache_hit', undefined, this.performance.getCacheMetrics());
-          this.completeSession(sessionId, 'cached', {
+          this.completeSession(activeSessionId, 'cached', {
             totalTime: Date.now() - startTime,
             qualityScore: cached.processingStats?.qualityScore || 0,
             warningsCount: cached.warnings?.length || 0,
@@ -596,7 +599,7 @@ export class OfflineModeManager {
       }
 
       // Update real-time session tracking
-      this.completeSession(sessionId, 'completed', {
+      this.completeSession(activeSessionId, 'completed', {
         totalTime,
         qualityScore,
         warningsCount: warnings.length,
@@ -624,7 +627,7 @@ export class OfflineModeManager {
       this.performance.captureMemorySnapshot('processing_error');
 
       const totalTime = Date.now() - startTime;
-      this.completeSession(sessionId, 'failed', {
+      this.completeSession(activeSessionId, 'failed', {
         totalTime,
         qualityScore: 0,
         warningsCount: warnings.length,
@@ -665,6 +668,68 @@ export class OfflineModeManager {
       };
       this.resolveInFlightRequest(inFlightKey, currentInFlight, failedResult);
       return failedResult;
+      }
+    } catch (setupError) {
+      console.error('[OfflineModeManager] Processing setup failed:', setupError);
+      const errorMessage = setupError instanceof Error ? setupError.message : 'Unknown error';
+      errors.push(errorMessage);
+      if (setupError instanceof Error && setupError.name) {
+        errors.push(`ErrorType: ${setupError.name}`);
+      }
+      if (setupError instanceof Error && setupError.stack) {
+        errors.push(`ErrorStack: ${setupError.stack}`);
+      }
+
+      this.performance.recordExtractionFailure();
+      this.performance.captureMemorySnapshot('processing_error');
+
+      const totalTime = Date.now() - startTime;
+      if (sessionId) {
+        this.completeSession(sessionId, 'failed', {
+          totalTime,
+          qualityScore: 0,
+          warningsCount: warnings.length,
+          errorsCount: errors.length,
+          markdownLength: 0,
+        });
+      }
+
+      const qualityMetrics = this.performance.recordQualityMetrics(
+        0,
+        0,
+        0,
+        warnings.length,
+        errors.length
+      );
+
+      this.performance.recordProcessingSnapshot(
+        'processing_error',
+        undefined,
+        this.performance.getCacheMetrics(),
+        qualityMetrics
+      );
+
+      const failedResult: OfflineProcessingResult = {
+        success: false,
+        markdown: '',
+        metadata: this.generateMetadata(title, url, 'error-' + Date.now()),
+        processingStats: {
+          totalTime,
+          readabilityTime: 0,
+          turndownTime: 0,
+          postProcessingTime: 0,
+          fallbacksUsed,
+          qualityScore: 0,
+        },
+        warnings,
+        errors,
+      };
+      this.resolveInFlightRequest(inFlightKey, currentInFlight, failedResult);
+      return failedResult;
+    } finally {
+      if (this.inFlightRequests.get(inFlightKey) === currentInFlight) {
+        this.inFlightRequests.delete(inFlightKey);
+      }
     }
   }
 
@@ -3260,7 +3325,31 @@ export class OfflineModeManager {
     while (start < html.length) {
       const proposedEnd = Math.min(start + chunkSize, html.length);
       const boundary = this.findChunkBoundary(html, start, proposedEnd);
-      const end = boundary > start ? boundary : proposedEnd;
+      if (!boundary.safe) {
+        // Fail closed: preserve remaining HTML intact rather than corrupting markup
+        // with an unsafe split through a tag/attribute boundary.
+        if (start === 0) {
+          return [html];
+        }
+        const remainder = html.slice(start);
+        if (remainder.length > 0) {
+          chunks.push(remainder);
+        }
+        break;
+      }
+
+      const end = boundary.end;
+      if (end <= start) {
+        if (start === 0) {
+          return [html];
+        }
+        const remainder = html.slice(start);
+        if (remainder.length > 0) {
+          chunks.push(remainder);
+        }
+        break;
+      }
+
       chunks.push(html.slice(start, end));
       start = end;
     }
@@ -3268,14 +3357,18 @@ export class OfflineModeManager {
     return chunks;
   }
 
-  private static findChunkBoundary(html: string, chunkStart: number, proposedEnd: number): number {
+  private static findChunkBoundary(
+    html: string,
+    chunkStart: number,
+    proposedEnd: number
+  ): { end: number; safe: boolean } {
     if (proposedEnd >= html.length) {
-      return html.length;
+      return { end: html.length, safe: true };
     }
 
     const lookback = Math.min(8000, proposedEnd - chunkStart);
     if (lookback <= 0) {
-      return proposedEnd;
+      return { end: proposedEnd, safe: false };
     }
 
     const windowStart = proposedEnd - lookback;
@@ -3290,20 +3383,35 @@ export class OfflineModeManager {
     }
 
     if (lastClosingTagEnd > minimumBoundaryOffset) {
-      return windowStart + lastClosingTagEnd;
+      return { end: windowStart + lastClosingTagEnd, safe: true };
     }
 
     const gtIndex = window.lastIndexOf('>');
     if (gtIndex > minimumBoundaryOffset) {
-      return windowStart + gtIndex + 1;
+      return { end: windowStart + gtIndex + 1, safe: true };
     }
 
     const newlineIndex = window.lastIndexOf('\n');
     if (newlineIndex > minimumBoundaryOffset) {
-      return windowStart + newlineIndex + 1;
+      return { end: windowStart + newlineIndex + 1, safe: true };
     }
 
-    return proposedEnd;
+    // Small lookahead for a nearby boundary, useful for minified HTML where a safe
+    // boundary may sit just after proposedEnd.
+    const lookaheadLimit = Math.min(html.length, proposedEnd + 2048);
+    const lookahead = html.slice(proposedEnd, lookaheadLimit);
+
+    const forwardGtIndex = lookahead.indexOf('>');
+    if (forwardGtIndex >= 0) {
+      return { end: proposedEnd + forwardGtIndex + 1, safe: true };
+    }
+
+    const forwardNewlineIndex = lookahead.indexOf('\n');
+    if (forwardNewlineIndex >= 0) {
+      return { end: proposedEnd + forwardNewlineIndex + 1, safe: true };
+    }
+
+    return { end: proposedEnd, safe: false };
   }
 
   /**
