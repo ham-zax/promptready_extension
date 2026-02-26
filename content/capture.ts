@@ -9,6 +9,7 @@ export interface CaptureResult {
   title: string;
   selectionHash: string;
   isSelection?: boolean;
+  metadataHtml?: string;
 }
 
 type MathJaxNode = {
@@ -39,6 +40,7 @@ export class ContentCapture {
       this.ensureTitle();
       this.addLatexToMathJax3();
       this.markHiddenNodes(document.documentElement);
+      const metadataHtml = this.captureMetadataHtml();
 
       const selection = window.getSelection();
 
@@ -88,6 +90,7 @@ export class ContentCapture {
         title,
         selectionHash,
         isSelection: true,
+        metadataHtml,
       };
 
     } catch (error) {
@@ -185,6 +188,74 @@ export class ContentCapture {
   }
 
   /**
+   * Capture page-level metadata signals (head meta/JSON-LD + time/byline elements) so
+   * selection captures can still retain publish/update timestamps.
+   *
+   * This is not an extraction decision: it is just boundary data passed to the offscreen
+   * orchestrator for metadata enrichment when the selection omits those nodes.
+   */
+  private static captureMetadataHtml(): string {
+    try {
+      const headParts: string[] = [];
+      const bodyParts: string[] = [];
+
+      const head = document.head;
+      if (head) {
+        const titleEl = head.querySelector('title');
+        if (titleEl) headParts.push(titleEl.outerHTML);
+
+        const metas = Array.from(head.querySelectorAll('meta')) as HTMLMetaElement[];
+        for (const meta of metas) {
+          const name = (meta.getAttribute('name') || '').toLowerCase();
+          const property = (meta.getAttribute('property') || '').toLowerCase();
+          const itemprop = (meta.getAttribute('itemprop') || '').toLowerCase();
+          const key = `${name} ${property} ${itemprop}`.trim();
+          if (!key) continue;
+          if (/(published|publish|pubdate|date|time|modified|updated|update|author|byline|og:|article:)/.test(key)) {
+            headParts.push(meta.outerHTML);
+          }
+        }
+
+        const jsonLdScripts = Array.from(head.querySelectorAll('script[type=\"application/ld+json\"]')) as HTMLScriptElement[];
+        for (const script of jsonLdScripts) {
+          const text = script.textContent || '';
+          if (!text.trim()) continue;
+          // Guard: avoid shipping massive JSON-LD blobs through extension messaging.
+          if (text.length > 200_000) continue;
+          headParts.push(`<script type=\"application/ld+json\">${text}</script>`);
+        }
+      }
+
+      const root = document.body || document.documentElement;
+      if (root) {
+        const selector =
+          'time, [datetime], [itemprop=\"datePublished\"], [itemprop=\"dateModified\"], .dateline, .byline, [class*=\"timestamp\"], [class*=\"publish\"], [class*=\"update\"], [class*=\"date\"], [class*=\"time\"], [id*=\"date\"], [id*=\"time\"], [data-time], [data-timestamp], [data-date], [data-published], [data-updated]';
+        const nodes = Array.from(root.querySelectorAll(selector)).slice(0, 30);
+        const seen = new Set<string>();
+
+        for (const node of nodes) {
+          if (!(node instanceof HTMLElement)) continue;
+          const datetime = node.getAttribute('datetime') || '';
+          const text = (node.textContent || '').trim().slice(0, 80);
+          const key = `${node.tagName}:${datetime}:${node.className || ''}:${text}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          bodyParts.push(node.outerHTML);
+        }
+      }
+
+      if (headParts.length === 0 && bodyParts.length === 0) {
+        return '';
+      }
+
+      return `<!doctype html><html><head>${headParts.join('\\n')}</head><body>${bodyParts.join('\\n')}</body></html>`;
+    } catch (error) {
+      console.warn('[ContentCapture] Failed to capture metadata HTML signals:', error);
+      return '';
+    }
+  }
+
+  /**
    * Capture full page content (fallback when no selection)
    * Captures a sanitized full-page snapshot. Extraction decisions are centralized
    * in the offscreen pipeline to avoid double-processing loss.
@@ -202,6 +273,7 @@ export class ContentCapture {
       } catch (e) {
         console.warn('[ContentCapture] markHiddenNodes failed during captureFullPage:', e);
       }
+      const metadataHtml = this.captureMetadataHtml();
 
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = document.body?.innerHTML || document.documentElement?.innerHTML || '';
@@ -226,6 +298,7 @@ export class ContentCapture {
         title: this.extractPageTitle(),
         selectionHash,
         isSelection: false,
+        metadataHtml,
       };
 
       console.log('captureFullPage: Capture completed successfully');

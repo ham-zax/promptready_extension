@@ -313,7 +313,7 @@ class EnhancedContentProcessor {
 
     try {
       const canonicalCapture = sanitizeCapturePayload(message?.payload);
-      const { html, url, title } = canonicalCapture;
+      const { html, url, title, metadataHtml } = canonicalCapture;
 
       // Determine originating tab id from sender (content scripts send messages with sender.tab)
       const originatingTabId = sender?.tab?.id || canonicalCapture.tabId;
@@ -344,6 +344,7 @@ class EnhancedContentProcessor {
           html,
           url,
           title,
+          metadataHtml,
           selectionHash,
           mode: settings.mode,
           useReadability: settings.useReadability !== false,

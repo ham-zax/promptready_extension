@@ -10,6 +10,7 @@ describe('sanitizeCapturePayload', () => {
       selectionHash: 'abc123',
       isSelection: false,
       tabId: 42,
+      metadataHtml: '<meta property="article:published_time" content="2026-02-25T14:43:57+05:30" />',
       pipelineMetadata: { stage: 'reddit-shadow' },
       isAlreadyMarkdown: true,
       markdown: '# preprocessed',
@@ -22,6 +23,7 @@ describe('sanitizeCapturePayload', () => {
       selectionHash: 'abc123',
       isSelection: false,
       tabId: 42,
+      metadataHtml: '<meta property="article:published_time" content="2026-02-25T14:43:57+05:30" />',
     });
     expect((payload as any).pipelineMetadata).toBeUndefined();
     expect((payload as any).isAlreadyMarkdown).toBeUndefined();

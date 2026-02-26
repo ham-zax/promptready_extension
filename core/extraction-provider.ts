@@ -68,10 +68,11 @@ export async function processWithProviderChain(
   url: string,
   title: string,
   config: OfflineModeConfig,
+  metadataHtml?: string,
 ): Promise<ProviderChainResult> {
   const runtimeProfile = getRuntimeProfile();
   const minQualityScore = 65;
-  const localResult = await OfflineModeManager.processContent(html, url, title, config);
+  const localResult = await OfflineModeManager.processContent(html, url, title, config, metadataHtml);
   const localQuality = localResult.processingStats?.qualityScore ?? 0;
 
   if (

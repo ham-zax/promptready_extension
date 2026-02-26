@@ -282,7 +282,15 @@ export default function RefactoredPopup() {
           <section className={`rounded-2xl border border-border bg-card p-3 shadow-sm ${revealClass}`}>
             <PrimaryButton
               onClick={handleCapture}
-              disabled={isProcessing || (state.credits?.remaining === 0 && !state.settings?.flags?.developerMode)}
+              disabled={
+                isProcessing ||
+                (
+                  state.mode === 'ai' &&
+                  state.credits?.remaining === 0 &&
+                  !state.settings?.flags?.developerMode &&
+                  !byokManager.hasApiKey
+                )
+              }
               isProcessing={isProcessing}
               processingText={processingStage || 'Processing...'}
             >
@@ -312,7 +320,7 @@ export default function RefactoredPopup() {
           </section>
 
           {/* Upgrade Prompt View */}
-          {state.credits?.remaining === 0 && !state.settings?.flags?.developerMode && (
+          {state.mode === 'ai' && state.credits?.remaining === 0 && !state.settings?.flags?.developerMode && !byokManager.hasApiKey && (
             <div className={`p-4 text-center bg-card rounded-2xl border border-brand-border ${revealClass}`}>
               <p className="text-sm font-semibold text-foreground">You&apos;re out of free credits</p>
               <p className="text-xs text-muted-foreground mb-3 mt-1">Add your API key to keep using AI mode.</p>

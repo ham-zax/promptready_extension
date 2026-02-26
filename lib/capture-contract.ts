@@ -5,6 +5,7 @@ export interface CanonicalCapturePayload {
   selectionHash: string;
   isSelection?: boolean;
   tabId?: number;
+  metadataHtml?: string;
 }
 
 function readRequiredString(payload: unknown, field: keyof CanonicalCapturePayload): string {
@@ -38,6 +39,13 @@ export function sanitizeCapturePayload(payload: unknown): CanonicalCapturePayloa
   }
   if (typeof source?.tabId === 'number' && Number.isFinite(source.tabId)) {
     normalized.tabId = source.tabId;
+  }
+  if (typeof source?.metadataHtml === 'string') {
+    const trimmed = source.metadataHtml.trim();
+    if (trimmed) {
+      // Guard against pathological payload sizes; this is only for metadata signal extraction.
+      normalized.metadataHtml = trimmed.slice(0, 200_000);
+    }
   }
 
   return normalized;

@@ -17,6 +17,7 @@ interface ProcessingMessage {
     html: string;
     url: string;
     title: string;
+    metadataHtml?: string;
     selectionHash: string;
     mode: 'offline' | 'ai';
     useReadability?: boolean;
@@ -126,7 +127,7 @@ export class EnhancedOffscreenProcessor {
     EnhancedOffscreenProcessor.performance.recordProcessingSnapshot('offscreen_processing_start');
 
     try {
-      const { html, url, title, mode, customConfig, settings, selectionHash } = message.payload;
+      const { html, url, title, mode, customConfig, settings, selectionHash, metadataHtml } = message.payload;
       this.sendProgress('Processing content...', 10, 'initialization');
       if (!html || html.trim().length === 0) throw new Error('No HTML content provided');
 
@@ -135,7 +136,7 @@ export class EnhancedOffscreenProcessor {
 
       let processingResult;
       if (mode === 'offline') {
-        processingResult = await this.processOfflineMode(html, url, title, finalConfig);
+        processingResult = await this.processOfflineMode(html, url, title, finalConfig, metadataHtml);
       } else {
         processingResult = await this.processAIMode(html, url, title, finalConfig, settings); // Pass settings here
       }
@@ -168,11 +169,12 @@ export class EnhancedOffscreenProcessor {
     html: string,
     url: string,
     title: string,
-    config: OfflineModeConfig
+    config: OfflineModeConfig,
+    metadataHtml?: string
   ): Promise<ProcessingCompleteMessage['payload']> {
     this.sendProgress('Cleaning and preparing content...', 20, 'preprocessing');
 
-    const chain = await processWithProviderChain(html, url, title, config);
+    const chain = await processWithProviderChain(html, url, title, config, metadataHtml);
     const result = chain.result;
     if (!result.success) {
       throw new Error(`Offline processing failed: ${result.errors.join(', ')}`);

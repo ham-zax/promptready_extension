@@ -299,7 +299,8 @@ export class OfflineModeManager {
     html: string,
     url: string,
     title: string,
-    customConfig?: Partial<OfflineModeConfig>
+    customConfig?: Partial<OfflineModeConfig>,
+    metadataHtml?: string
   ): Promise<OfflineProcessingResult> {
     const config = this.mergeConfig(customConfig);
     const cacheSourceHtml = html;
@@ -519,7 +520,10 @@ export class OfflineModeManager {
 
       // Step 4: Generate metadata and insert cite-first block
       const selectionHash = await this.generateCacheKey(cacheSourceHtml, url, config);
-      const metadata = this.generateMetadata(title, url, selectionHash, html);
+      const metadataSource = typeof metadataHtml === 'string' && metadataHtml.trim()
+        ? metadataHtml
+        : cacheSourceHtml;
+      const metadata = this.generateMetadata(title, url, selectionHash, metadataSource);
       processedMarkdown = this.normalizeUnicodeWhitespace(processedMarkdown);
       if (!processedMarkdown || processedMarkdown.trim().length === 0) {
         const sparseFallback = this.buildSparseContentFallback(extractionHtml, warnings);
