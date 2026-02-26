@@ -87,7 +87,28 @@ npm run dev:firefox
 - **Hot Reload**: Changes automatically reload the extension
 - **Type Checking**: Real-time TypeScript validation
 - **Console Logging**: Enhanced logging for debugging
-- **Source Maps**: Available in browser dev tools
+- **Source Maps**: Enabled for debug builds (see below)
+
+#### Debug Build (Sourcemaps + No Minify)
+
+If you want stack traces that map back to `.ts/.tsx` files (instead of only `background.js:11739`):
+
+```bash
+npm run build
+```
+
+Then load the unpacked extension from:
+
+- `.output/chrome-mv3/`
+
+In this build profile, sourcemaps are emitted and minification is disabled so `chrome://extensions` error
+links take you to the real source.
+
+Production build (minified, no sourcemaps):
+
+```bash
+npm run build:prod
+```
 
 #### File Watching
 The development server watches for changes in:

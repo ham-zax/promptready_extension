@@ -3,6 +3,10 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 // See https://wxt.dev/api/config.html
+const enableDebugBuild =
+  process.env.WXT_RUNTIME_DEVELOPMENT === "1" ||
+  process.env.WXT_DEV_SOURCEMAP === "1";
+
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   manifest: {
@@ -35,6 +39,11 @@ export default defineConfig({
   },
   vite: () => ({
     plugins: [tailwindcss()],
+    build: {
+      // Debug builds should be easy to trace in Chrome's extension error UI.
+      sourcemap: enableDebugBuild,
+      minify: enableDebugBuild ? false : true,
+    },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./"),
