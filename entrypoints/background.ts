@@ -439,6 +439,8 @@ class EnhancedContentProcessor {
         }
 
         console.log('Initiating capture for tab:', tab.id);
+        const settings = await Storage.getSettings();
+        const capturePolicy = settings.processing?.capturePolicy;
 
         const ok = await this.ensureContentScript(tab.id);
         if (!ok) {
@@ -450,7 +452,10 @@ class EnhancedContentProcessor {
         // Send capture request
         await browser.tabs.sendMessage(tab.id, {
           type: 'CAPTURE_SELECTION',
-          payload: { tabId: tab.id },
+          payload: {
+            tabId: tab.id,
+            capturePolicy,
+          },
         });
 
       } catch (error: any) {
@@ -583,7 +588,11 @@ class EnhancedContentProcessor {
 
     try {
       const canonicalCapture = sanitizeCapturePayload(message?.payload);
-      const { html, url, title, metadataHtml } = canonicalCapture;
+      const { html, url, title, metadataHtml, captureDiagnostics } = canonicalCapture;
+
+      if (captureDiagnostics) {
+        console.log('[Background] Capture diagnostics:', captureDiagnostics);
+      }
 
       // Determine originating tab id from sender (content scripts send messages with sender.tab)
       const originatingTabId = sender?.tab?.id || canonicalCapture.tabId;
@@ -615,6 +624,7 @@ class EnhancedContentProcessor {
           url,
           title,
           metadataHtml,
+          captureDiagnostics,
           selectionHash,
           mode: settings.mode,
           useReadability: settings.useReadability !== false,
@@ -675,6 +685,8 @@ class EnhancedContentProcessor {
   async handleCaptureRequest(message: any): Promise<void> {
     try {
       const tabId = message.payload?.tabId;
+      const settings = await Storage.getSettings();
+      const capturePolicy = settings.processing?.capturePolicy;
       if (!tabId) {
         throw new Error('No tab ID provided');
       }
@@ -685,7 +697,10 @@ class EnhancedContentProcessor {
         // Send capture request to content script
         await browser.tabs.sendMessage(tabId, {
           type: 'CAPTURE_SELECTION',
-          payload: {},
+          payload: {
+            tabId,
+            capturePolicy,
+          },
         });
 
         console.log(`[Background] CAPTURE_SELECTION sent successfully to tab ${tabId}`);
@@ -707,7 +722,10 @@ class EnhancedContentProcessor {
           // Retry the message
           await browser.tabs.sendMessage(tabId, {
             type: 'CAPTURE_SELECTION',
-            payload: {},
+            payload: {
+              tabId,
+              capturePolicy,
+            },
           });
 
           console.log('[Background] CAPTURE_SELECTION successful after injection');

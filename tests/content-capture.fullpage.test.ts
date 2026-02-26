@@ -56,7 +56,16 @@ describe('ContentCapture full-page snapshot', () => {
   });
 
   it('captures full sanitized DOM without pre-extraction truncation', async () => {
-    const result = await ContentCapture.captureFullPage();
+    const result = await ContentCapture.captureFullPage({
+      settleTimeoutMs: 0,
+      quietWindowMs: 200,
+      deepCaptureEnabled: false,
+      maxScrollSteps: 3,
+      maxScrollDurationMs: 1_000,
+      scrollStepDelayMs: 0,
+      minTextGainRatio: 0.2,
+      minHeadingGain: 1,
+    });
 
     expect(result.url).toBe('https://promptready.app/');
     expect(result.title).toContain('PromptReady');
@@ -69,5 +78,9 @@ describe('ContentCapture full-page snapshot', () => {
     expect(result.html).not.toContain('<script');
     expect(result.html).not.toContain('<style');
     expect(result.html).toContain('https://promptready.app/docs/quickstart');
+    expect(result.captureDiagnostics).toBeDefined();
+    expect(result.captureDiagnostics?.strategy).toBe('initial-body-html');
+    expect(result.captureDiagnostics?.scrollStepsExecuted).toBe(0);
+    expect(result.captureDiagnostics?.deepUsedReason).toBe('deep-capture-disabled-by-policy');
   });
 });

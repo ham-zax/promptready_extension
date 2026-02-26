@@ -6,7 +6,7 @@ import { OfflineModeManager, OfflineModeConfig } from '../../core/offline-mode-m
 import { processWithProviderChain } from '../../core/extraction-provider.js';
 
 import { BYOKClient } from '../../pro/byok-client';
-import { Settings } from '../../lib/types';
+import { CaptureDiagnostics, Settings } from '../../lib/types';
 import { MarkdownPostProcessor } from '../../core/post-processor.js';
 import { PerformanceMetrics } from '../../core/performance-metrics.js';
 import { getRuntimeProfile, validateRuntimeProfile, assertRuntimeProfileSafe } from '../../lib/runtime-profile.js';
@@ -18,6 +18,7 @@ interface ProcessingMessage {
     url: string;
     title: string;
     metadataHtml?: string;
+    captureDiagnostics?: CaptureDiagnostics;
     selectionHash: string;
     mode: 'offline' | 'ai';
     useReadability?: boolean;
@@ -148,7 +149,7 @@ export class EnhancedOffscreenProcessor {
     EnhancedOffscreenProcessor.performance.recordProcessingSnapshot('offscreen_processing_start');
 
     try {
-      const { html, url, title, mode, customConfig, settings, selectionHash, metadataHtml } = message.payload;
+      const { html, url, title, mode, customConfig, settings, selectionHash, metadataHtml, captureDiagnostics } = message.payload;
       this.sendProgress('Processing content...', 10, 'initialization');
       if (!html || html.trim().length === 0) throw new Error('No HTML content provided');
 
@@ -167,10 +168,16 @@ export class EnhancedOffscreenProcessor {
         if (selectionHash) {
           if (!processingResult.metadata) processingResult.metadata = {};
           processingResult.metadata.selectionHash = selectionHash;
+          if (captureDiagnostics) {
+            (processingResult.metadata as any).captureDiagnostics = captureDiagnostics;
+          }
 
           if (processingResult.exportJson && typeof processingResult.exportJson === 'object') {
             if (!processingResult.exportJson.metadata) processingResult.exportJson.metadata = {};
             processingResult.exportJson.metadata.selectionHash = selectionHash;
+            if (captureDiagnostics) {
+              processingResult.exportJson.metadata.captureDiagnostics = captureDiagnostics;
+            }
           }
         }
       } catch (attachErr) {
@@ -234,34 +241,40 @@ export class EnhancedOffscreenProcessor {
 
     try {
       const runtimeProfile = getRuntimeProfile();
+      const provider = settings.byok?.provider || 'openrouter';
       const apiKey = settings.byok?.apiKey || '';
-      const apiBase = settings.byok?.apiBase || (runtimeProfile.isDevelopment ? 'https://openrouter.ai/api/v1' : '');
       const model = settings.byok?.model || settings.byok?.selectedByokModel || 'arcee-ai/trinity-large-preview:free';
 
-      if (!apiKey && !runtimeProfile.isDevelopment) {
-        // No API key and no credit service available - inform user and fallback
-        console.warn('[AI Mode] No API key configured and no credit service available. Falling back to offline mode.');
-        this.sendProgress('No API key configured. Using offline mode...', 50, 'fallback');
-        return await this.processOfflineMode(html, url, title, config);
+      if (provider !== 'openrouter') {
+        const warningCode = 'ai_fallback:provider_not_supported';
+        console.warn('[AI Mode] Unsupported BYOK provider. OpenRouter is the only supported provider.');
+        this.sendProgress('Only OpenRouter BYOK is supported. Using offline mode...', 50, 'fallback');
+        const offlineResult = await this.processOfflineMode(html, url, title, config);
+        offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
+        return offlineResult;
       }
 
-      if (!apiBase) {
-        console.warn('[AI Mode] Missing BYOK API base. Falling back to offline mode.');
-        this.sendProgress('BYOK API base is missing. Using offline mode...', 50, 'fallback');
-        return await this.processOfflineMode(html, url, title, config);
+      if (!apiKey.trim()) {
+        const warningCode = 'ai_fallback:missing_openrouter_key';
+        console.warn('[AI Mode] Missing OpenRouter API key. Falling back to offline mode.');
+        this.sendProgress('No OpenRouter API key configured. Using offline mode...', 50, 'fallback');
+        const offlineResult = await this.processOfflineMode(html, url, title, config);
+        offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
+        return offlineResult;
       }
 
-      // Use BYOK client if API key is available
-      this.sendProgress(runtimeProfile.isDevelopment
-        ? 'Using local BYOK proxy for AI processing...'
-        : 'Using your API key for AI processing...',
+      // Use OpenRouter BYOK client (single provider workflow)
+      this.sendProgress(
+        runtimeProfile.isDevelopment
+          ? 'Using OpenRouter BYOK in development...'
+          : 'Using your OpenRouter key for AI processing...',
       40,
       'byok-processing');
       const byokResult = await BYOKClient.makeRequest(
         { prompt: html, maxTokens: 4000, temperature: 0.7 }, // Use html as prompt
         {
-          apiBase: apiBase,
-          apiKey: apiKey,
+          apiBase: 'https://openrouter.ai/api/v1',
+          apiKey: apiKey.trim(),
           model: model
         }
       );
@@ -285,9 +298,11 @@ export class EnhancedOffscreenProcessor {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown AI processing error';
       console.error('[AI Mode] Processing failed:', errorMessage);
-      this.sendError(errorMessage, 'ai-processing');
+      this.sendError(errorMessage, 'ai-processing', true);
       this.sendProgress('AI processing failed, falling back to offline mode...', 90, 'fallback');
-      return await this.processOfflineMode(html, url, title, config);
+      const offlineResult = await this.processOfflineMode(html, url, title, config);
+      offlineResult.warnings = [...(offlineResult.warnings || []), 'ai_fallback:request_failed'];
+      return offlineResult;
     }
   }
 

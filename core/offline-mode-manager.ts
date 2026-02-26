@@ -414,8 +414,9 @@ export class OfflineModeManager {
       }
 
       const preparedExtraction = this.prepareHtmlForExtraction(html, url);
-      const extractionHtml = preparedExtraction.html;
+      let extractionHtml = preparedExtraction.html;
       warnings.push(...preparedExtraction.warnings);
+      extractionHtml = this.isolateIntentionalRawExamples(extractionHtml, warnings);
 
       // Step 1: Content extraction with Readability
       this.performance.captureMemorySnapshot('readability_start');
@@ -491,6 +492,7 @@ export class OfflineModeManager {
         markdown = extractedContent;
         fallbacksUsed.push('pre-formatted-markdown');
 	      } else {
+	        extractedContent = this.isolateIntentionalRawExamples(extractedContent, warnings);
 	        try {
 	          const turndownPreset = this.normalizeTurndownPreset(config.turndownPreset);
 	          const TurndownConfigManager = await this.getTurndownConfigManager();
@@ -1826,6 +1828,105 @@ export class OfflineModeManager {
     };
   }
 
+  /**
+   * Preserve intentional "raw copy-paste" examples as code before Turndown conversion.
+   * This runs on HTML (DOM stage), so markdown regex cleanup remains a secondary safety net.
+   */
+  private static isolateIntentionalRawExamples(html: string, warnings: string[]): string {
+    if (!html || html.trim().length < 40) {
+      return html;
+    }
+
+    const doc = safeParseHTML(html);
+    if (!doc) {
+      return html;
+    }
+
+    const labelNodes = Array.from(
+      doc.querySelectorAll('h1, h2, h3, h4, h5, h6, p, strong, b, span, div, li')
+    ) as HTMLElement[];
+    let transformed = 0;
+
+    for (const labelNode of labelNodes) {
+      const label = this.normalizeInputText(labelNode.textContent || '').toLowerCase();
+      if (!this.isRawExampleLabel(label)) {
+        continue;
+      }
+
+      let cursor = labelNode.nextElementSibling as HTMLElement | null;
+      let inspected = 0;
+      while (cursor && inspected < 3) {
+        if (/^h[1-6]$/i.test(cursor.tagName)) {
+          break;
+        }
+        if (cursor.matches('pre, code') || cursor.querySelector('pre, code')) {
+          break;
+        }
+        if (this.isLikelyRawHtmlExampleBlock(cursor)) {
+          const next = cursor.nextElementSibling as HTMLElement | null;
+          const pre = doc.createElement('pre');
+          const code = doc.createElement('code');
+          code.textContent = cursor.outerHTML.trim();
+          pre.appendChild(code);
+          cursor.replaceWith(pre);
+          transformed++;
+          cursor = next;
+          inspected++;
+          continue;
+        }
+        cursor = cursor.nextElementSibling as HTMLElement | null;
+        inspected++;
+      }
+    }
+
+    if (transformed === 0) {
+      return html;
+    }
+
+    warnings.push(
+      transformed === 1
+        ? 'Isolated one raw-example DOM block before markdown conversion'
+        : `Isolated ${transformed} raw-example DOM blocks before markdown conversion`
+    );
+
+    return doc.body?.innerHTML || html;
+  }
+
+  private static isRawExampleLabel(label: string): boolean {
+    if (!label) {
+      return false;
+    }
+    return (
+      /raw\s+(copy[- ]paste|input|source)/i.test(label) ||
+      /^copy[- ]paste$/i.test(label) ||
+      /^raw html$/i.test(label)
+    );
+  }
+
+  private static isLikelyRawHtmlExampleBlock(element: HTMLElement): boolean {
+    const text = this.normalizeInputText(element.textContent || '');
+    if (text.length < 20 || text.length > 800) {
+      return false;
+    }
+    if (element.outerHTML.length > 1_600) {
+      return false;
+    }
+    if (element.querySelector('h1, h2, h3, h4, h5, h6')) {
+      return false;
+    }
+    if (/(contents\s*\[hide\]|from wikipedia|artificial intelligence)/i.test(text)) {
+      return false;
+    }
+
+    const descendantCount = element.querySelectorAll('*').length;
+    const hasStructuralSelfTag = /^(div|footer|header|nav|aside|section|article|main)$/i.test(element.tagName);
+    const hasStructuralTags = hasStructuralSelfTag || !!element.querySelector('div, footer, header, nav, aside, section, article, main');
+    const hasUiFixtureSignals = /(newsletter|subscribe|related links|footer text|cookie|popup ad)/i.test(text);
+    const hasLinkFarmShape = element.querySelectorAll('a').length >= 2;
+
+    return hasStructuralTags || hasUiFixtureSignals || hasLinkFarmShape || descendantCount >= 2;
+  }
+
   private static sanitizeRiskyMarkdown(markdown: string, warnings: string[]): string {
     let sanitized = markdown;
     const hasSecurityRiskSignals = this.hasSecuritySignalWarning(warnings);
@@ -1906,6 +2007,10 @@ export class OfflineModeManager {
             /welcome to reddit.*front page of the internet/.test(normalized) ||
             /^raw input$/.test(normalized) ||
             /^promptready output$/.test(normalized) ||
+            /contents\s*\\?\[hide\\?\]/.test(normalized) ||
+            /^\(?top\)?$/.test(normalized) ||
+            /from wikipedia,?\s*the free encyclopedia/.test(normalized) ||
+            /&lt;div class="navbox"&gt;categories:/.test(normalized) ||
             /save \d{1,3}% today.*subscribe to our newsletter/.test(normalized) ||
             /subscribe to our newsletter\s*\|\s*related links\s*\|\s*footer text/.test(normalized)
           )
@@ -2025,12 +2130,21 @@ export class OfflineModeManager {
       ].filter(Boolean).length;
 
       const previousLine = output.length > 0 ? output[output.length - 1].trim().toLowerCase() : '';
+      const contextWindow = output.slice(Math.max(0, output.length - 8)).join('\n').toLowerCase();
       const precededByRawLabel =
         /^raw (input|copy[- ]paste|copy-paste|source)/.test(previousLine) ||
         /^promptready (output|pass)$/.test(previousLine);
+      const hasComparisonContext =
+        /(before\s*\/\s*after|comparison|same source,\s*cleaner context|promptready pass)/i.test(contextWindow);
+      const containsHtmlExample =
+        /<\/?[a-z][^>]*>/i.test(bodyLines.join('\n')) ||
+        /&lt;\/?[a-z][^&]*&gt;/i.test(bodyLines.join('\n'));
+      const preserveIntentionalDemoBlock =
+        precededByRawLabel && hasComparisonContext && containsHtmlExample;
 
       const hasNonLanguageFenceHeader = !!startFenceRaw && !languageLike(startFenceRaw);
       const shouldDropBlock =
+        !preserveIntentionalDemoBlock &&
         normalizedBlock.length >= 20 &&
         programmingSignalCount === 0 &&
         (
@@ -3948,6 +4062,7 @@ export class OfflineModeManager {
     result = this.collapseFragmentedWordRuns(result, warnings);
     result = this.normalizeMergedTokenBoundaries(result, warnings);
     result = this.repairInlineCodeFenceBoundaries(result, warnings);
+    result = this.mergeSplitHeadings(result, warnings);
     // Re-run line-level UI filtering after fence repair/token normalization,
     // so noise that was previously glued to malformed fence blocks is removed.
     result = this.stripResidualUiNoiseLines(result, warnings);
@@ -3977,6 +4092,21 @@ export class OfflineModeManager {
       const line = lines[index] ?? '';
       const trimmed = line.trimStart();
       if (trimmed.startsWith('```')) {
+        if (!inFence && /^```\s*</.test(trimmed)) {
+          // Repair malformed opening fences like:
+          // ```<div ...>...</div>```### Heading
+          // Normalize to a proper html fence and re-process the trailing content.
+          const remainder = line.replace(/^\s*```/, '');
+          output.push('```html');
+          inFence = true;
+          fenceLang = 'html';
+          sawLikelyHtmlCloseTag = false;
+          changed = true;
+          if (remainder.trim()) {
+            lines.splice(index + 1, 0, remainder.trimStart());
+          }
+          continue;
+        }
         // Preserve fence lines as-is, but treat them as authoritative state toggles.
         inFence = !inFence;
         if (inFence) {
@@ -4107,6 +4237,61 @@ export class OfflineModeManager {
       warnings.push('Repaired merged inline code-fence boundaries');
     }
     return output.join('\n');
+  }
+
+  private static mergeSplitHeadings(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    const merged: string[] = [];
+    let changed = 0;
+
+    const isStructuralLine = (value: string): boolean =>
+      /^(#{1,6}\s|[-*+]\s|\d+\.\s|>|```)/.test(value);
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      const trimmed = line.trim();
+      if (!/^#{1,6}\s+\S+/.test(trimmed)) {
+        merged.push(line);
+        continue;
+      }
+
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === '') {
+        j++;
+      }
+      if (j >= lines.length) {
+        merged.push(line);
+        continue;
+      }
+
+      const continuation = lines[j].trim();
+      if (
+        continuation.length > 0 &&
+        continuation.length <= 60 &&
+        !isStructuralLine(continuation) &&
+        /^[\p{L}\p{N}][\p{L}\p{N}\s'"-]*$/u.test(continuation)
+      ) {
+        merged.push(`${line.trimEnd()} ${continuation}`);
+        i = j;
+        changed++;
+        continue;
+      }
+
+      merged.push(line);
+    }
+
+    if (changed > 0) {
+      warnings.push(
+        changed === 1
+          ? 'Merged one split heading line'
+          : `Merged ${changed} split heading lines`
+      );
+    }
+    return merged.join('\n');
   }
 
   private static fenceEscapedHtmlSamples(markdown: string, warnings: string[]): string {

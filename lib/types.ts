@@ -34,6 +34,7 @@ export interface Settings {
     readabilityPreset: string; // Readability extraction preset
     turndownPreset: string; // Markdown conversion preset
     extractionTuning?: ExtractionTuning;
+    capturePolicy?: CapturePolicy;
     customOptions: {
       preserveCodeBlocks: boolean;
       includeImages: boolean;
@@ -55,6 +56,30 @@ export interface Settings {
 }
 
 export type { ExtractionMode, ExtractionTuning };
+
+export interface CapturePolicy {
+  settleTimeoutMs: number;
+  quietWindowMs: number;
+  deepCaptureEnabled: boolean;
+  maxScrollSteps: number;
+  maxScrollDurationMs: number;
+  scrollStepDelayMs: number;
+  minTextGainRatio: number;
+  minHeadingGain: number;
+}
+
+export interface CaptureDiagnostics {
+  strategy: 'initial-body-html' | 'deep-body-html';
+  settleWaitMs: number;
+  settleTimedOut: boolean;
+  scrollStepsExecuted: number;
+  initialScrollHeight: number;
+  finalScrollHeight: number;
+  initialTextLength: number;
+  deepTextLength: number;
+  headingCountDelta: number;
+  deepUsedReason: string;
+}
 
 // Feature flags for phased rollout
 export interface FeatureFlags {
@@ -175,7 +200,10 @@ export interface Message<T extends MessageType, P = unknown> {
 }
 
 // Message type definitions
-export type CaptureSelectionMessage = Message<'CAPTURE_SELECTION'>;
+export type CaptureSelectionMessage = Message<'CAPTURE_SELECTION', {
+  tabId?: number;
+  capturePolicy?: Partial<CapturePolicy>;
+}>;
 
 export type CaptureCompleteMessage = Message<'CAPTURE_COMPLETE', {
   html: string;
@@ -183,6 +211,8 @@ export type CaptureCompleteMessage = Message<'CAPTURE_COMPLETE', {
   title: string;
   selectionHash: string;
   isSelection?: boolean;
+  metadataHtml?: string;
+  captureDiagnostics?: CaptureDiagnostics;
 }>;
 
 export type ProcessingCompleteMessage = Message<'PROCESSING_COMPLETE', {
@@ -232,6 +262,8 @@ export type OffscreenProcessMessage = Message<'OFFSCREEN_PROCESS', {
   url: string;
   title: string;
   selectionHash: string;
+  metadataHtml?: string;
+  captureDiagnostics?: CaptureDiagnostics;
   mode: 'general' | 'code_docs' | string;
   renderer?: 'structurer' | 'turndown';
   useReadability?: boolean;

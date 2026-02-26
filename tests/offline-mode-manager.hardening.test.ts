@@ -194,6 +194,39 @@ describe('OfflineModeManager hardening regressions', () => {
     expect(result.markdown).not.toContain('Accept all 500 tracking cookies to continue');
   });
 
+  it('isolates intentional raw copy-paste demo block at DOM stage before markdown conversion', () => {
+    const html = `
+      <html>
+        <body>
+          <main>
+            <section>
+              <h1>PromptReady — One-click clean Markdown from any page</h1>
+              <h2>Before / After comparison</h2>
+              <h3>Raw Copy-Paste</h3>
+              <div class="promo">
+                Save 40% today! Subscribe to our newsletter.
+              </div>
+              <footer>
+                Subscribe to our newsletter | Related links | Footer text
+              </footer>
+              <h3>PromptReady Output</h3>
+              <p>Clean article body with headings, lists, and code blocks preserved perfectly.</p>
+            </section>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const warnings: string[] = [];
+    const isolated = (OfflineModeManager as any).isolateIntentionalRawExamples(html, warnings);
+
+    expect(isolated).toContain('<pre><code>');
+    expect(isolated).toContain('&lt;div class="promo"&gt;');
+    expect(isolated).toContain('Save 40% today! Subscribe to our newsletter.');
+    expect(isolated).toContain('&lt;footer&gt;');
+    expect(warnings.some((warning) => /raw-example dom block/i.test(warning))).toBe(true);
+  });
+
   it('adopts ranked fallback candidate even when readability coverage is not low', async () => {
     const manager = OfflineModeManager as any;
     const originalFallbackSelection = manager.fallbackContentExtractionSelection;

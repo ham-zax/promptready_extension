@@ -2,6 +2,7 @@
 // Based on Architecture Section 7 (Core Modules)
 
 import { FileNamingService } from '../lib/fileNaming.js';
+import type { CaptureDiagnostics, CapturePolicy } from '../lib/types.js';
 
 export interface CaptureResult {
   html: string;
@@ -10,6 +11,7 @@ export interface CaptureResult {
   selectionHash: string;
   isSelection?: boolean;
   metadataHtml?: string;
+  captureDiagnostics?: CaptureDiagnostics;
 }
 
 type MathJaxNode = {
@@ -28,12 +30,22 @@ type MathJaxGlobal = {
 };
 
 export class ContentCapture {
+  private static readonly DEFAULT_CAPTURE_POLICY: CapturePolicy = {
+    settleTimeoutMs: 600,
+    quietWindowMs: 150,
+    deepCaptureEnabled: false,
+    maxScrollSteps: 5,
+    maxScrollDurationMs: 3000,
+    scrollStepDelayMs: 180,
+    minTextGainRatio: 0.2,
+    minHeadingGain: 2,
+  };
 
   /**
    * Capture the current selection and page metadata
    * This is the content script's primary responsibility
    */
-  static async captureSelection(): Promise<CaptureResult> {
+  static async captureSelection(capturePolicyInput?: Partial<CapturePolicy>): Promise<CaptureResult> {
     try {
       // Prepare DOM (improves base URL resolution, math capture, and hidden-node handling)
       this.ensureBase();
@@ -47,7 +59,7 @@ export class ContentCapture {
       if (!selection || selection.rangeCount === 0) {
         // If no selection, try to capture the main content area
         console.log('No selection found, attempting to capture main content...');
-        return await this.captureFullPage();
+        return await this.captureFullPage(capturePolicyInput);
       }
 
       // Build combined HTML of all ranges
@@ -70,7 +82,7 @@ export class ContentCapture {
 
       if (!html.trim()) {
         console.log('Selected content is empty, attempting to capture main content...');
-        return await this.captureFullPage();
+        return await this.captureFullPage(capturePolicyInput);
       }
 
       // Fix relative URLs to absolute URLs before sending to service worker
@@ -216,20 +228,20 @@ export class ContentCapture {
           }
         }
 
-        const jsonLdScripts = Array.from(head.querySelectorAll('script[type=\"application/ld+json\"]')) as HTMLScriptElement[];
+        const jsonLdScripts = Array.from(head.querySelectorAll('script[type="application/ld+json"]')) as HTMLScriptElement[];
         for (const script of jsonLdScripts) {
           const text = script.textContent || '';
           if (!text.trim()) continue;
           // Guard: avoid shipping massive JSON-LD blobs through extension messaging.
           if (text.length > 200_000) continue;
-          headParts.push(`<script type=\"application/ld+json\">${text}</script>`);
+          headParts.push(`<script type="application/ld+json">${text}</script>`);
         }
       }
 
       const root = document.body || document.documentElement;
       if (root) {
         const selector =
-          'time, [datetime], [itemprop=\"datePublished\"], [itemprop=\"dateModified\"], .dateline, .byline, [class*=\"timestamp\"], [class*=\"publish\"], [class*=\"update\"], [class*=\"date\"], [class*=\"time\"], [id*=\"date\"], [id*=\"time\"], [data-time], [data-timestamp], [data-date], [data-published], [data-updated]';
+          'time, [datetime], [itemprop="datePublished"], [itemprop="dateModified"], .dateline, .byline, [class*="timestamp"], [class*="publish"], [class*="update"], [class*="date"], [class*="time"], [id*="date"], [id*="time"], [data-time], [data-timestamp], [data-date], [data-published], [data-updated]';
         const nodes = Array.from(root.querySelectorAll(selector)).slice(0, 30);
         const seen = new Set<string>();
 
@@ -260,9 +272,10 @@ export class ContentCapture {
    * Captures a sanitized full-page snapshot. Extraction decisions are centralized
    * in the offscreen pipeline to avoid double-processing loss.
    */
-  static async captureFullPage(): Promise<CaptureResult> {
+  static async captureFullPage(capturePolicyInput?: Partial<CapturePolicy>): Promise<CaptureResult> {
     try {
       console.log('captureFullPage: Starting full page capture...');
+      const policy = this.normalizeCapturePolicy(capturePolicyInput);
       // Prepare DOM before capture
       this.ensureBase();
       this.ensureTitle();
@@ -275,12 +288,47 @@ export class ContentCapture {
       }
       const metadataHtml = this.captureMetadataHtml();
 
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = document.body?.innerHTML || document.documentElement?.innerHTML || '';
-      this.removeUnwantedTags(tempDiv);
-      this.fixRelativeUrls(tempDiv, window.location.href);
+      const settle = await this.waitForDomSettle(policy);
+      const initialSnapshot = this.createSanitizedSnapshot();
+      const initialScrollHeight = this.getDocumentScrollHeight();
 
-      const html = tempDiv.innerHTML;
+      let deepSnapshot = initialSnapshot;
+      let deepCandidateSnapshot = initialSnapshot;
+      let scrollStepsExecuted = 0;
+      let finalScrollHeight = initialScrollHeight;
+      let deepUsedReason = 'initial-snapshot-selected';
+      let usedDeepSnapshot = false;
+
+      if (policy.deepCaptureEnabled) {
+        const deepCapture = await this.captureDeepSnapshot(policy);
+        deepCandidateSnapshot = deepCapture.snapshot;
+        scrollStepsExecuted = deepCapture.scrollStepsExecuted;
+        finalScrollHeight = deepCapture.finalScrollHeight;
+
+        const textGainRatio = initialSnapshot.textLength > 0
+          ? (deepCandidateSnapshot.textLength - initialSnapshot.textLength) / initialSnapshot.textLength
+          : (deepCandidateSnapshot.textLength > 0 ? 1 : 0);
+        const headingGain = deepCandidateSnapshot.headingCount - initialSnapshot.headingCount;
+        const shouldUseDeepSnapshot =
+          deepCandidateSnapshot.textLength > initialSnapshot.textLength &&
+          (
+            textGainRatio >= policy.minTextGainRatio ||
+            headingGain >= policy.minHeadingGain
+          );
+
+        if (shouldUseDeepSnapshot) {
+          deepSnapshot = deepCandidateSnapshot;
+          usedDeepSnapshot = true;
+          deepUsedReason = `deep-snapshot-retained(textGainRatio=${textGainRatio.toFixed(3)},headingGain=${headingGain})`;
+        } else {
+          deepSnapshot = initialSnapshot;
+          deepUsedReason = `deep-snapshot-rejected(textGainRatio=${textGainRatio.toFixed(3)},headingGain=${headingGain})`;
+        }
+      } else {
+        deepUsedReason = 'deep-capture-disabled-by-policy';
+      }
+
+      const html = deepSnapshot.html;
       if (!html.trim()) {
         throw new Error('No capturable full-page HTML content found');
       }
@@ -299,6 +347,18 @@ export class ContentCapture {
         selectionHash,
         isSelection: false,
         metadataHtml,
+        captureDiagnostics: {
+          strategy: usedDeepSnapshot ? 'deep-body-html' : 'initial-body-html',
+          settleWaitMs: settle.waitedMs,
+          settleTimedOut: settle.timedOut,
+          scrollStepsExecuted,
+          initialScrollHeight,
+          finalScrollHeight,
+          initialTextLength: initialSnapshot.textLength,
+          deepTextLength: deepCandidateSnapshot.textLength,
+          headingCountDelta: deepCandidateSnapshot.headingCount - initialSnapshot.headingCount,
+          deepUsedReason,
+        },
       };
 
       console.log('captureFullPage: Capture completed successfully');
@@ -386,6 +446,180 @@ export class ContentCapture {
       }
     } catch (e) {
       console.warn('[ContentCapture] markHiddenNodes failed:', e);
+    }
+  }
+
+  private static normalizeCapturePolicy(policyInput?: Partial<CapturePolicy>): CapturePolicy {
+    const policy = policyInput || {};
+    const clamp = (value: unknown, min: number, max: number, fallback: number): number => {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return fallback;
+      }
+      return Math.min(max, Math.max(min, value));
+    };
+
+    return {
+      settleTimeoutMs: clamp(policy.settleTimeoutMs, 0, 10_000, this.DEFAULT_CAPTURE_POLICY.settleTimeoutMs),
+      quietWindowMs: clamp(policy.quietWindowMs, 50, 2_000, this.DEFAULT_CAPTURE_POLICY.quietWindowMs),
+      deepCaptureEnabled:
+        typeof policy.deepCaptureEnabled === 'boolean'
+          ? policy.deepCaptureEnabled
+          : this.DEFAULT_CAPTURE_POLICY.deepCaptureEnabled,
+      maxScrollSteps: Math.floor(clamp(policy.maxScrollSteps, 0, 20, this.DEFAULT_CAPTURE_POLICY.maxScrollSteps)),
+      maxScrollDurationMs: clamp(
+        policy.maxScrollDurationMs,
+        200,
+        10_000,
+        this.DEFAULT_CAPTURE_POLICY.maxScrollDurationMs
+      ),
+      scrollStepDelayMs: clamp(policy.scrollStepDelayMs, 0, 1_000, this.DEFAULT_CAPTURE_POLICY.scrollStepDelayMs),
+      minTextGainRatio: clamp(policy.minTextGainRatio, 0, 2, this.DEFAULT_CAPTURE_POLICY.minTextGainRatio),
+      minHeadingGain: Math.floor(clamp(policy.minHeadingGain, 0, 20, this.DEFAULT_CAPTURE_POLICY.minHeadingGain)),
+    };
+  }
+
+  private static getDocumentScrollHeight(): number {
+    return Math.max(
+      document.documentElement?.scrollHeight || 0,
+      document.body?.scrollHeight || 0
+    );
+  }
+
+  private static getScrollY(): number {
+    return window.scrollY || window.pageYOffset || document.documentElement?.scrollTop || 0;
+  }
+
+  private static async waitForDomSettle(policy: CapturePolicy): Promise<{ waitedMs: number; timedOut: boolean }> {
+    const timeoutMs = policy.settleTimeoutMs;
+    const quietWindowMs = policy.quietWindowMs;
+    if (timeoutMs <= 0) {
+      return { waitedMs: 0, timedOut: false };
+    }
+
+    const start = Date.now();
+    try {
+      return await new Promise((resolve) => {
+        let settled = false;
+        let lastMutationAt = Date.now();
+        let observer: MutationObserver | null = null;
+        let pollTimer: number | null = null;
+        let timeoutTimer: number | null = null;
+
+        const finish = (timedOut: boolean): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (observer) {
+            observer.disconnect();
+            observer = null;
+          }
+          if (pollTimer !== null) {
+            window.clearInterval(pollTimer);
+            pollTimer = null;
+          }
+          if (timeoutTimer !== null) {
+            window.clearTimeout(timeoutTimer);
+            timeoutTimer = null;
+          }
+          resolve({ waitedMs: Date.now() - start, timedOut });
+        };
+
+        if (typeof MutationObserver !== 'undefined') {
+          observer = new MutationObserver(() => {
+            lastMutationAt = Date.now();
+          });
+          observer.observe(document.documentElement, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            characterData: true,
+          });
+        }
+
+        pollTimer = window.setInterval(() => {
+          if (Date.now() - lastMutationAt >= quietWindowMs) {
+            finish(false);
+          }
+        }, Math.min(quietWindowMs, 120));
+
+        timeoutTimer = window.setTimeout(() => finish(true), timeoutMs);
+      });
+    } catch (error) {
+      console.warn('[ContentCapture] waitForDomSettle failed open:', error);
+      return { waitedMs: Date.now() - start, timedOut: true };
+    }
+  }
+
+  private static createSanitizedSnapshot(): { html: string; textLength: number; headingCount: number } {
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = document.body?.innerHTML || document.documentElement?.innerHTML || '';
+    this.removeUnwantedTags(tempDiv);
+    this.fixRelativeUrls(tempDiv, window.location.href);
+    const html = tempDiv.innerHTML;
+    const textLength = (tempDiv.textContent || '').replace(/\s+/g, ' ').trim().length;
+    const headingCount = tempDiv.querySelectorAll('h1,h2,h3,h4,h5,h6').length;
+    return { html, textLength, headingCount };
+  }
+
+  private static async captureDeepSnapshot(policy: CapturePolicy): Promise<{
+    snapshot: { html: string; textLength: number; headingCount: number };
+    scrollStepsExecuted: number;
+    finalScrollHeight: number;
+  }> {
+    const maxSteps = policy.maxScrollSteps;
+    if (maxSteps <= 0) {
+      return {
+        snapshot: this.createSanitizedSnapshot(),
+        scrollStepsExecuted: 0,
+        finalScrollHeight: this.getDocumentScrollHeight(),
+      };
+    }
+
+    const originalScrollY = this.getScrollY();
+    const originalScrollX = window.scrollX || 0;
+    const start = Date.now();
+    let steps = 0;
+    let scrollSupported = true;
+
+    try {
+      while (steps < maxSteps && (Date.now() - start) < policy.maxScrollDurationMs) {
+        const scrollHeight = this.getDocumentScrollHeight();
+        const maxY = Math.max(0, scrollHeight - window.innerHeight);
+        const ratio = (steps + 1) / maxSteps;
+        const targetY = Math.floor(maxY * ratio);
+        try {
+          window.scrollTo(originalScrollX, targetY);
+        } catch (error) {
+          scrollSupported = false;
+          console.warn('[ContentCapture] captureDeepSnapshot: window.scrollTo unavailable, using initial snapshot', error);
+          break;
+        }
+        steps++;
+        if (policy.scrollStepDelayMs > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, policy.scrollStepDelayMs));
+        }
+      }
+      if (!scrollSupported) {
+        return {
+          snapshot: this.createSanitizedSnapshot(),
+          scrollStepsExecuted: 0,
+          finalScrollHeight: this.getDocumentScrollHeight(),
+        };
+      }
+      await this.waitForDomSettle({ ...policy, settleTimeoutMs: Math.min(policy.settleTimeoutMs, 1200) });
+      const snapshot = this.createSanitizedSnapshot();
+      return {
+        snapshot,
+        scrollStepsExecuted: steps,
+        finalScrollHeight: this.getDocumentScrollHeight(),
+      };
+    } finally {
+      try {
+        window.scrollTo(originalScrollX, originalScrollY);
+      } catch {
+        // Ignore restore failures in non-windowed test environments.
+      }
     }
   }
 }

@@ -268,7 +268,8 @@ export default defineContentScript({
 
           if (message.type === 'CAPTURE_SELECTION' || message.type === 'CAPTURE_SELECTION_ONLY') {
             console.log('Starting content capture...');
-            const result = await ContentCapture.captureSelection();
+            const capturePolicy = message.payload?.capturePolicy;
+            const result = await ContentCapture.captureSelection(capturePolicy);
             console.log('Capture completed, sending CAPTURE_COMPLETE message');
             console.log('Capture result summary:', {
               htmlLength: result.html.length,

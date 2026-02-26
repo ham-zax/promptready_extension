@@ -2,7 +2,7 @@
 // Based on Architecture Section 8 (Security & Privacy)
 
 import { browser } from 'wxt/browser';
-import { Settings, TelemetryEvent } from './types.js';
+import { CapturePolicy, Settings, TelemetryEvent } from './types.js';
 import { getRuntimeProfile, type RuntimeProfile } from './runtime-profile.js';
 import { DEFAULT_EXTRACTION_TUNING, normalizeExtractionTuning } from '../core/domain/extraction/policies.js';
 
@@ -21,6 +21,44 @@ const STORAGE_KEYS = {
 // =============================================================================
 
 const runtimeProfile = getRuntimeProfile();
+const DEFAULT_CAPTURE_POLICY: CapturePolicy = {
+  settleTimeoutMs: 600,
+  quietWindowMs: 150,
+  deepCaptureEnabled: false,
+  maxScrollSteps: 5,
+  maxScrollDurationMs: 3000,
+  scrollStepDelayMs: 180,
+  minTextGainRatio: 0.2,
+  minHeadingGain: 2,
+};
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizeCapturePolicy(policy: unknown): CapturePolicy {
+  const source = (policy && typeof policy === 'object') ? (policy as Partial<CapturePolicy>) : {};
+  return {
+    settleTimeoutMs: clampNumber(source.settleTimeoutMs, 0, 10_000, DEFAULT_CAPTURE_POLICY.settleTimeoutMs),
+    quietWindowMs: clampNumber(source.quietWindowMs, 50, 2_000, DEFAULT_CAPTURE_POLICY.quietWindowMs),
+    deepCaptureEnabled:
+      typeof source.deepCaptureEnabled === 'boolean' ? source.deepCaptureEnabled : DEFAULT_CAPTURE_POLICY.deepCaptureEnabled,
+    maxScrollSteps: Math.floor(clampNumber(source.maxScrollSteps, 0, 20, DEFAULT_CAPTURE_POLICY.maxScrollSteps)),
+    maxScrollDurationMs: clampNumber(
+      source.maxScrollDurationMs,
+      200,
+      10_000,
+      DEFAULT_CAPTURE_POLICY.maxScrollDurationMs
+    ),
+    scrollStepDelayMs: clampNumber(source.scrollStepDelayMs, 0, 1_000, DEFAULT_CAPTURE_POLICY.scrollStepDelayMs),
+    minTextGainRatio: clampNumber(source.minTextGainRatio, 0, 2, DEFAULT_CAPTURE_POLICY.minTextGainRatio),
+    minHeadingGain: Math.floor(clampNumber(source.minHeadingGain, 0, 20, DEFAULT_CAPTURE_POLICY.minHeadingGain)),
+  };
+}
+
 const DEFAULT_SETTINGS: Settings = {
   mode: 'offline',
   theme: 'system',
@@ -57,6 +95,7 @@ const DEFAULT_SETTINGS: Settings = {
     readabilityPreset: 'standard',
     turndownPreset: 'standard',
     extractionTuning: { ...DEFAULT_EXTRACTION_TUNING },
+    capturePolicy: { ...DEFAULT_CAPTURE_POLICY },
     customOptions: {
       preserveCodeBlocks: true,
       includeImages: true,
@@ -164,6 +203,7 @@ export class Storage {
         turndownPreset:
           (settings.processing && settings.processing.turndownPreset) || DEFAULT_SETTINGS.processing!.turndownPreset,
         extractionTuning: normalizeExtractionTuning((settings.processing as any)?.extractionTuning),
+        capturePolicy: normalizeCapturePolicy((settings.processing as any)?.capturePolicy),
         customOptions: {
           ...DEFAULT_SETTINGS.processing!.customOptions,
           ...((settings.processing && settings.processing.customOptions) || {}),
@@ -244,6 +284,7 @@ export class Storage {
           turndownPreset:
             (processing && processing.turndownPreset) || currentSettings.processing!.turndownPreset,
           extractionTuning: normalizeExtractionTuning((processing || {}).extractionTuning ?? currentSettings.processing?.extractionTuning),
+          capturePolicy: normalizeCapturePolicy((processing || {}).capturePolicy ?? currentSettings.processing?.capturePolicy),
           customOptions: {
             ...(currentSettings.processing?.customOptions || DEFAULT_SETTINGS.processing!.customOptions),
             ...((processing && processing.customOptions) || {}),

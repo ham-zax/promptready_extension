@@ -95,6 +95,12 @@ describe('offline promptready extraction iteration', () => {
     expect(result.markdown).not.toContain('Accept all 500 tracking cookies to continue');
     expect(result.markdown).not.toContain('Donate | Create account | Log in');
     expect(result.markdown).not.toContain('Privacy policy | About Wikipedia');
+    expect(result.markdown).not.toContain('Contents \\[hide\\]');
+    expect(result.markdown).not.toContain('From Wikipedia, the free encyclopedia');
+    expect(result.markdown).not.toContain('&lt;div class="navbox"&gt;');
+    expect(result.markdown).not.toContain('Run DemoReset');
+    expect(result.markdown).toContain('## Built for people who prompt all day');
+    expect(result.markdown).toContain('## Simple pricing while in beta');
 
     const suspiciousLines = collectSuspiciousSingleTokenLines(result.markdown);
     expect(suspiciousLines.length).toBeLessThanOrEqual(3);
