@@ -53,11 +53,12 @@ describe('offline promptready extraction iteration', () => {
     expect(result.markdown).toContain('Trusted by builders, researchers,');
     expect(result.markdown).toContain('Simple pricing');
     expect(result.markdown).toContain('Early Access Plan');
+    expect(result.markdown).toContain('Save 40% today!');
+    expect(result.markdown).toContain('Subscribe to our newsletter | Related links | Footer text');
+    expect(result.markdown).toContain('Source: example.com/rag-guide');
 
     expect(result.markdown).not.toContain('ANNOYING POPUP AD');
     expect(result.markdown).not.toContain('Accept all 500 tracking cookies to continue');
-    expect(result.markdown).not.toContain('Subscribe to our newsletter | Related links | Footer text');
-    expect(result.markdown).not.toContain('Source: example.com/rag-guide');
 
     const suspiciousLines = collectSuspiciousSingleTokenLines(result.markdown);
     expect(suspiciousLines.length).toBeLessThanOrEqual(3);

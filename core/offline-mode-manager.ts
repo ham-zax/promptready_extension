@@ -1367,7 +1367,7 @@ export class OfflineModeManager {
   }
 
   private static containsUiNoiseSignals(text: string): boolean {
-    return /(subscribe|newsletter|related links|accept all .*cookie|cookie settings|join waitlist|sign up for (our )?newsletter|tracking cookies?|popup ad|manage preferences|allow all cookies|limit my search|advanced search: by author|search faq)/i.test(text);
+    return /(accept all .*cookie|cookie settings|tracking cookies?|popup ad|manage preferences|allow all cookies|limit my search|advanced search: by author|search faq)/i.test(text);
   }
 
   private static async resolveReadabilityCandidate(
@@ -1533,10 +1533,11 @@ export class OfflineModeManager {
     }
 
     let penalty = 0;
-    if (/(subscribe|newsletter|cookie settings|accept all|related links|all rights reserved|privacy policy|terms of service)/i.test(text)) {
-      penalty += 6;
+    // Penalize clear boilerplate/legal chrome. Avoid keyword penalties for demo/educational content.
+    if (/(accept all .*cookies?|cookie settings|manage preferences|tracking cookies?|cookie policy)/i.test(text)) {
+      penalty += 10;
     }
-    if (/(raw copy|copy-paste|before ?\/ ?after|example\.com\/)/i.test(text)) {
+    if (/(all rights reserved|privacy policy|terms of service|legal documents)/i.test(text)) {
       penalty += 8;
     }
     if (/(limit my search|advanced search: by author|see the search faq|view more:|join reddit|ad-free experience)/i.test(text)) {
@@ -1634,10 +1635,7 @@ export class OfflineModeManager {
     let sanitized = markdown
       .replace(/\b(?:annoying\s+)?popup\s*ad\s*accept\s*all(?:\s+\d+)?[\s\S]{0,180}?cookies?\s+to\s+continue\.?/gi, '')
       .replace(/\baccept\s*all(?:\s+\d+)?[\s\S]{0,180}?(?:tracking\s+)?cookies?\s+to\s+continue\.?/gi, '')
-      .replace(/\bsubscribe\s+to\s+our\s+newsletter\s*\|\s*related\s+links\s*\|\s*footer\s+text\b/gi, '')
       .replace(/\bwelcome to reddit,\s*the front page of the internet\.[\s\S]{0,120}?communities\./gi, '')
-      .replace(/\bsource:\s*example\.com\/[^\s•]+(?:\s*•?\s*captured:\s*\d{4}-\d{2}-\d{2}[^\n]*)?/gi, '')
-      .replace(/#?\\?`{3}\s*json\s*\\?`{3}/gi, '')
       .replace(/!\[[^\]]*]\(data:image\/svg\+xml,[^)]+\)/gi, '')
       .replace(/^\s*-\s*\[(save|share)\]\(#\)\s*$/gim, '')
       .replace(/^\s*-\s*(hide|report)\s*$/gim, '')
@@ -1658,9 +1656,7 @@ export class OfflineModeManager {
         normalized.length <= 200 &&
         (
           /accept all .*cookies?|manage (cookie|privacy) preferences|allow all cookies/.test(normalized) ||
-          /subscribe to (our )?newsletter|join (the )?waitlist|sign up (for|to)/.test(normalized) ||
-          /popup ad|popup adaccept|tracking cookies? to continue|related links \| footer text/.test(normalized) ||
-          /source:\s*example\.com\/|captured:\s*\d{4}-\d{2}-\d{2}t\d{2}/.test(normalized) ||
+          /popup ad|popup adaccept|tracking cookies? to continue/.test(normalized) ||
           /limit my search to|advanced search: by author|see the search faq|join reddit|view more:/.test(normalized) ||
           /welcome to reddit.*front page of the internet/.test(normalized)
         );

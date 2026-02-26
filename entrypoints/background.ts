@@ -291,9 +291,7 @@ class EnhancedContentProcessor {
         normalized.length <= 220 &&
         (
           /accept all .*cookies?|manage (cookie|privacy) preferences|allow all cookies/.test(normalized) ||
-          /subscribe to (our )?newsletter|join (the )?waitlist|sign up (for|to)/.test(normalized) ||
-          /popup ad|tracking cookies? to continue|related links \| footer text/.test(normalized) ||
-          /source:\s*example\.com\/|captured:\s*\d{4}-\d{2}-\d{2}t\d{2}/.test(normalized) ||
+          /popup ad|tracking cookies? to continue/.test(normalized) ||
           /limit my search to|advanced search: by author|see the search faq|join reddit|view more:/.test(normalized)
         );
       const isSocialActionLine =
