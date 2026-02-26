@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { OfflineModeManager } from '../core/offline-mode-manager';
 
@@ -158,9 +158,22 @@ const fixtureCases: FixtureCase[] = [
   },
 ];
 
+const dumpDir = process.env.OFFLINE_DUMP_DIR ? path.resolve(process.env.OFFLINE_DUMP_DIR) : null;
+
 function readFixtureHtml(fileName: string): string {
   const fixturePath = path.join(process.cwd(), 'tests', 'fixtures', 'offline-corpus', fileName);
   return readFileSync(fixturePath, 'utf8');
+}
+
+function maybeDumpMarkdown(markdown: string, fileBaseName: string): void {
+  if (!dumpDir) return;
+  mkdirSync(dumpDir, { recursive: true });
+  writeFileSync(path.join(dumpDir, `${fileBaseName}.md`), markdown, 'utf8');
+}
+
+function toDumpBaseName(fixture: FixtureCase): string {
+  const base = fixture.fixtureFile.replace(/\.[^.]+$/, '');
+  return base.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 }
 
 function normalizeDynamicMetadata(markdown: string): string {
@@ -222,6 +235,8 @@ describe('Offline extractor fixture corpus regression', () => {
       if (process.env.UPDATE_FIXTURE_SNAPSHOTS === '1') {
         expect(normalized).toMatchSnapshot();
       }
+
+      maybeDumpMarkdown(result.markdown, toDumpBaseName(fixture));
     });
   }
 });

@@ -38,4 +38,5 @@ fi
 OFFLINE_SOURCE_URL="$source_url" \
 OFFLINE_FIXTURE_FILE="$fixture_path" \
 OFFLINE_SOURCE_TITLE="$source_title" \
+OFFLINE_DUMP_DIR="${OFFLINE_DUMP_DIR-output/offline-dumps}" \
 npm run test:offline:promptready

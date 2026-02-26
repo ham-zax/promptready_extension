@@ -277,8 +277,19 @@ export class MarkdownPostProcessor {
         continue;
       }
 
-      const nextRaw = lines[i + 1] ?? '';
-      const nextTrimmed = nextRaw.trim();
+      let nextIndex = i + 1;
+      let nextRaw = lines[nextIndex] ?? '';
+      let nextTrimmed = nextRaw.trim();
+      // Some sites split headings with a blank line for styling. Allow merging across a single blank.
+      if (!nextTrimmed && nextIndex + 1 < lines.length) {
+        const candidateRaw = lines[nextIndex + 1] ?? '';
+        const candidateTrimmed = candidateRaw.trim();
+        if (candidateTrimmed) {
+          nextIndex = nextIndex + 1;
+          nextRaw = candidateRaw;
+          nextTrimmed = candidateTrimmed;
+        }
+      }
       const headingText = headingMatch[2].trim();
 
       const shouldMerge =
@@ -287,12 +298,13 @@ export class MarkdownPostProcessor {
         !/^#{1,6}\s/.test(nextTrimmed) &&
         !/^```/.test(nextTrimmed) &&
         !/^(>|-|\*|\d+\.)\s/.test(nextTrimmed) &&
-        /[,:\u2014\u2013-]$/.test(headingText) &&
-        !/[.!?]$/.test(headingText);
+        ((/[,:\u2014\u2013-]$/.test(headingText) && !/[.!?]$/.test(headingText)) ||
+          nextTrimmed.startsWith('&') ||
+          nextTrimmed.startsWith('and '));
 
       if (shouldMerge) {
         merged.push(`${headingMatch[1]} ${headingText} ${nextTrimmed}`.replace(/\s+/g, ' ').trim());
-        i += 1;
+        i = nextIndex;
         changes += 1;
         continue;
       }
@@ -470,7 +482,7 @@ export class MarkdownPostProcessor {
         continue;
       }
 
-      const open = trimmed.match(/^&lt;([a-z0-9]+)(?:\s[^&]*)&gt;$/i);
+      const open = trimmed.match(/^&lt;([a-z0-9]+)(?:\s[^&]*)?&gt;$/i);
       if (!open) {
         continue;
       }
@@ -519,7 +531,13 @@ export class MarkdownPostProcessor {
     const isItemLine = (line: string): boolean => {
       const trimmed = line.trim();
       if (!trimmed) return false;
-      if (/^(>|#|-|\*|\d+\.)\s/.test(trimmed)) return false;
+      // Skip existing markdown structures: blockquotes, headings, list items, ordered lists.
+      // Note: headings can start with multiple hashes (e.g. "## Heading"), so we must match
+      // the full heading pattern rather than only "# " prefixes.
+      if (/^>/.test(trimmed)) return false;
+      if (/^#{1,6}\s/.test(trimmed)) return false;
+      if (/^[-*+]\s+/.test(trimmed)) return false;
+      if (/^\d+\.\s+/.test(trimmed)) return false;
       if (trimmed.length < 6 || trimmed.length > 64) return false;
       if (/[.!?;:]$/.test(trimmed)) return false;
       const words = trimmed.split(/\s+/).filter(Boolean);

@@ -13,6 +13,14 @@ npm run iterate:offline:promptready
 npm run iterate:offline:corpus
 ```
 
+By default the iteration scripts also dump the extracted Markdown outputs to:
+
+- `output/offline-dumps/`
+
+Override or disable by setting:
+
+- `OFFLINE_DUMP_DIR=<path>` (set to empty to disable dumps)
+
 What it does:
 
 - `iterate:offline:promptready`:
@@ -92,6 +100,7 @@ Env vars:
 - `OFFLINE_RENDER_WAIT_MS=<ms>`
 - `OFFLINE_RENDER_VIEWPORT=<width,height>`
 - `OFFLINE_RENDER_AUTOTUNE=0|1`
+- `OFFLINE_DUMP_DIR=<path>` (default: `output/offline-dumps`)
 
 ### Corpus loop with optional fixture refresh
 
@@ -106,6 +115,7 @@ Env vars:
 - `OFFLINE_CAPTURE_MODE=rendered|raw`
 - `OFFLINE_RENDER_WAIT_MS=<ms>`
 - `OFFLINE_RENDER_AUTOTUNE=0|1`
+- `OFFLINE_DUMP_DIR=<path>` (default: `output/offline-dumps`)
 
 ## Troubleshooting
 

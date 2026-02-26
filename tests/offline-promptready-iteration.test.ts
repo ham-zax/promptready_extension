@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { OfflineModeManager } from '../core/offline-mode-manager';
 
@@ -9,6 +9,13 @@ const fixtureFile = process.env.OFFLINE_FIXTURE_FILE
 
 const sourceUrl = process.env.OFFLINE_SOURCE_URL || 'https://promptready.app/';
 const sourceTitle = process.env.OFFLINE_SOURCE_TITLE || 'PromptReady - One-click clean Markdown from any page';
+const dumpDir = process.env.OFFLINE_DUMP_DIR ? path.resolve(process.env.OFFLINE_DUMP_DIR) : null;
+
+function maybeDumpMarkdown(markdown: string, fileBaseName: string): void {
+  if (!dumpDir) return;
+  mkdirSync(dumpDir, { recursive: true });
+  writeFileSync(path.join(dumpDir, `${fileBaseName}.md`), markdown, 'utf8');
+}
 
 function collectSuspiciousSingleTokenLines(markdown: string): string[] {
   const lines = markdown.split('\n');
@@ -27,6 +34,28 @@ function collectSuspiciousSingleTokenLines(markdown: string): string[] {
   });
 }
 
+function assertNoInlineCodeFenceMarkers(markdown: string): void {
+  const lines = markdown.split('\n');
+  for (const line of lines) {
+    if (!line.includes('```')) continue;
+    if (line.trimStart().startsWith('```')) continue;
+    throw new Error(`Inline code fence marker found: "${line.slice(0, 160)}"`);
+  }
+}
+
+function assertBalancedCodeFences(markdown: string): void {
+  const lines = markdown.split('\n');
+  let inFence = false;
+  for (const line of lines) {
+    if (line.trimStart().startsWith('```')) {
+      inFence = !inFence;
+    }
+  }
+  if (inFence) {
+    throw new Error('Unbalanced fenced code blocks detected (missing closing fence)');
+  }
+}
+
 describe('offline promptready extraction iteration', () => {
   it('extracts promptready fixture without popup/newsletter leakage', async () => {
     const html = readFileSync(fixtureFile, 'utf8');
@@ -42,6 +71,9 @@ describe('offline promptready extraction iteration', () => {
         chunkSize: 100_000,
       },
     });
+
+    // Dump early so failures still produce an inspectable artifact when OFFLINE_DUMP_DIR is set.
+    maybeDumpMarkdown(result.markdown, 'promptready');
 
     expect(result.success).toBe(true);
     expect(result.markdown).toContain('Cleaner input. Better model output.');
@@ -64,5 +96,8 @@ describe('offline promptready extraction iteration', () => {
 
     const suspiciousLines = collectSuspiciousSingleTokenLines(result.markdown);
     expect(suspiciousLines.length).toBeLessThanOrEqual(3);
+
+    expect(() => assertNoInlineCodeFenceMarkers(result.markdown)).not.toThrow();
+    expect(() => assertBalancedCodeFences(result.markdown)).not.toThrow();
   });
 });

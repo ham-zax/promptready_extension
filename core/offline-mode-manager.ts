@@ -546,6 +546,10 @@ export class OfflineModeManager {
       this.performance.captureMemorySnapshot('turndown_complete');
       this.performance.recordProcessingSnapshot('turndown_complete');
 
+      // Repair fence-boundary corruption (e.g. inline ``` markers) before downstream
+      // post-processing passes that rely on correct fence state.
+      markdown = this.repairInlineCodeFenceBoundaries(markdown, warnings);
+
       // Step 3: Post-processing
       this.performance.captureMemorySnapshot('post_processing_start');
       this.performance.recordProcessingSnapshot('post_processing_start');
@@ -2252,6 +2256,7 @@ export class OfflineModeManager {
 
     const lines = markdown.split('\n');
     const output: string[] = [];
+    let inFence = false;
     let collapsedRunCount = 0;
 
     const isJoinableTokenLine = (line: string): boolean => {
@@ -2273,16 +2278,30 @@ export class OfflineModeManager {
 
     let index = 0;
     while (index < lines.length) {
-      if (!isJoinableTokenLine(lines[index])) {
-        output.push(lines[index]);
+      const current = lines[index] ?? '';
+      const currentTrimmed = current.trim();
+      if (/^```/.test(currentTrimmed)) {
+        inFence = !inFence;
+        output.push(current);
+        index++;
+        continue;
+      }
+      if (inFence) {
+        output.push(current);
+        index++;
+        continue;
+      }
+
+      if (!isJoinableTokenLine(current)) {
+        output.push(current);
         index++;
         continue;
       }
 
       const run: string[] = [];
       let cursor = index;
-      while (cursor < lines.length && isJoinableTokenLine(lines[cursor])) {
-        run.push(lines[cursor].trim());
+      while (cursor < lines.length && isJoinableTokenLine(lines[cursor] ?? '')) {
+        run.push((lines[cursor] ?? '').trim());
         cursor++;
       }
 
@@ -2293,7 +2312,7 @@ export class OfflineModeManager {
         continue;
       }
 
-      output.push(lines[index]);
+      output.push(current);
       index++;
     }
 
@@ -2329,8 +2348,19 @@ export class OfflineModeManager {
 
       let next = line;
       next = next.replace(/([A-Za-z])((?:https?:\/\/|www\.)[^\s]+)/g, '$1 $2');
+      // Fix common "word+subdomain" merges (e.g. "inputen.wikipedia.org") without splitting valid domains/URLs.
+      // We require:
+      // - a >=2 char alpha prefix (prevents splitting inside "en.wikipedia.org" -> "e n.wikipedia.org")
+      // - a domain with at least two dots, starting with a short label (1-2 chars) like "en."/"m."
+      next = next.replace(
+        /([A-Za-z]{2,}?)((?:[a-z0-9]{1,2}\.)+[A-Za-z0-9-]+\.[A-Za-z]{2,}(?:\/[^\s]*)?)/g,
+        '$1 $2'
+      );
       next = next.replace(/([A-Za-z])(\d+\\\.\s+)/g, '$1 $2');
       next = next.replace(/(\d+\\\.\s+[^.\n]{2,120}?)(?=\s+\d+\\\.\s+)/g, '$1\n');
+      if (next.includes('|') && !/`/.test(next) && !/^\s*\|/.test(next)) {
+        next = next.replace(/([a-z]{2,})([A-Z][a-z])/g, '$1 $2');
+      }
 
       if (next !== line) {
         changed = true;
@@ -3882,8 +3912,14 @@ export class OfflineModeManager {
     result = this.stripLowSignalMediaArtifacts(result, warnings);
     result = this.stripLeadingNavigationPrelude(result, warnings);
     result = this.normalizeMarkdownSpacing(result);
+    result = this.repairInlineCodeFenceBoundaries(result, warnings);
+    result = this.fenceEscapedHtmlSamples(result, warnings);
+    // Fencing escaped HTML can itself introduce fresh fence boundaries;
+    // run repair again so final output has clean, line-isolated fences.
+    result = this.repairInlineCodeFenceBoundaries(result, warnings);
     result = this.collapseFragmentedWordRuns(result, warnings);
     result = this.normalizeMergedTokenBoundaries(result, warnings);
+    result = this.repairInlineCodeFenceBoundaries(result, warnings);
     result = this.stripTerminalFooterCluster(result, warnings);
     result = this.ensurePrimaryHeading(result, normalizedMetadata.title);
 
@@ -3892,6 +3928,223 @@ export class OfflineModeManager {
     }
 
     return this.insertCiteFirstBlock(result, normalizedMetadata);
+  }
+
+  private static repairInlineCodeFenceBoundaries(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let inFence = false;
+    let fenceLang: string | null = null;
+    let sawLikelyHtmlCloseTag = false;
+    let changed = false;
+
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index] ?? '';
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith('```')) {
+        // Preserve fence lines as-is, but treat them as authoritative state toggles.
+        inFence = !inFence;
+        if (inFence) {
+          const rawLang = trimmed.slice(3).trim();
+          fenceLang = rawLang ? rawLang.toLowerCase() : null;
+          sawLikelyHtmlCloseTag = false;
+        } else {
+          fenceLang = null;
+          sawLikelyHtmlCloseTag = false;
+        }
+        output.push(line);
+        continue;
+      }
+
+      if (inFence) {
+        const inlineFenceIndex = line.indexOf('```');
+        if (inlineFenceIndex > 0) {
+          // Closing fences sometimes get glued to the end of an HTML sample line.
+          // Split and re-process the remainder so any subsequent fence openers are handled too.
+          const before = line.slice(0, inlineFenceIndex);
+          const after = line.slice(inlineFenceIndex + 3);
+          if (before) {
+            output.push(before);
+          }
+          output.push('```');
+          inFence = false;
+          fenceLang = null;
+          sawLikelyHtmlCloseTag = false;
+          changed = true;
+          if (after.trim()) {
+            lines.splice(index + 1, 0, after.trimStart());
+          }
+          continue;
+        }
+
+        const insideTrimmed = line.trim();
+        if (/^<\/[a-z0-9:-]+>\s*$/i.test(insideTrimmed)) {
+          sawLikelyHtmlCloseTag = true;
+          output.push(line);
+          continue;
+        }
+
+        // If we are inside a likely HTML sample fence and encounter markdown structure,
+        // close the fence before emitting the structural line so later passes can operate.
+        const looksLikeMarkdownStructure =
+          /^#{1,6}\s+/.test(insideTrimmed) ||
+          /^>/.test(insideTrimmed) ||
+          /^[-*+]\s+/.test(insideTrimmed) ||
+          /^\d+\.\s+/.test(insideTrimmed);
+
+        if (looksLikeMarkdownStructure && fenceLang === 'html' && sawLikelyHtmlCloseTag) {
+          output.push('```');
+          inFence = false;
+          fenceLang = null;
+          sawLikelyHtmlCloseTag = false;
+          changed = true;
+          output.push(line);
+          continue;
+        }
+
+        output.push(line);
+        continue;
+      }
+
+      const idx = line.indexOf('```');
+      if (idx === -1) {
+        output.push(line);
+        continue;
+      }
+
+      if (!inFence && idx > 0) {
+        // Sometimes an opening fence (with language) gets glued to the end of a text line.
+        // Split it out so downstream markdown consumers see a valid fence boundary.
+        const marker = line.slice(idx).trim();
+        if (/^```\s*[a-z0-9_.#+-]{1,20}$/i.test(marker)) {
+          const before = line.slice(0, idx).trimEnd();
+          if (before) {
+            output.push(before);
+          }
+          const normalizedMarker = marker.replace(/^```\s+/, '```');
+          output.push(normalizedMarker);
+          inFence = true;
+          fenceLang = normalizedMarker.slice(3).trim().toLowerCase() || null;
+          sawLikelyHtmlCloseTag = false;
+          changed = true;
+          continue;
+        }
+      }
+
+      if (inFence && idx > 0) {
+        // A closing fence got glued to the end of a content line (common on UI demo blocks).
+        const before = line.slice(0, idx);
+        const after = line.slice(idx + 3);
+        if (before) {
+          output.push(before);
+        }
+        output.push('```');
+        inFence = false;
+        changed = true;
+        if (after.trim()) {
+          output.push(after.trimStart());
+        }
+        continue;
+      }
+
+      // If no explicit marker pattern matched, keep non-fence content and only strip
+      // residual inline backticks. Also split common html-close + heading glue.
+      let cleaned = line.replace(/```+/g, '');
+      cleaned = cleaned.replace(/(<\/[a-z0-9:-]+>)(#{1,6}\s+)/gi, '$1\n$2');
+      if (cleaned !== line) {
+        changed = true;
+      }
+      for (const part of cleaned.split('\n')) {
+        output.push(part);
+      }
+    }
+
+    if (inFence) {
+      output.push('```');
+      changed = true;
+      inFence = false;
+      fenceLang = null;
+      sawLikelyHtmlCloseTag = false;
+      warnings.push('Auto-closed unbalanced fenced code block');
+    }
+
+    if (changed) {
+      warnings.push('Repaired merged inline code-fence boundaries');
+    }
+    return output.join('\n');
+  }
+
+  private static fenceEscapedHtmlSamples(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    let inFence = false;
+    let changed = false;
+
+    const isFenceLine = (line: string): boolean => /^```/.test(line.trim());
+    const decode = (value: string): string => value
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&mdash;/g, '—')
+      .replace(/&ndash;/g, '–');
+
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i] ?? '';
+      const trimmed = raw.trim();
+      if (isFenceLine(raw)) {
+        inFence = !inFence;
+        continue;
+      }
+      if (inFence) {
+        continue;
+      }
+
+      const open = trimmed.match(/^&lt;([a-z0-9]+)(?:\s[^&]*)?&gt;$/i);
+      if (!open) {
+        continue;
+      }
+
+      const tag = open[1].toLowerCase();
+      let closeIndex = -1;
+      for (let j = i + 1; j < Math.min(lines.length, i + 60); j++) {
+        const candidate = (lines[j] ?? '').trim().toLowerCase();
+        if (candidate === `&lt;/${tag}&gt;`) {
+          closeIndex = j;
+          break;
+        }
+        if (isFenceLine(lines[j] ?? '')) {
+          break;
+        }
+      }
+      if (closeIndex === -1) {
+        continue;
+      }
+
+      const block = lines.slice(i, closeIndex + 1);
+      const decodedLines = block.map((line) => decode(line).replace(/\u00a0/g, ' '));
+      while (decodedLines.length > 0 && decodedLines[0].trim() === '') decodedLines.shift();
+      while (decodedLines.length > 0 && decodedLines[decodedLines.length - 1].trim() === '') decodedLines.pop();
+
+      const fenced = ['```html', ...decodedLines, '```'];
+      lines.splice(i, closeIndex - i + 1, ...fenced);
+      i += fenced.length - 1;
+      changed = true;
+    }
+
+    if (changed) {
+      warnings.push('Wrapped escaped HTML samples in fenced blocks');
+    }
+    return lines.join('\n');
   }
 
   private static normalizeMarkdownSpacing(markdown: string): string {

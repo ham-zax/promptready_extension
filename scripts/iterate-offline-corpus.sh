@@ -15,6 +15,8 @@ if [[ "$refresh_news" == "1" ]]; then
   bash scripts/capture-news-fixtures.sh
 fi
 
+export OFFLINE_DUMP_DIR="${OFFLINE_DUMP_DIR-output/offline-dumps}"
+
 npm run test:offline:promptready
 npm run test:offline:corpus
 npm run test:offline:news
