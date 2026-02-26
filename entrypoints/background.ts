@@ -10,7 +10,6 @@ import type { ExportMetadata } from '../lib/types.js';
 import { ErrorHandler } from '../core/error-handler.js';
 import { ContentQualityValidator } from '../core/content-quality-validator.js';
 import { SessionMetricsStore } from '../core/metrics-session-store.js';
-import { OfflineModeManager } from '../core/offline-mode-manager.js';
 
 export default defineBackground(() => {
   const runtimeProfile = getRuntimeProfile();
@@ -141,7 +140,277 @@ class EnhancedContentProcessor {
       selectionHash: typeof source.selectionHash === 'string' && source.selectionHash.trim()
         ? source.selectionHash
         : (fallbackSource.selectionHash || `bg-${Date.now()}`),
+      publishedAt: typeof source.publishedAt === 'string' && source.publishedAt.trim()
+        ? source.publishedAt
+        : undefined,
+      publishedAtText: typeof source.publishedAtText === 'string' && source.publishedAtText.trim()
+        ? source.publishedAtText
+        : undefined,
+      updatedAt: typeof source.updatedAt === 'string' && source.updatedAt.trim()
+        ? source.updatedAt
+        : undefined,
+      updatedAtText: typeof source.updatedAtText === 'string' && source.updatedAtText.trim()
+        ? source.updatedAtText
+        : undefined,
+      byline: typeof source.byline === 'string' && source.byline.trim()
+        ? source.byline.trim()
+        : undefined,
     };
+  }
+
+  /**
+   * Worker-safe markdown canonicalization. This keeps background independent
+   * from DOM-only extraction modules.
+   */
+  private canonicalizeDeliveredMarkdown(
+    markdown: string,
+    metadata: ExportMetadata,
+    warnings: string[] = []
+  ): string {
+    const normalizedMetadata: ExportMetadata = {
+      title: metadata?.title || 'Untitled Page',
+      url: metadata?.url || '',
+      capturedAt: metadata?.capturedAt || new Date().toISOString(),
+      selectionHash: metadata?.selectionHash || 'N/A',
+      publishedAt: metadata?.publishedAt,
+      publishedAtText: metadata?.publishedAtText,
+      updatedAt: metadata?.updatedAt,
+      updatedAtText: metadata?.updatedAtText,
+      byline: metadata?.byline,
+    };
+
+    let result = this.normalizeUnicodeWhitespace(markdown || '');
+    result = this.stripLeadingCitationBlock(result);
+    result = this.sanitizeRiskyMarkdown(result, warnings);
+    result = this.stripResidualUiNoiseLines(result, warnings);
+    result = this.normalizeMarkdownSpacing(result);
+    result = this.ensurePrimaryHeading(result, normalizedMetadata.title);
+
+    if (!result || result.trim().length === 0) {
+      result = `# ${normalizedMetadata.title}`;
+    }
+
+    return this.insertCiteFirstBlock(result, normalizedMetadata);
+  }
+
+  private normalizeInputText(value: string): string {
+    return this.normalizeUnicodeWhitespace(
+      value
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/<!\[cdata\[[\s\S]*?\]\]>/gi, ' ')
+        .replace(/-->/g, ' ')
+    ).replace(/\s+/g, ' ').trim();
+  }
+
+  private normalizeUnicodeWhitespace(value: string): string {
+    if (!value) {
+      return '';
+    }
+    const joinerPattern = /((?:\p{L}|\p{N}))(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u180E)+(?=(?:\p{L}|\p{N}))/gu;
+    return value
+      .replace(joinerPattern, '$1 ')
+      .replace(/(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u180E)/g, '')
+      .replace(/[\u00A0\u2000-\u200A\u2028\u2029]/g, ' ');
+  }
+
+  private stripLeadingCitationBlock(markdown: string): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    let index = 0;
+    while (index < lines.length && lines[index].trim() === '') {
+      index++;
+    }
+    if (index >= lines.length || !/^\s*>\s*source:/i.test(lines[index])) {
+      return markdown;
+    }
+
+    index++;
+    while (index < lines.length) {
+      const line = lines[index];
+      if (!/^\s*>/.test(line)) {
+        break;
+      }
+      const text = line.replace(/^\s*>\s?/, '').trim().toLowerCase();
+      if (
+        !text ||
+        text.startsWith('captured:') ||
+        text.startsWith('hash:') ||
+        text.startsWith('published:') ||
+        text.startsWith('updated:') ||
+        text.startsWith('by:')
+      ) {
+        index++;
+        continue;
+      }
+      break;
+    }
+
+    while (index < lines.length && lines[index].trim() === '') {
+      index++;
+    }
+    return lines.slice(index).join('\n');
+  }
+
+  private sanitizeRiskyMarkdown(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const before = markdown;
+    const sanitized = markdown
+      .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+      .replace(/\bon[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/(?:java\s*script|vb\s*script)\s*:/gi, 'blocked:')
+      .replace(/data\s*:\s*text\/html/gi, 'data:text/blocked')
+      .replace(/\balert\s*\(/gi, 'blocked_call(')
+      .replace(/%3c\/?script%3e/gi, ' ');
+
+    if (sanitized !== before) {
+      warnings.push('Sanitized potentially unsafe markdown payload');
+    }
+    return this.normalizeUnicodeWhitespace(sanitized);
+  }
+
+  private stripResidualUiNoiseLines(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    const filtered = lines.filter((line) => {
+      const normalized = this.normalizeInputText(line).toLowerCase();
+      const trimmed = line.trim();
+
+      if (!normalized) return true;
+      if (/^#{1,6}\s/.test(trimmed)) return true;
+
+      const isUiNoise =
+        normalized.length <= 220 &&
+        (
+          /accept all .*cookies?|manage (cookie|privacy) preferences|allow all cookies/.test(normalized) ||
+          /subscribe to (our )?newsletter|join (the )?waitlist|sign up (for|to)/.test(normalized) ||
+          /popup ad|tracking cookies? to continue|related links \| footer text/.test(normalized) ||
+          /source:\s*example\.com\/|captured:\s*\d{4}-\d{2}-\d{2}t\d{2}/.test(normalized) ||
+          /limit my search to|advanced search: by author|see the search faq|join reddit|view more:/.test(normalized)
+        );
+      const isSocialActionLine =
+        /^(share|save|copy link|print|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)$/i.test(trimmed) ||
+        /^\[(share|save|copy link|print|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)\]\([^)]+\)$/i.test(trimmed);
+      const isStandaloneMarker = trimmed === '*' || trimmed === '•';
+      const isTrivialCounter = /^\d{1,6}$/.test(trimmed) || /^links from:?$/i.test(trimmed);
+
+      return !(isUiNoise || isSocialActionLine || isStandaloneMarker || isTrivialCounter);
+    });
+
+    if (filtered.length !== lines.length) {
+      warnings.push('Removed residual UI-noise lines from markdown');
+    }
+    return filtered.join('\n');
+  }
+
+  private normalizeMarkdownSpacing(markdown: string): string {
+    if (!markdown) {
+      return markdown;
+    }
+    return markdown
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/^\s+$/gm, '')
+      .trim();
+  }
+
+  private normalizeHeadingForComparison(value: string): string {
+    return this.normalizeInputText(value)
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private areHeadingsEquivalent(source: string, candidate: string): boolean {
+    if (!source || !candidate) return false;
+    if (source === candidate) return true;
+    if (source.length >= 20 && candidate.includes(source)) return true;
+    if (candidate.length >= 20 && source.includes(candidate)) return true;
+    return false;
+  }
+
+  private ensurePrimaryHeading(markdown: string, title: string): string {
+    const normalizedTitle = this.normalizeInputText(title);
+    if (!normalizedTitle) {
+      return markdown;
+    }
+
+    const body = markdown.trimStart();
+    if (!body) {
+      return `# ${normalizedTitle}`;
+    }
+
+    const h1Match = body.match(/^#\s+(.+)$/m);
+    if (
+      h1Match &&
+      this.areHeadingsEquivalent(
+        this.normalizeHeadingForComparison(normalizedTitle),
+        this.normalizeHeadingForComparison(h1Match[1])
+      )
+    ) {
+      return markdown;
+    }
+
+    return `# ${normalizedTitle}\n\n${markdown}`;
+  }
+
+  private formatMetadataTimestamp(value?: string): string {
+    if (!value) {
+      return '';
+    }
+    const normalized = this.normalizeInputText(value);
+    if (!normalized) {
+      return '';
+    }
+    const parsed = new Date(normalized);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+    return normalized;
+  }
+
+  private insertCiteFirstBlock(markdown: string, metadata: ExportMetadata): string {
+    let result = markdown.trim();
+    const title = (metadata.title || 'Untitled Page').trim();
+    const url = (metadata.url || '').trim() || 'Unknown URL';
+    const hash = (metadata.selectionHash || 'N/A').trim() || 'N/A';
+
+    const captured = this.formatMetadataTimestamp(metadata.capturedAt) || new Date().toISOString();
+    const published = this.formatMetadataTimestamp(metadata.publishedAt || metadata.publishedAtText);
+    const updated = this.formatMetadataTimestamp(metadata.updatedAt || metadata.updatedAtText);
+    const byline = this.normalizeInputText(metadata.byline || '');
+
+    const citationLines = [
+      `> Source: [${title}](${url})`,
+      `> Captured: ${captured}`,
+    ];
+    if (published) {
+      citationLines.push(`> Published: ${published}`);
+    }
+    if (updated) {
+      citationLines.push(`> Updated: ${updated}`);
+    }
+    if (byline) {
+      citationLines.push(`> By: ${byline}`);
+    }
+    citationLines.push(`> Hash: ${hash}`);
+
+    const citationHeader = `${citationLines.join('\n')}\n\n`;
+    const hasPrimaryHeading = /^#\s+/m.test(result);
+    if (!hasPrimaryHeading) {
+      result = `# ${title}\n\n${result.trimStart()}`;
+    }
+
+    return citationHeader + result;
   }
 
   /**
@@ -496,7 +765,7 @@ class EnhancedContentProcessor {
       const canonicalMetadata = this.buildCanonicalMetadata(sourceMetadata);
 
       // Enforce one canonical finalization path for every delivery route.
-      const finalMd = OfflineModeManager.canonicalizeDeliveredMarkdown(exportMd || '', canonicalMetadata, warnings);
+      const finalMd = this.canonicalizeDeliveredMarkdown(exportMd || '', canonicalMetadata, warnings);
 
       // BMAD TRACE: log the finalized markdown after insertion (or unchanged)
       console.log('[BMAD_TRACE] Background after cite block insertion:', (finalMd || '').substring(0, 100));
@@ -690,7 +959,7 @@ class EnhancedContentProcessor {
       const canonicalMetadata = this.buildCanonicalMetadata(
         (currentExportData?.metadata || message.payload?.metadata || {}) as Partial<ExportMetadata>
       );
-      const normalizedContent = OfflineModeManager.canonicalizeDeliveredMarkdown(
+      const normalizedContent = this.canonicalizeDeliveredMarkdown(
         content,
         canonicalMetadata
       );
@@ -732,7 +1001,7 @@ class EnhancedContentProcessor {
           selectionHash: originalPayload.selectionHash || `fallback-${Date.now()}`,
         }
       );
-      const canonicalMarkdown = OfflineModeManager.canonicalizeDeliveredMarkdown(
+      const canonicalMarkdown = this.canonicalizeDeliveredMarkdown(
         result || 'Content extraction failed',
         canonicalMetadata
       );
