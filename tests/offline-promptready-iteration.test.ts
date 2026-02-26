@@ -45,6 +45,8 @@ describe('offline promptready extraction iteration', () => {
 
     expect(result.success).toBe(true);
     expect(result.markdown).toContain('Cleaner input. Better model output.');
+    // Avoid collapsed span boundaries from the source HTML (e.g. "into<span>precise" -> "intoprecise").
+    expect(result.markdown).not.toContain('intoprecise');
     expect(result.markdown).toContain('Preserves code fences');
     expect(
       result.markdown.includes('Before / After Comparison') ||

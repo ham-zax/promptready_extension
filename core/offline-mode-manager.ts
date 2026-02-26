@@ -936,10 +936,10 @@ export class OfflineModeManager {
     return { html: cleanedHtml, warnings };
   }
 
-  private static normalizeInlineTextSpacing(root: HTMLElement): void {
-    // Some sites split headings into adjacent spans without whitespace (e.g. "into" + "precise").
-    // This inserts a single space between adjacent inline nodes when both sides are alphanumeric.
-    const targets = Array.from(root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li')) as HTMLElement[];
+	  private static normalizeInlineTextSpacing(root: HTMLElement): void {
+	    // Some sites split headings into adjacent spans without whitespace (e.g. "into" + "precise").
+	    // This inserts a single space between adjacent inline nodes when both sides are alphanumeric.
+	    const targets = Array.from(root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li')) as HTMLElement[];
 
     for (const el of targets) {
       if (!el.parentElement) {
@@ -961,13 +961,9 @@ export class OfflineModeManager {
         }
       }
 
-      let node: ChildNode | null = el.firstChild;
-      while (node && node.nextSibling) {
-        const next = node.nextSibling;
-        if (!(next instanceof Node)) {
-          node = next;
-          continue;
-        }
+	      let node: ChildNode | null = el.firstChild;
+	      while (node && node.nextSibling) {
+	        const next = node.nextSibling;
 
         const leftText = (node.textContent || '').trim();
         const rightText = (next.textContent || '').trim();
@@ -982,16 +978,41 @@ export class OfflineModeManager {
           continue;
         }
 
-        const leftChar = leftText[leftText.length - 1];
-        const rightChar = rightText[0];
-        if (/[A-Za-z0-9]/.test(leftChar) && /[A-Za-z0-9]/.test(rightChar)) {
-          el.insertBefore(document.createTextNode(' '), next);
-        }
+	        const leftChar = leftText[leftText.length - 1];
+	        const rightChar = rightText[0];
+	        if (/[A-Za-z0-9]/.test(leftChar) && /[A-Za-z0-9]/.test(rightChar)) {
+	          // Prefer mutating an existing text node so Turndown doesn't drop a whitespace-only node.
+	          const TEXT_NODE = 3;
+	          const textData = (value: ChildNode): string =>
+	            typeof (value as any).data === 'string' ? (value as any).data : (value.textContent || '');
+	          const setTextData = (value: ChildNode, nextValue: string): void => {
+	            if (typeof (value as any).data === 'string') {
+	              (value as any).data = nextValue;
+	            } else if (typeof (value as any).nodeValue === 'string') {
+	              (value as any).nodeValue = nextValue;
+	            }
+	          };
+	
+	          if (node.nodeType === TEXT_NODE) {
+	            const data = textData(node);
+	            if (!/\s$/.test(data)) {
+	              setTextData(node, `${data} `);
+	            }
+	          } else if (next.nodeType === TEXT_NODE) {
+	            const data = textData(next);
+	            if (!/^\s/.test(data)) {
+	              setTextData(next, ` ${data}`);
+	            }
+	          } else {
+	            const doc = el.ownerDocument || document;
+	            el.insertBefore(doc.createTextNode(' '), next);
+	          }
+	        }
 
-        node = next;
-      }
-    }
-  }
+	        node = next;
+	      }
+	    }
+	  }
 
   private static removeKeywordNoiseBlocks(root: HTMLElement): void {
     const candidates = Array.from(
