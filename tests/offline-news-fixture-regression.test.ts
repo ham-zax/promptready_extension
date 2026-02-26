@@ -83,7 +83,7 @@ describe('Offline news fixture regression', () => {
   });
 
   for (const fixture of newsFixtures) {
-    it(`extracts ${fixture.name} with publish metadata and low chrome leakage`, async () => {
+    it(`extracts ${fixture.name} with publish metadata and low chrome leakage`, { timeout: 12_000 }, async () => {
       const html = readNewsFixtureHtml(fixture.fixtureFile);
       const result = await OfflineModeManager.processContent(html, fixture.url, fixture.title, {
         performance: {

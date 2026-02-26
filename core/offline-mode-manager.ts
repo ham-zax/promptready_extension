@@ -16,11 +16,19 @@ import type { CandidateAnalysis } from './candidate-selection-policy.js';
 import { applyOfflineUrlConfigRule } from './offline-url-config-rules.js';
 import { rankExtractionCandidates } from './extraction-candidate-orchestrator.js';
 import type { ExtractionCandidate } from './extraction-candidate-orchestrator.js';
+import {
+  DEFAULT_EXTRACTION_TUNING,
+  assertExtractionTuning,
+  deriveMinCandidateLengthThreshold,
+  normalizeExtractionTuning,
+} from './domain/extraction/policies.js';
+import type { ExtractionTuning } from './domain/extraction/types.js';
 import type { PipelineConfig, PipelineResult } from './graceful-degradation-pipeline.js';
 
 export interface OfflineModeConfig {
   readabilityPreset?: string;
   turndownPreset: string;
+  extractionTuning: ExtractionTuning;
   postProcessing: {
     enabled: boolean;
     addTableOfContents: boolean;
@@ -80,6 +88,7 @@ interface FallbackSelection {
 
 interface FallbackSelectionOptions {
   includeGracefulPipeline?: boolean;
+  tuning?: ExtractionTuning;
 }
 
 export class OfflineModeManager {
@@ -117,6 +126,7 @@ export class OfflineModeManager {
 
   private static readonly DEFAULT_CONFIG: OfflineModeConfig = {
     turndownPreset: 'standard',
+    extractionTuning: { ...DEFAULT_EXTRACTION_TUNING },
     postProcessing: {
       enabled: true,
       addTableOfContents: false,
@@ -156,6 +166,12 @@ export class OfflineModeManager {
         ...(overrides?.fallbacks || {}),
       },
     };
+
+    if (overrides && Object.prototype.hasOwnProperty.call(overrides, 'extractionTuning')) {
+      merged.extractionTuning = assertExtractionTuning((overrides as any).extractionTuning);
+    } else {
+      merged.extractionTuning = normalizeExtractionTuning(merged.extractionTuning);
+    }
 
     merged.readabilityPreset = this.normalizeReadabilityPreset(merged.readabilityPreset);
     merged.turndownPreset = this.normalizeTurndownPreset(merged.turndownPreset);
@@ -443,7 +459,9 @@ export class OfflineModeManager {
 	      } catch (error) {
         console.warn('[OfflineModeManager] Readability extraction failed:', error);
         if (config.fallbacks.enableReadabilityFallback) {
-          const fallbackSelection = await this.fallbackContentExtractionSelection(extractionHtml);
+          const fallbackSelection = await this.fallbackContentExtractionSelection(extractionHtml, [], {
+            tuning: config.extractionTuning,
+          });
           extractedContent = fallbackSelection?.html || extractionHtml;
           fallbacksUsed.push('readability-fallback');
           if (fallbackSelection?.source) {
@@ -1611,6 +1629,7 @@ export class OfflineModeManager {
       },
     ], {
       includeGracefulPipeline: false,
+      tuning: config.extractionTuning,
     });
     if (!selection || this.normalizeInputText(extractTextContent(selection.html)).length === 0) {
       return readabilityContent;
@@ -1629,7 +1648,8 @@ export class OfflineModeManager {
     const shouldAdopt = this.shouldAdoptFallbackCandidate(
       extractionHtml,
       readabilityContent,
-      fallbackCandidate
+      fallbackCandidate,
+      config.extractionTuning
     );
 
     if (coverageLow || shouldAdopt) {
@@ -1658,7 +1678,8 @@ export class OfflineModeManager {
   private static shouldAdoptFallbackCandidate(
     originalHtml: string,
     readabilityContent: string,
-    fallbackContent: string
+    fallbackContent: string,
+    tuning: ExtractionTuning
   ): boolean {
     if (!fallbackContent || this.normalizeInputText(extractTextContent(fallbackContent)).length === 0) {
       return false;
@@ -1669,12 +1690,14 @@ export class OfflineModeManager {
     const readabilityScore = this.computeCandidateSelectionScore(
       originalHtml,
       readabilityContent,
-      readabilityAnalysis
+      readabilityAnalysis,
+      tuning
     );
     const fallbackScore = this.computeCandidateSelectionScore(
       originalHtml,
       fallbackContent,
-      fallbackAnalysis
+      fallbackAnalysis,
+      tuning
     );
     if (typeof process !== 'undefined' && (process as any)?.env?.OFFLINE_DEBUG_CANDIDATES === '1') {
       console.log('[OfflineModeManager] Candidate adoption diagnostics', {
@@ -1696,7 +1719,8 @@ export class OfflineModeManager {
   private static computeCandidateSelectionScore(
     originalHtml: string,
     candidateHtml: string,
-    analysis?: CandidateAnalysis
+    analysis?: CandidateAnalysis,
+    tuning?: ExtractionTuning
   ): number {
     const details = analysis ?? this.analyzeExtractionCandidate(originalHtml, candidateHtml);
     const sourceTextLength = Math.max(1, this.normalizeInputText(extractTextContent(originalHtml)).length);
@@ -1712,6 +1736,7 @@ export class OfflineModeManager {
       boilerplatePenalty,
       isFeedLike: feedLike,
       isFormSidebarLike: formSidebarLike,
+      tuning,
     });
   }
 
@@ -1838,67 +1863,89 @@ export class OfflineModeManager {
       .replace(/^\s*-\s*(hide|report)\s*$/gim, '')
       .replace(/!\[@[^\]]*]\(https?:\/\/avatars\.githubusercontent\.com\/[^)]+\)/gi, '');
 
-	    const lines = sanitized.split('\n');
-	    const filtered = lines.filter((line) => {
-	      const normalized = this.normalizeInputText(line).toLowerCase();
-	      const trimmed = line.trim();
-	      const bulletless = trimmed.replace(/^[-*+]\s+/, '').replace(/^\d+\.\s+/, '').trim();
-	      if (!normalized) {
-	        return true;
-	      }
-	      if (/^#{1,6}\s/.test(line)) {
-	        return true;
-	      }
+    const lines = sanitized.split('\n');
+    const filtered: string[] = [];
+    let insideFence = false;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (/^```/.test(trimmed)) {
+        insideFence = !insideFence;
+        filtered.push(line);
+        continue;
+      }
+      if (insideFence) {
+        filtered.push(line);
+        continue;
+      }
 
+      const normalized = this.normalizeInputText(line).toLowerCase();
+      const bulletless = trimmed.replace(/^[-*+]\s+/, '').replace(/^\d+\.\s+/, '').trim();
+      if (!normalized) {
+        filtered.push(line);
+        continue;
+      }
+      if (/^#{1,6}\s/.test(trimmed)) {
+        filtered.push(line);
+        continue;
+      }
+
+      const hasStrongUiSignal =
+        /donate\s*\|\s*create account\s*\|\s*log in/.test(normalized) ||
+        /privacy policy\s*\|\s*about wikipedia/.test(normalized) ||
+        /raw input\s+[a-z0-9.-]+\.[a-z]{2,}\/\S+\s+donate\s*\|\s*create account\s*\|\s*log in/.test(normalized) ||
+        /prompt ready output selecting main content/.test(normalized) ||
+        /^wikipedia page\s*reddit thread$/.test(normalized);
       const isUiNoise =
-        normalized.length <= 200 &&
+        hasStrongUiSignal ||
         (
-          /accept all .*cookies?|manage (cookie|privacy) preferences|allow all cookies/.test(normalized) ||
-          /popup ad|popup adaccept|tracking cookies? to continue/.test(normalized) ||
-          /limit my search to|advanced search: by author|see the search faq|join reddit|view more:/.test(normalized) ||
-          /welcome to reddit.*front page of the internet/.test(normalized) ||
-          /donate\s*\|\s*create account\s*\|\s*log in/.test(normalized) ||
-          /privacy policy\s*\|\s*about wikipedia/.test(normalized) ||
-          /raw input\s+[a-z0-9.-]+\.[a-z]{2,}\/\S+\s+donate\s*\|\s*create account\s*\|\s*log in/.test(normalized) ||
-          /prompt ready output selecting main content/.test(normalized) ||
-          /^wikipedia page\s*reddit thread$/.test(normalized)
+          normalized.length <= 200 &&
+          (
+            /accept all .*cookies?|manage (cookie|privacy) preferences|allow all cookies/.test(normalized) ||
+            /popup ad|popup adaccept|tracking cookies? to continue/.test(normalized) ||
+            /limit my search to|advanced search: by author|see the search faq|join reddit|view more:/.test(normalized) ||
+            /welcome to reddit.*front page of the internet/.test(normalized) ||
+            /^raw input$/.test(normalized) ||
+            /^promptready output$/.test(normalized) ||
+            /save \d{1,3}% today.*subscribe to our newsletter/.test(normalized) ||
+            /subscribe to our newsletter\s*\|\s*related links\s*\|\s*footer text/.test(normalized)
+          )
         );
-	      const isInlineDataUriNoise =
-	        /data:image\/svg\+xml/.test(normalized) ||
-	        /svg"><g d="m [\d\s.lcz-]+/.test(normalized);
-	      const isCounterNoise =
-	        /^\d{1,6}$/.test(trimmed) ||
-	        /^\d{1,6}$/.test(bulletless) ||
-	        /^links from:?$/i.test(trimmed) ||
-	        /^links from:?$/i.test(bulletless) ||
-	        /^past (hour|24 hours|week|month|year|all time)$/i.test(trimmed) ||
-	        /^past (hour|24 hours|week|month|year|all time)$/i.test(bulletless);
-	      const isRedditTimeFilterLine =
-	        /^\[(past hour|past 24 hours|past week|past month|past year|all time)\]\([^)]+\)$/i.test(trimmed) ||
-	        /^\[(past hour|past 24 hours|past week|past month|past year|all time)\]\([^)]+\)$/i.test(bulletless);
-	      const isVectorPathLine =
-	        /<path d=|stroke-width=|stroke-linecap=|stroke-linejoin=|transform="translate\(/i.test(trimmed) ||
-	        /<\/svg>/i.test(trimmed);
-	      const isSocialActionLine =
-	        /^(share|save|sharesave|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)$/i.test(trimmed) ||
-	        /^(share|save|sharesave|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)$/i.test(bulletless) ||
-	        /^\[(share|save|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)\]\([^)]+\)$/i.test(trimmed) ||
-	        /^\[(share|save|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)\]\([^)]+\)$/i.test(bulletless);
-	      const isSocialIconMarkdown =
-	        /^!\[(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share|print|reddit)\]\(/i.test(trimmed) ||
-	        /^!\[(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share|print|reddit)\]\(/i.test(bulletless);
-	      const isStandaloneMarker = trimmed === '*' || trimmed === '•';
-	      const isPreferencePromoLine = /^make us preferred source on google$/i.test(normalized);
-	      const isAdvertisementMarker =
-	        /^(advertisement|sponsored content|sponsored)$/i.test(trimmed) ||
-	        /^(advertisement|sponsored content|sponsored)$/i.test(bulletless);
-	      const isGithubChromeLine =
-	        /^\[skip to content\]\(#.+\)$/i.test(trimmed) ||
-	        /^\[(sponsor|star)\]\(/i.test(trimmed) ||
-	        /^\]\(\/[^)]+\)\[?$/.test(trimmed) ||
+      const isInlineDataUriNoise =
+        /data:image\/svg\+xml/.test(normalized) ||
+        /svg"><g d="m [\d\s.lcz-]+/.test(normalized);
+      const isCounterNoise =
+        /^\d{1,6}$/.test(trimmed) ||
+        /^\d{1,6}$/.test(bulletless) ||
+        /^links from:?$/i.test(trimmed) ||
+        /^links from:?$/i.test(bulletless) ||
+        /^past (hour|24 hours|week|month|year|all time)$/i.test(trimmed) ||
+        /^past (hour|24 hours|week|month|year|all time)$/i.test(bulletless);
+      const isRedditTimeFilterLine =
+        /^\[(past hour|past 24 hours|past week|past month|past year|all time)\]\([^)]+\)$/i.test(trimmed) ||
+        /^\[(past hour|past 24 hours|past week|past month|past year|all time)\]\([^)]+\)$/i.test(bulletless);
+      const isVectorPathLine =
+        /<path d=|stroke-width=|stroke-linecap=|stroke-linejoin=|transform="translate\(/i.test(trimmed) ||
+        /<\/svg>/i.test(trimmed);
+      const isSocialActionLine =
+        /^(share|save|sharesave|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)$/i.test(trimmed) ||
+        /^(share|save|sharesave|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)$/i.test(bulletless) ||
+        /^\[(share|save|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)\]\([^)]+\)$/i.test(trimmed) ||
+        /^\[(share|save|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)\]\([^)]+\)$/i.test(bulletless);
+      const isSocialIconMarkdown =
+        /^!\[(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share|print|reddit)\]\(/i.test(trimmed) ||
+        /^!\[(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share|print|reddit)\]\(/i.test(bulletless);
+      const isStandaloneMarker = trimmed === '*' || trimmed === '•';
+      const isPreferencePromoLine = /^make us preferred source on google$/i.test(normalized);
+      const isAdvertisementMarker =
+        /^(advertisement|sponsored content|sponsored)$/i.test(trimmed) ||
+        /^(advertisement|sponsored content|sponsored)$/i.test(bulletless);
+      const isGithubChromeLine =
+        /^\[skip to content\]\(#.+\)$/i.test(trimmed) ||
+        /^\[(sponsor|star)\]\(/i.test(trimmed) ||
+        /^\]\(\/[^)]+\)\[?$/.test(trimmed) ||
         /^built by\s*\[?$/i.test(trimmed);
 
-      return !(
+      const shouldDrop = (
         isUiNoise ||
         isInlineDataUriNoise ||
         isCounterNoise ||
@@ -1911,7 +1958,10 @@ export class OfflineModeManager {
         isAdvertisementMarker ||
         isGithubChromeLine
       );
-    });
+      if (!shouldDrop) {
+        filtered.push(line);
+      }
+    }
 
     if (filtered.length !== lines.length) {
       warnings.push('Removed residual UI-noise lines from markdown');
@@ -2471,6 +2521,8 @@ export class OfflineModeManager {
         baseConfig.readabilityPreset = normalizedReadability;
       }
 
+      baseConfig.extractionTuning = normalizeExtractionTuning((processing as any).extractionTuning);
+
       const turndownRaw = typeof (processing as any).turndownPreset === 'string'
         ? String((processing as any).turndownPreset).trim()
         : '';
@@ -2771,7 +2823,8 @@ export class OfflineModeManager {
       }
 
       const sourceTextLength = this.normalizeInputText(extractTextContent(prepared.html)).length;
-      const minLengthThreshold = Math.min(220, Math.max(80, Math.floor(sourceTextLength * 0.08)));
+      const resolvedTuning = normalizeExtractionTuning(options.tuning);
+      const minLengthThreshold = deriveMinCandidateLengthThreshold(sourceTextLength, resolvedTuning);
 
       const ranking = rankExtractionCandidates({
         sourceHtml: prepared.html,
@@ -2782,7 +2835,7 @@ export class OfflineModeManager {
         analyze: (sourceHtml, candidateHtml) =>
           this.analyzeExtractionCandidate(sourceHtml, candidateHtml),
         score: (sourceHtml, candidateHtml, analysis) =>
-          this.computeCandidateSelectionScore(sourceHtml, candidateHtml, analysis),
+          this.computeCandidateSelectionScore(sourceHtml, candidateHtml, analysis, resolvedTuning),
       });
 
       if (typeof process !== 'undefined' && (process as any)?.env?.OFFLINE_DEBUG_CANDIDATES === '1') {
@@ -3895,6 +3948,9 @@ export class OfflineModeManager {
     result = this.collapseFragmentedWordRuns(result, warnings);
     result = this.normalizeMergedTokenBoundaries(result, warnings);
     result = this.repairInlineCodeFenceBoundaries(result, warnings);
+    // Re-run line-level UI filtering after fence repair/token normalization,
+    // so noise that was previously glued to malformed fence blocks is removed.
+    result = this.stripResidualUiNoiseLines(result, warnings);
     result = this.stripTerminalFooterCluster(result, warnings);
     result = this.ensurePrimaryHeading(result, normalizedMetadata.title);
 

@@ -12,7 +12,7 @@ fi
 # Run ESLint (if configured)
 if [ -f "eslint.config.js" ] || [ -f ".eslintrc.js" ] || [ -f ".eslintrc.json" ]; then
   echo "🔍 Running ESLint..."
-  npm run lint
+  npm run lint:changed:staged
   if [ $? -ne 0 ]; then
     echo "❌ ESLint found issues"
     exit 1

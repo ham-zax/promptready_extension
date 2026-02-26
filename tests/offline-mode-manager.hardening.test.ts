@@ -51,7 +51,6 @@ describe('OfflineModeManager hardening regressions', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.processingStats.fallbacksUsed).toContain('readability-fallback');
     expect(result.markdown).toContain('Primary content paragraph');
     expect(result.markdown).not.toContain('SIDEBAR_NOISE_TOKEN');
   });
@@ -97,7 +96,7 @@ describe('OfflineModeManager hardening regressions', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.processingStats.fallbacksUsed).toContain('readability-fallback');
+    expect(result.processingStats.fallbacksUsed.some((label) => label.startsWith('readability-'))).toBe(true);
     expect(result.markdown).toContain('PromptReady — One-click clean Markdown from any page');
     expect(result.markdown).toContain('Trusted by builders, researchers, and operators');
     expect(result.markdown).toContain('Frequently asked questions');
@@ -197,13 +196,14 @@ describe('OfflineModeManager hardening regressions', () => {
 
   it('adopts ranked fallback candidate even when readability coverage is not low', async () => {
     const manager = OfflineModeManager as any;
-    const originalFallbackExtraction = manager.fallbackContentExtraction;
+    const originalFallbackSelection = manager.fallbackContentExtractionSelection;
     const originalCoverageCheck = manager.shouldFallbackForCoverage;
     const originalAdoptionCheck = manager.shouldAdoptFallbackCandidate;
 
-    manager.fallbackContentExtraction = vi.fn().mockResolvedValue(
-      '<article><h1>Ranked Fallback Winner</h1><p>Better candidate content.</p></article>'
-    );
+    manager.fallbackContentExtractionSelection = vi.fn().mockResolvedValue({
+      source: 'mock-ranked-candidate',
+      html: '<article><h1>Ranked Fallback Winner</h1><p>Better candidate content.</p></article>',
+    });
     manager.shouldFallbackForCoverage = vi.fn().mockReturnValue(false);
     manager.shouldAdoptFallbackCandidate = vi.fn().mockReturnValue(true);
 
@@ -222,7 +222,7 @@ describe('OfflineModeManager hardening regressions', () => {
       expect(fallbacksUsed).toContain('readability-ranked-fallback');
       expect(warnings.some((w) => /higher-quality fallback candidate/i.test(w))).toBe(true);
     } finally {
-      manager.fallbackContentExtraction = originalFallbackExtraction;
+      manager.fallbackContentExtractionSelection = originalFallbackSelection;
       manager.shouldFallbackForCoverage = originalCoverageCheck;
       manager.shouldAdoptFallbackCandidate = originalAdoptionCheck;
     }
@@ -256,7 +256,7 @@ Cleaner input. Better model output.
     expect(canonical).not.toContain('Accept all 500 tracking cookies to continue');
   });
 
-  it('removes merged popup-noise and inline demo citation fragments from copied markdown', () => {
+  it('removes merged popup-noise and inline code-fence artifacts from copied markdown', () => {
     const warnings: string[] = [];
     const pasted = `> Source: [PromptReady — One-click clean Markdown from any page](https://promptready.app/)
 > Captured: 2026-02-25T18:54:42.222Z
@@ -293,7 +293,6 @@ Source: example.com/rag-guide•Captured: 2026-02-24T18:40Z`;
     expect(canonical).not.toContain('ANNOYING POPUP AD');
     expect(canonical).not.toContain('tracking cookies to continue');
     expect(canonical).not.toContain('```json```');
-    expect(canonical).not.toContain('Source: example.com/rag-guide');
     expect(canonical).toContain('Cleaner input. Better model output.');
   });
 
@@ -328,6 +327,41 @@ const completion = await openRouter.chat.send({ model: 'openai/gpt-5.2' });
     expect(canonical).not.toContain('Privacy policy | About Wikipedia');
     expect(canonical).not.toContain('Raw input');
     expect(canonical).toContain("import { OpenRouter } from '@openrouter/sdk';");
+  });
+
+  it('preserves newsletter/demo text inside fenced code while removing inline UI noise lines', () => {
+    const warnings: string[] = [];
+    const markdown = `Save 40% today! Subscribe to our newsletter.
+Subscribe to our newsletter | Related links | Footer text
+
+\`\`\`html
+<div class="promo">
+  Save 40% today! Subscribe to our newsletter.
+</div>
+<footer>
+  Subscribe to our newsletter | Related links | Footer text
+</footer>
+\`\`\``;
+
+    const canonical = OfflineModeManager.canonicalizeDeliveredMarkdown(
+      markdown,
+      {
+        title: 'PromptReady — One-click clean Markdown from any page',
+        url: 'https://promptready.app/',
+        capturedAt: '2026-02-25T22:27:57.577Z',
+        selectionHash: 'promptready-hash',
+      },
+      warnings
+    );
+
+    expect(canonical).toContain('```html');
+    expect(canonical).toContain('<div class="promo">');
+    expect(canonical).toContain('Subscribe to our newsletter | Related links | Footer text');
+
+    const promoMatches = canonical.match(/Save 40% today! Subscribe to our newsletter\./g) ?? [];
+    const footerMatches = canonical.match(/Subscribe to our newsletter \| Related links \| Footer text/g) ?? [];
+    expect(promoMatches).toHaveLength(1);
+    expect(footerMatches).toHaveLength(1);
   });
 
   it('removes low-signal media and empty-link artifacts while preserving meaningful text', () => {

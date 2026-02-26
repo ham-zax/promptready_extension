@@ -1,3 +1,10 @@
+import {
+  DEFAULT_EXTRACTION_TUNING,
+  deriveSelectionWeights,
+  normalizeExtractionTuning,
+} from './domain/extraction/policies.js';
+import type { ExtractionTuning } from './domain/extraction/types.js';
+
 export interface CandidateAnalysis {
   textLength: number;
   headingCoverage: number;
@@ -17,6 +24,7 @@ export interface CandidateScoreInput {
   boilerplatePenalty: number;
   isFeedLike: boolean;
   isFormSidebarLike: boolean;
+  tuning?: ExtractionTuning;
 }
 
 export interface FallbackAdoptionInput {
@@ -34,27 +42,32 @@ export function computeCandidateSelectionScore(input: CandidateScoreInput): numb
     boilerplatePenalty,
     isFeedLike,
     isFormSidebarLike,
+    tuning,
   } = input;
 
   const safeSourceLength = Math.max(1, sourceTextLength);
   const textCoverage = Math.min(1, analysis.textLength / safeSourceLength);
   const sectionScore = Math.min(1, analysis.sectionCount / 6);
+  const resolvedTuning = tuning
+    ? normalizeExtractionTuning(tuning)
+    : { ...DEFAULT_EXTRACTION_TUNING };
+  const weights = deriveSelectionWeights(resolvedTuning);
 
   let score = 0;
-  score += analysis.headingCoverage * 34;
-  score += textCoverage * 24;
-  score += sectionScore * 14;
-  score += analysis.leadHeadingPresent ? 16 : 0;
-  score += isFeedLike ? 10 : 0;
-  score -= analysis.hasNoiseSignals ? 14 : 0;
-  score -= isFormSidebarLike ? 22 : 0;
-  score -= analysis.containsVectorNoise ? 18 : 0;
+  score += analysis.headingCoverage * weights.headingCoverageWeight;
+  score += textCoverage * weights.textCoverageWeight;
+  score += sectionScore * weights.sectionWeight;
+  score += analysis.leadHeadingPresent ? weights.leadHeadingBonus : 0;
+  score += isFeedLike ? weights.feedBonus : 0;
+  score -= analysis.hasNoiseSignals ? weights.noisePenaltyWeight : 0;
+  score -= isFormSidebarLike ? weights.formSidebarPenaltyWeight : 0;
+  score -= analysis.containsVectorNoise ? weights.vectorNoisePenaltyWeight : 0;
 
   const densityThreshold = isFeedLike ? 0.78 : 0.45;
   if (linkDensity > densityThreshold) {
-    score -= Math.min(18, (linkDensity - densityThreshold) * 60);
+    score -= Math.min(18, (linkDensity - densityThreshold) * 60) * weights.linkDensityPenaltyWeight;
   }
-  score -= boilerplatePenalty;
+  score -= boilerplatePenalty * weights.boilerplatePenaltyWeight;
 
   return Math.max(0, Math.min(100, score));
 }

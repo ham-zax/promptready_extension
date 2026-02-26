@@ -1,6 +1,8 @@
 // Core Types for PromptReady Extension
 // Based on PRD Section 14 (Machine-Readable Specs) and Architecture
 
+import type { ExtractionMode, ExtractionTuning } from '../core/domain/extraction/types.js';
+
 // =============================================================================
 // Settings & Configuration
 // =============================================================================
@@ -31,6 +33,7 @@ export interface Settings {
     profile: string; // Selected processing profile ID
     readabilityPreset: string; // Readability extraction preset
     turndownPreset: string; // Markdown conversion preset
+    extractionTuning?: ExtractionTuning;
     customOptions: {
       preserveCodeBlocks: boolean;
       includeImages: boolean;
@@ -50,6 +53,8 @@ export interface Settings {
     autoCloseDelay: number; // milliseconds
   };
 }
+
+export type { ExtractionMode, ExtractionTuning };
 
 // Feature flags for phased rollout
 export interface FeatureFlags {

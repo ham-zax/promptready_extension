@@ -4,6 +4,7 @@
 import { browser } from 'wxt/browser';
 import { Settings, TelemetryEvent } from './types.js';
 import { getRuntimeProfile, type RuntimeProfile } from './runtime-profile.js';
+import { DEFAULT_EXTRACTION_TUNING, normalizeExtractionTuning } from '../core/domain/extraction/policies.js';
 
 // =============================================================================
 // Storage Keys
@@ -55,6 +56,7 @@ const DEFAULT_SETTINGS: Settings = {
     profile: 'standard',
     readabilityPreset: 'standard',
     turndownPreset: 'standard',
+    extractionTuning: { ...DEFAULT_EXTRACTION_TUNING },
     customOptions: {
       preserveCodeBlocks: true,
       includeImages: true,
@@ -153,6 +155,21 @@ export class Storage {
 
       const settings = { ...DEFAULT_SETTINGS, ...stored, mode: migratedMode };
 
+      settings.processing = {
+        ...DEFAULT_SETTINGS.processing,
+        ...(settings.processing || {}),
+        profile: (settings.processing && settings.processing.profile) || DEFAULT_SETTINGS.processing!.profile,
+        readabilityPreset:
+          (settings.processing && settings.processing.readabilityPreset) || DEFAULT_SETTINGS.processing!.readabilityPreset,
+        turndownPreset:
+          (settings.processing && settings.processing.turndownPreset) || DEFAULT_SETTINGS.processing!.turndownPreset,
+        extractionTuning: normalizeExtractionTuning((settings.processing as any)?.extractionTuning),
+        customOptions: {
+          ...DEFAULT_SETTINGS.processing!.customOptions,
+          ...((settings.processing && settings.processing.customOptions) || {}),
+        },
+      };
+
       // Ensure user ID exists (check for both missing and empty string)
       if (!settings.user || !settings.user.id) {
         if (!settings.user) settings.user = {};
@@ -196,7 +213,7 @@ export class Storage {
 
       const currentSettings = await this.getSettings();
       // Deep-merge for nested objects we manage (byok, privacy, templates)
-      const { byok, privacy, templates, credits, user, trial, ...rest } = (updates || {}) as any;
+      const { byok, privacy, templates, credits, user, trial, processing, ...rest } = (updates || {}) as any;
       const newSettings: Settings = {
         ...currentSettings,
         ...rest,
@@ -218,6 +235,19 @@ export class Storage {
         }, trial: {
           ...currentSettings.trial,
           ...(trial || {})
+        }, processing: {
+          ...currentSettings.processing,
+          ...(processing || {}),
+          profile: (processing && processing.profile) || currentSettings.processing!.profile,
+          readabilityPreset:
+            (processing && processing.readabilityPreset) || currentSettings.processing!.readabilityPreset,
+          turndownPreset:
+            (processing && processing.turndownPreset) || currentSettings.processing!.turndownPreset,
+          extractionTuning: normalizeExtractionTuning((processing || {}).extractionTuning ?? currentSettings.processing?.extractionTuning),
+          customOptions: {
+            ...(currentSettings.processing?.customOptions || DEFAULT_SETTINGS.processing!.customOptions),
+            ...((processing && processing.customOptions) || {}),
+          },
         },
       } as Settings;
       await browser.storage.local.set(

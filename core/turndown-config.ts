@@ -1,8 +1,6 @@
 // Enhanced Turndown.js configuration for optimal markdown conversion
 // Provides custom rules and presets for different output formats
 
-import TurndownService from '@joplin/turndown';
-
 // Type definitions for TurndownService
 type TurndownOptions = {
   headingStyle?: 'setext' | 'atx';
@@ -23,6 +21,16 @@ type TurndownOptions = {
 
 type TurndownFilter = string | string[] | ((node: Node) => boolean);
 type TurndownReplacementFunction = (content: string, node: Node) => string;
+type TurndownRule = {
+  filter: TurndownFilter;
+  replacement: TurndownReplacementFunction;
+};
+type TurndownServiceInstance = {
+  turndown: (html: string) => string;
+  addRule: (name: string, rule: TurndownRule) => void;
+  use: (plugin: unknown) => void;
+};
+type TurndownServiceConstructor = new (options: TurndownOptions) => TurndownServiceInstance;
 
 export interface TurndownPreset {
   name: string;
@@ -46,6 +54,7 @@ export interface PostProcessor {
 }
 
 export class TurndownConfigManager {
+  private static turndownServiceCtor: TurndownServiceConstructor | null = null;
   
   /**
    * Convert HTML to Markdown using the chosen preset.
@@ -383,7 +392,11 @@ export class TurndownConfigManager {
   /**
    * Create a configured Turndown service instance
    */
-  static async createService(presetName: string = 'standard', customOptions?: Partial<TurndownOptions>): Promise<typeof TurndownService> {
+  static async createService(
+    presetName: string = 'standard',
+    customOptions?: Partial<TurndownOptions>
+  ): Promise<TurndownServiceInstance> {
+    this.assertDomRuntime();
     const preset = this.getPreset(presetName);
     if (!preset) {
       throw new Error(`Unknown preset: ${presetName}`);
@@ -391,6 +404,7 @@ export class TurndownConfigManager {
 
     // Merge custom options with preset config
     const config = { ...preset.config, ...customOptions };
+    const TurndownService = await this.loadTurndownServiceCtor();
     const turndown = new TurndownService(config);
 
     // Add GFM plugin if enabled
@@ -426,7 +440,7 @@ export class TurndownConfigManager {
   /**
    * Add GFM plugin to Turndown service
    */
-  private static async addGfmPlugin(turndown: typeof TurndownService): Promise<void> {
+  private static async addGfmPlugin(turndown: TurndownServiceInstance): Promise<void> {
     try {
       // Await dynamic import so the plugin is applied before conversion
       const gfmModule = await import('@joplin/turndown-plugin-gfm');
@@ -438,6 +452,29 @@ export class TurndownConfigManager {
     } catch (error) {
       console.warn('[TurndownConfig] Failed to load/apply GFM plugin:', error);
     }
+  }
+
+  private static assertDomRuntime(): void {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      throw new Error(
+        'DOM context unavailable for Turndown conversion. Route conversion through offscreen document.'
+      );
+    }
+  }
+
+  private static async loadTurndownServiceCtor(): Promise<TurndownServiceConstructor> {
+    if (this.turndownServiceCtor) {
+      return this.turndownServiceCtor;
+    }
+
+    const module = await import('@joplin/turndown');
+    const ctorCandidate = (module as { default?: unknown }).default;
+    if (typeof ctorCandidate !== 'function') {
+      throw new Error('Turndown constructor export missing');
+    }
+
+    this.turndownServiceCtor = ctorCandidate as TurndownServiceConstructor;
+    return this.turndownServiceCtor;
   }
 
   /**
