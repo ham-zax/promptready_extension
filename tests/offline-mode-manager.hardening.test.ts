@@ -537,6 +537,42 @@ Paragraph two.
     expect(result.markdown).not.toContain('> Published: 2006-02-28T18:19:29+00:00');
   });
 
+  it('falls back cleanly when Turndown module cannot be loaded at runtime', async () => {
+    const manager = OfflineModeManager as any;
+    const originalTurndownLoader = manager.getTurndownConfigManager;
+    manager.getTurndownConfigManager = vi
+      .fn()
+      .mockRejectedValue(new ReferenceError('window is not defined'));
+
+    const html = `
+      <html>
+        <body>
+          <article>
+            <h1>Turndown Fallback Coverage</h1>
+            <p>${'This paragraph should survive module load failures. '.repeat(18)}</p>
+          </article>
+        </body>
+      </html>
+    `;
+
+    try {
+      const result = await OfflineModeManager.processContent(
+        html,
+        'https://example.com/turndown-missing',
+        'Turndown Fallback Coverage',
+        baseConfig,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.processingStats.fallbacksUsed).toContain('turndown-fallback');
+      expect(result.warnings.some((warning) => /fallback markdown conversion/i.test(warning))).toBe(true);
+      expect(result.markdown).toContain('Turndown Fallback Coverage');
+      expect(result.markdown).toContain('This paragraph should survive module load failures');
+    } finally {
+      manager.getTurndownConfigManager = originalTurndownLoader;
+    }
+  });
+
   it('records non-negative timing and closes failed session state', async () => {
     const result = await OfflineModeManager.processContent(
       '',

@@ -15,7 +15,7 @@ export function safeParseHTML(html: string, mimeType: string = 'text/html'): Doc
   }
 
   try {
-    if (!html || typeof html !== 'string') {
+    if (typeof html !== 'string') {
       console.warn('[DOMUtils] Invalid HTML input provided');
       return null;
     }
@@ -62,6 +62,10 @@ export function createTempElement(html: string, tagName: string = 'div'): HTMLEl
  */
 export function extractTextContent(html: string): string {
   try {
+    if (typeof html !== 'string') {
+      return '';
+    }
+
     const doc = safeParseHTML(html);
     if (!doc) {
       // Fallback: strip HTML tags with regex (less reliable but better than nothing)

@@ -8,6 +8,7 @@ import { ExportMetadata } from '../lib/types.js';
 import { CacheManager } from '../lib/cache-manager.js';
 import { PerformanceMetrics } from './performance-metrics.js';
 import { safeParseHTML, extractSemanticContent, removeUnwantedElements, extractTextContent } from '../lib/dom-utils.js';
+import type { PipelineConfig, PipelineResult } from './graceful-degradation-pipeline.js';
 
 export interface OfflineModeConfig {
   readabilityPreset?: string;
@@ -58,6 +59,24 @@ interface CandidateAnalysis {
   containsVectorNoise: boolean;
 }
 
+interface TurndownConfigManagerLike {
+  convert(html: string, presetName?: string): Promise<string>;
+}
+
+interface ScoringEngineLike {
+  findBestCandidate(root: HTMLElement): {
+    bestCandidate: { element: HTMLElement; score: number } | null;
+  };
+  pruneNode(element: HTMLElement): HTMLElement;
+}
+
+interface GracefulDegradationPipelineLike {
+  execute(
+    document: Document,
+    config?: Partial<PipelineConfig>
+  ): Promise<Pick<PipelineResult, 'content' | 'stage'>>;
+}
+
 export class OfflineModeManager {
 
   // Performance metrics instance for real-time tracking
@@ -87,6 +106,9 @@ export class OfflineModeManager {
     errorsCount?: number;
   }>();
   private static readonly METRICS_UPDATE_INTERVAL = 500; // 500ms intervals
+  private static turndownConfigManager: TurndownConfigManagerLike | null = null;
+  private static scoringEngine: ScoringEngineLike | null = null;
+  private static gracefulPipeline: GracefulDegradationPipelineLike | null = null;
 
   private static readonly DEFAULT_CONFIG: OfflineModeConfig = {
     turndownPreset: 'standard',
@@ -183,6 +205,91 @@ export class OfflineModeManager {
         ...(overrides?.fallbacks || {}),
       },
     };
+  }
+
+  static async preloadRuntimeModules(): Promise<void> {
+    await Promise.allSettled([
+      this.getTurndownConfigManager(),
+      this.getScoringEngine(),
+      this.getGracefulDegradationPipeline(),
+    ]);
+  }
+
+  private static isChunkLoadFailure(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error || '');
+    return /Failed to fetch dynamically imported module|Importing a module script failed/i.test(message);
+  }
+
+  private static async getTurndownConfigManager(): Promise<TurndownConfigManagerLike | null> {
+    if (this.turndownConfigManager) {
+      return this.turndownConfigManager;
+    }
+
+    try {
+      const module = await import('./turndown-config.js');
+      const manager = module?.TurndownConfigManager as TurndownConfigManagerLike | undefined;
+      if (!manager) {
+        console.warn('[OfflineModeManager] TurndownConfigManager export missing');
+        return null;
+      }
+      this.turndownConfigManager = manager;
+      return manager;
+    } catch (error) {
+      if (this.isChunkLoadFailure(error)) {
+        console.warn('[OfflineModeManager] Turndown module unavailable (stale extension chunk). Falling back to native converter.');
+      } else {
+        console.warn('[OfflineModeManager] Failed to load Turndown module:', error);
+      }
+      return null;
+    }
+  }
+
+  private static async getScoringEngine(): Promise<ScoringEngineLike | null> {
+    if (this.scoringEngine) {
+      return this.scoringEngine;
+    }
+
+    try {
+      const module = await import('./scoring/scoring-engine.js');
+      const scoringEngine = module?.ScoringEngine as ScoringEngineLike | undefined;
+      if (!scoringEngine) {
+        console.warn('[OfflineModeManager] ScoringEngine export missing');
+        return null;
+      }
+      this.scoringEngine = scoringEngine;
+      return scoringEngine;
+    } catch (error) {
+      if (this.isChunkLoadFailure(error)) {
+        console.warn('[OfflineModeManager] ScoringEngine module unavailable (stale extension chunk).');
+      } else {
+        console.warn('[OfflineModeManager] Failed to load ScoringEngine module:', error);
+      }
+      return null;
+    }
+  }
+
+  private static async getGracefulDegradationPipeline(): Promise<GracefulDegradationPipelineLike | null> {
+    if (this.gracefulPipeline) {
+      return this.gracefulPipeline;
+    }
+
+    try {
+      const module = await import('./graceful-degradation-pipeline.js');
+      const pipeline = module?.GracefulDegradationPipeline as GracefulDegradationPipelineLike | undefined;
+      if (!pipeline) {
+        console.warn('[OfflineModeManager] GracefulDegradationPipeline export missing');
+        return null;
+      }
+      this.gracefulPipeline = pipeline;
+      return pipeline;
+    } catch (error) {
+      if (this.isChunkLoadFailure(error)) {
+        console.warn('[OfflineModeManager] Graceful pipeline module unavailable (stale extension chunk).');
+      } else {
+        console.warn('[OfflineModeManager] Failed to load graceful pipeline module:', error);
+      }
+      return null;
+    }
   }
 
   /**
@@ -352,7 +459,10 @@ export class OfflineModeManager {
         fallbacksUsed.push('pre-formatted-markdown');
       } else {
         try {
-          const { TurndownConfigManager } = await import('./turndown-config.js');
+          const TurndownConfigManager = await this.getTurndownConfigManager();
+          if (!TurndownConfigManager) {
+            throw new Error('Turndown module unavailable');
+          }
           const { result: turndownResult } = await this.performance.measureAsyncOperation(
             'turndown_conversion',
             () => TurndownConfigManager.convert(extractedContent, config.turndownPreset)
@@ -2164,158 +2274,170 @@ export class OfflineModeManager {
   private static async fallbackContentExtraction(
     html: string
   ): Promise<string> {
-    const prepared = this.prepareHtmlForExtraction(html);
-    const doc = safeParseHTML(prepared.html);
-    if (!doc) {
-      return html;
+    const normalizedHtml = typeof html === 'string' ? html : '';
+    if (!normalizedHtml.trim()) {
+      return '';
     }
 
-    // For npm pages, look for README specifically
-    if (doc.querySelector('[data-testid="readme"]')) {
-      const readme = doc.querySelector('[data-testid="readme"]');
-      if (readme) {
-        return readme.innerHTML;
-      }
-    }
-
-    const candidatePool: Array<{ source: string; html: string }> = [];
-    const primaryRoot = doc.querySelector('main, article, [role="main"], #content, .content, .main-content') as HTMLElement | null;
-    if (primaryRoot && this.normalizeInputText(primaryRoot.textContent || '').length > 120) {
-      candidatePool.push({
-        source: 'primary-root',
-        html: this.sanitizeFallbackCandidateHtml(primaryRoot.innerHTML)
-      });
-    }
-
-    const feedCandidates = this.collectFeedCandidates(doc);
-    candidatePool.push(
-      ...feedCandidates.map((candidate) => ({
-        source: candidate.source,
-        html: this.sanitizeFallbackCandidateHtml(candidate.html)
-      }))
-    );
-
-    // Try ScoringEngine candidate
     try {
-      const { ScoringEngine } = await import('./scoring/scoring-engine.js');
-      const body = doc.body as HTMLElement | null;
-      if (body) {
-        const { bestCandidate } = ScoringEngine.findBestCandidate(body);
-        if (bestCandidate && bestCandidate.element && bestCandidate.score > 0) {
-          console.log(`[OfflineModeManager] Using ScoringEngine result with score: ${bestCandidate.score}`);
-          const selectedContainer = this.expandScoringCandidate(bestCandidate.element, body);
-          const pruned = ScoringEngine.pruneNode(selectedContainer);
-          const scoringHtml = this.normalizeInputText(extractTextContent(pruned.innerHTML)).length === 0
-            ? selectedContainer.innerHTML
-            : pruned.innerHTML;
-          candidatePool.push({
-            source: 'scoring-engine',
-            html: this.sanitizeFallbackCandidateHtml(scoringHtml)
-          });
+      const prepared = this.prepareHtmlForExtraction(normalizedHtml);
+      const doc = safeParseHTML(prepared.html);
+      if (!doc) {
+        return normalizedHtml;
+      }
+
+      // For npm pages, look for README specifically
+      if (doc.querySelector('[data-testid="readme"]')) {
+        const readme = doc.querySelector('[data-testid="readme"]');
+        if (readme) {
+          return readme.innerHTML;
         }
       }
-    } catch (error) {
-      console.warn('[OfflineModeManager] ScoringEngine fallback failed:', error);
-    }
 
-    // Keep runtime parity with the graceful pipeline by including it as a scored candidate.
-    try {
-      const { GracefulDegradationPipeline } = await import('./graceful-degradation-pipeline.js');
-      const pipelineResult = await GracefulDegradationPipeline.execute(doc, {
-        enableStage1: true,
-        enableStage2: true,
-        enableStage3: true,
-        minQualityScore: 0,
-        timeout: 2500,
-        debug: false,
-      });
-      if (
-        pipelineResult?.content &&
-        this.normalizeInputText(extractTextContent(pipelineResult.content)).length > 120
-      ) {
+      const candidatePool: Array<{ source: string; html: string }> = [];
+      const primaryRoot = doc.querySelector('main, article, [role="main"], #content, .content, .main-content') as HTMLElement | null;
+      if (primaryRoot && this.normalizeInputText(primaryRoot.textContent || '').length > 120) {
         candidatePool.push({
-          source: `graceful-pipeline:${pipelineResult.stage}`,
-          html: this.sanitizeFallbackCandidateHtml(pipelineResult.content),
+          source: 'primary-root',
+          html: this.sanitizeFallbackCandidateHtml(primaryRoot.innerHTML)
         });
       }
+
+      const feedCandidates = this.collectFeedCandidates(doc);
+      candidatePool.push(
+        ...feedCandidates.map((candidate) => ({
+          source: candidate.source,
+          html: this.sanitizeFallbackCandidateHtml(candidate.html)
+        }))
+      );
+
+      // Try ScoringEngine candidate
+      try {
+        const ScoringEngine = await this.getScoringEngine();
+        const body = doc.body as HTMLElement | null;
+        if (ScoringEngine && body) {
+          const { bestCandidate } = ScoringEngine.findBestCandidate(body);
+          if (bestCandidate && bestCandidate.element && bestCandidate.score > 0) {
+            console.log(`[OfflineModeManager] Using ScoringEngine result with score: ${bestCandidate.score}`);
+            const selectedContainer = this.expandScoringCandidate(bestCandidate.element, body);
+            const pruned = ScoringEngine.pruneNode(selectedContainer);
+            const scoringHtml = this.normalizeInputText(extractTextContent(pruned.innerHTML)).length === 0
+              ? selectedContainer.innerHTML
+              : pruned.innerHTML;
+            candidatePool.push({
+              source: 'scoring-engine',
+              html: this.sanitizeFallbackCandidateHtml(scoringHtml)
+            });
+          }
+        }
+      } catch (error) {
+        console.warn('[OfflineModeManager] ScoringEngine fallback failed:', error);
+      }
+
+      // Keep runtime parity with the graceful pipeline by including it as a scored candidate.
+      try {
+        const GracefulDegradationPipeline = await this.getGracefulDegradationPipeline();
+        if (GracefulDegradationPipeline) {
+          const pipelineResult = await GracefulDegradationPipeline.execute(doc, {
+            enableStage1: true,
+            enableStage2: true,
+            enableStage3: true,
+            minQualityScore: 0,
+            timeout: 2500,
+            debug: false,
+          });
+          if (
+            pipelineResult?.content &&
+            this.normalizeInputText(extractTextContent(pipelineResult.content)).length > 120
+          ) {
+            candidatePool.push({
+              source: `graceful-pipeline:${pipelineResult.stage}`,
+              html: this.sanitizeFallbackCandidateHtml(pipelineResult.content),
+            });
+          }
+        }
+      } catch (error) {
+        console.warn('[OfflineModeManager] Graceful pipeline candidate failed:', error);
+      }
+
+      // Try semantic extraction
+      const semanticContent = extractSemanticContent(doc, 500);
+      if (semanticContent) {
+        candidatePool.push({
+          source: 'semantic',
+          html: this.sanitizeFallbackCandidateHtml(semanticContent)
+        });
+      }
+
+      // Candidate from cleaned body
+      const body = doc.body;
+      if (body) {
+        removeUnwantedElements(body, [
+          '.ad',
+          '.advertisement',
+          'aside',
+          'nav',
+          'header',
+          'footer',
+          'svg',
+          'path',
+          'symbol',
+          'defs',
+          'clipPath',
+          'mask',
+          'canvas',
+          '.search',
+          '.search-form',
+          '#search',
+          '.sidebar',
+          '.side',
+          '[role="navigation"]',
+          '[role="banner"]',
+          '[role="contentinfo"]',
+          '[role="search"]'
+        ]);
+        this.removeVisualNoiseElements(body);
+        this.cleanupEmptyContainers(body);
+        candidatePool.push({
+          source: 'body',
+          html: this.sanitizeFallbackCandidateHtml(body.innerHTML)
+        });
+      }
+
+      const sourceTextLength = this.normalizeInputText(extractTextContent(prepared.html)).length;
+      const minLengthThreshold = Math.min(220, Math.max(80, Math.floor(sourceTextLength * 0.08)));
+
+      const ranked = candidatePool
+        .map((candidate) => ({
+          source: candidate.source,
+          html: typeof candidate.html === 'string' ? candidate.html : '',
+          textLength: this.normalizeInputText(extractTextContent(candidate.html || '')).length,
+        }))
+        .filter((candidate) => candidate.textLength > 0)
+        .filter((candidate) => candidate.textLength >= minLengthThreshold)
+        .map((candidate) => ({
+          ...candidate,
+          score: this.computeCandidateSelectionScore(prepared.html, candidate.html),
+        }))
+        .sort((a, b) => b.score - a.score);
+
+      if (typeof process !== 'undefined' && (process as any)?.env?.OFFLINE_DEBUG_CANDIDATES === '1') {
+        console.log('[OfflineModeManager] Fallback candidate ranking', ranked.map((entry) => ({
+          source: entry.source,
+          score: entry.score,
+          length: this.normalizeInputText(extractTextContent(entry.html)).length,
+        })));
+      }
+
+      if (ranked.length > 0) {
+        return ranked[0].html;
+      }
+
+      return prepared.html || normalizedHtml;
     } catch (error) {
-      console.warn('[OfflineModeManager] Graceful pipeline candidate failed:', error);
+      console.warn('[OfflineModeManager] fallbackContentExtraction failed; returning normalized source HTML:', error);
+      return normalizedHtml;
     }
-
-    // Try semantic extraction
-    const semanticContent = extractSemanticContent(doc, 500);
-    if (semanticContent) {
-      candidatePool.push({
-        source: 'semantic',
-        html: this.sanitizeFallbackCandidateHtml(semanticContent)
-      });
-    }
-
-    // Candidate from cleaned body
-    const body = doc.body;
-    if (body) {
-      removeUnwantedElements(body, [
-        '.ad',
-        '.advertisement',
-        'aside',
-        'nav',
-        'header',
-        'footer',
-        'svg',
-        'path',
-        'symbol',
-        'defs',
-        'clipPath',
-        'mask',
-        'canvas',
-        '.search',
-        '.search-form',
-        '#search',
-        '.sidebar',
-        '.side',
-        '[role="navigation"]',
-        '[role="banner"]',
-        '[role="contentinfo"]',
-        '[role="search"]'
-      ]);
-      this.removeVisualNoiseElements(body);
-      this.cleanupEmptyContainers(body);
-      candidatePool.push({
-        source: 'body',
-        html: this.sanitizeFallbackCandidateHtml(body.innerHTML)
-      });
-    }
-
-    const ranked = candidatePool
-      .map((candidate) => ({
-        ...candidate,
-        textLength: this.normalizeInputText(extractTextContent(candidate.html)).length,
-      }))
-      .filter((candidate) => candidate.textLength > 0)
-      .filter((candidate) => {
-        const sourceTextLength = this.normalizeInputText(extractTextContent(prepared.html)).length;
-        const minLengthThreshold = Math.min(220, Math.max(80, Math.floor(sourceTextLength * 0.08)));
-        return candidate.textLength >= minLengthThreshold;
-      })
-      .map((candidate) => ({
-        ...candidate,
-        score: this.computeCandidateSelectionScore(prepared.html, candidate.html),
-      }))
-      .sort((a, b) => b.score - a.score);
-
-    if (typeof process !== 'undefined' && (process as any)?.env?.OFFLINE_DEBUG_CANDIDATES === '1') {
-      console.log('[OfflineModeManager] Fallback candidate ranking', ranked.map((entry) => ({
-        source: entry.source,
-        score: entry.score,
-        length: this.normalizeInputText(extractTextContent(entry.html)).length,
-      })));
-    }
-
-    if (ranked.length > 0) {
-      return ranked[0].html;
-    }
-
-    return prepared.html;
   }
 
   private static sanitizeFallbackCandidateHtml(candidateHtml: string): string {

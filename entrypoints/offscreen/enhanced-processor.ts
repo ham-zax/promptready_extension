@@ -59,6 +59,10 @@ export class EnhancedOffscreenProcessor {
     assertRuntimeProfileSafe(runtimeProfile);
 
     this.setupMessageListener();
+
+    // Eagerly load runtime modules used by dynamic fallbacks. This prevents
+    // mid-request chunk fetch failures after extension hot-reloads/update churn.
+    void OfflineModeManager.preloadRuntimeModules();
   }
 
   private setupMessageListener(): void {
