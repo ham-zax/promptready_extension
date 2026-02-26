@@ -189,7 +189,7 @@ export class OfflineModeManager {
   private static mergeConfig(
     overrides?: Partial<OfflineModeConfig>
   ): OfflineModeConfig {
-    return {
+    const merged: OfflineModeConfig = {
       ...this.DEFAULT_CONFIG,
       ...overrides,
       postProcessing: {
@@ -205,6 +205,54 @@ export class OfflineModeManager {
         ...(overrides?.fallbacks || {}),
       },
     };
+
+    merged.readabilityPreset = this.normalizeReadabilityPreset(merged.readabilityPreset);
+    merged.turndownPreset = this.normalizeTurndownPreset(merged.turndownPreset);
+
+    return merged;
+  }
+
+  private static normalizeReadabilityPreset(preset: unknown): string | undefined {
+    if (typeof preset !== 'string') return undefined;
+    const trimmed = preset.trim();
+    if (!trimmed) return undefined;
+
+    const normalized = trimmed.toLowerCase();
+    if (normalized === 'standard' || normalized === 'auto' || normalized === 'default') {
+      return undefined;
+    }
+
+    const aliases: Record<string, string> = {
+      'news-articles': 'news-article',
+      'news': 'news-article',
+      'academic-papers': 'academic-paper',
+      'academic': 'academic-paper',
+      'social-media': 'forum-discussion',
+      'social': 'forum-discussion',
+      'forums': 'forum-discussion',
+      'forum': 'forum-discussion',
+    };
+
+    return aliases[normalized] ?? normalized;
+  }
+
+  private static normalizeTurndownPreset(preset: unknown): string {
+    if (typeof preset !== 'string') return 'standard';
+    const trimmed = preset.trim();
+    if (!trimmed) return 'standard';
+
+    const normalized = trimmed.toLowerCase();
+    const aliases: Record<string, string> = {
+      'github-flavored': 'github',
+      'github_flavored': 'github',
+      'githubflavored': 'github',
+      'gfm': 'github',
+    };
+
+    const candidate = aliases[normalized] ?? normalized;
+    // Keep the preset in the known allowlist so TurndownConfigManager doesn't throw.
+    const allowlist = new Set(['standard', 'github', 'obsidian', 'notion', 'academic', 'minimal']);
+    return allowlist.has(candidate) ? candidate : 'standard';
   }
 
   static async preloadRuntimeModules(): Promise<void> {
@@ -408,16 +456,23 @@ export class OfflineModeManager {
       const readabilityTimerId = this.performance.recordExtractionStart();
       let extractedContent: string;
 
-      try {
-        const readabilityConfig = config.readabilityPreset 
-          ? ReadabilityConfigManager.getPresetConfig(config.readabilityPreset)
-          : ReadabilityConfigManager.getConfigForUrl(url);
-
-        if (readabilityConfig) {
-          const doc = safeParseHTML(extractionHtml);
-          if (!doc) {
-            throw new Error('Failed to parse HTML for Readability processing');
-          }
+	      try {
+	        const requestedPreset = config.readabilityPreset;
+	        let readabilityConfig = requestedPreset
+	          ? ReadabilityConfigManager.getPresetConfig(requestedPreset)
+	          : undefined;
+	        if (!readabilityConfig) {
+	          if (requestedPreset) {
+	            warnings.push(`Unknown readability preset "${requestedPreset}", using auto detection`);
+	          }
+	          readabilityConfig = ReadabilityConfigManager.getConfigForUrl(url);
+	        }
+	
+	        if (readabilityConfig) {
+	          const doc = safeParseHTML(extractionHtml);
+	          if (!doc) {
+	            throw new Error('Failed to parse HTML for Readability processing');
+	          }
           const { result: extractionResult } = await this.performance.measureAsyncOperation(
             'readability_extraction',
             () => ReadabilityConfigManager.extractContent(doc, url, readabilityConfig)
@@ -431,10 +486,10 @@ export class OfflineModeManager {
             config
           );
           console.log('[OfflineModeManager] Readability extraction successful');
-        } else {
-          throw new Error('No suitable Readability configuration found');
-        }
-      } catch (error) {
+	        } else {
+	          throw new Error('No suitable Readability configuration found');
+	        }
+	      } catch (error) {
         console.warn('[OfflineModeManager] Readability extraction failed:', error);
         if (config.fallbacks.enableReadabilityFallback) {
           extractedContent = await this.fallbackContentExtraction(extractionHtml);
@@ -462,16 +517,17 @@ export class OfflineModeManager {
         // Content is already markdown (provider stage), use extracted content as-is.
         markdown = extractedContent;
         fallbacksUsed.push('pre-formatted-markdown');
-      } else {
-        try {
-          const TurndownConfigManager = await this.getTurndownConfigManager();
-          if (!TurndownConfigManager) {
-            throw new Error('Turndown module unavailable');
-          }
-          const { result: turndownResult } = await this.performance.measureAsyncOperation(
-            'turndown_conversion',
-            () => TurndownConfigManager.convert(extractedContent, config.turndownPreset)
-          );
+	      } else {
+	        try {
+	          const turndownPreset = this.normalizeTurndownPreset(config.turndownPreset);
+	          const TurndownConfigManager = await this.getTurndownConfigManager();
+	          if (!TurndownConfigManager) {
+	            throw new Error('Turndown module unavailable');
+	          }
+	          const { result: turndownResult } = await this.performance.measureAsyncOperation(
+	            'turndown_conversion',
+	            () => TurndownConfigManager.convert(extractedContent, turndownPreset)
+	          );
           markdown = turndownResult;
           console.log('[OfflineModeManager] Turndown conversion successful');
         } catch (error) {
@@ -2441,12 +2497,35 @@ export class OfflineModeManager {
       console.log(`[OfflineModeManager] Applied URL config rule: ${matchedRule.id}`);
     }
 
-    // Apply user preferences
-    if (actualSettings.renderer === 'turndown') {
-      baseConfig.turndownPreset = 'standard';
+    // Apply user processing profile overrides (when present). Defaults are treated as "auto".
+    const processing = actualSettings?.processing;
+    if (processing && typeof processing === 'object') {
+      const profile = typeof (processing as any).profile === 'string'
+        ? String((processing as any).profile).trim().toLowerCase()
+        : '';
+
+      const normalizedReadability = this.normalizeReadabilityPreset((processing as any).readabilityPreset);
+      if (normalizedReadability) {
+        baseConfig.readabilityPreset = normalizedReadability;
+      }
+
+      const turndownRaw = typeof (processing as any).turndownPreset === 'string'
+        ? String((processing as any).turndownPreset).trim()
+        : '';
+      const normalizedTurndown = this.normalizeTurndownPreset(turndownRaw || baseConfig.turndownPreset);
+
+      // If the user picked a non-default profile, always honor its markdown preset.
+      // For the "standard" profile, only override when the user chose a non-standard preset.
+      const shouldOverrideTurndown =
+        turndownRaw.length > 0 &&
+        (profile !== 'standard' || normalizedTurndown !== 'standard');
+
+      if (shouldOverrideTurndown) {
+        baseConfig.turndownPreset = normalizedTurndown;
+      }
     }
 
-    return baseConfig;
+    return this.mergeConfig(baseConfig);
   }
 
   /**
