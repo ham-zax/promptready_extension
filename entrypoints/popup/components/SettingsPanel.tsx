@@ -17,8 +17,8 @@ interface SettingsPanelProps {
   apiKeyInput: string;
   settingsView: 'main' | 'byokChoice' | 'byokConfig';
   onSetSettingsView: (view: 'main' | 'byokChoice' | 'byokConfig') => void;
-  byokProvider: 'openrouter' | 'manual' | 'z.ai';
-  onSetByokProvider: (provider: 'openrouter' | 'manual' | 'z.ai') => void;
+  byokProvider: 'openrouter';
+  onSetByokProvider: (provider: 'openrouter') => void;
 }
 
 export function SettingsPanel({
@@ -36,8 +36,8 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   if (!isExpanded) return null;
 
-  const handleByokChoice = (provider: 'openrouter' | 'manual' | 'z.ai') => {
-    onSetByokProvider(provider);
+  const handleByokChoice = () => {
+    onSetByokProvider('openrouter');
     onSetSettingsView('byokConfig');
   };
 
@@ -47,24 +47,12 @@ export function SettingsPanel({
         return (
           <div className="text-center">
             <h3 className="font-semibold text-gray-900 mb-4">Connect your AI Provider</h3>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <button
-                onClick={() => handleByokChoice('openrouter')}
+                onClick={handleByokChoice}
                 className="w-full py-2 px-4 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors"
               >
                 OpenRouter
-              </button>
-              <button
-                onClick={() => handleByokChoice('manual')}
-                className="w-full py-2 px-4 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors"
-              >
-                Manual
-              </button>
-              <button
-                onClick={() => handleByokChoice('z.ai')}
-                className="w-full py-2 px-4 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors"
-              >
-                Z.AI
               </button>
             </div>
           </div>

@@ -38,8 +38,25 @@ interface ProcessingCompleteMessage {
     stats: any;
     warnings: string[];
     originalHtml: string; // Include original HTML for quality validation
+    aiAttempted: boolean;
+    aiProvider: 'openrouter' | null;
+    aiOutcome: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed';
+    fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed';
   };
 }
+
+type AIAttemptTrace = {
+  aiAttempted: boolean;
+  aiProvider: 'openrouter' | null;
+  aiOutcome: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed';
+  fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed';
+};
+
+const DEFAULT_AI_TRACE: AIAttemptTrace = {
+  aiAttempted: false,
+  aiProvider: null,
+  aiOutcome: 'not_attempted',
+};
 
 export class EnhancedOffscreenProcessor {
   private static instance: EnhancedOffscreenProcessor | null = null;
@@ -161,7 +178,7 @@ export class EnhancedOffscreenProcessor {
       if (mode === 'offline') {
         processingResult = await this.processOfflineMode(html, url, title, finalConfig, metadataHtml);
       } else {
-        processingResult = await this.processAIMode(html, url, title, finalConfig, settings); // Pass settings here
+        processingResult = await this.processAIMode(html, url, title, finalConfig, settings, metadataHtml);
       }
 
       // Propagate selectionHash back to the background so it can map results to originating tab
@@ -199,7 +216,8 @@ export class EnhancedOffscreenProcessor {
     url: string,
     title: string,
     config: OfflineModeConfig,
-    metadataHtml?: string
+    metadataHtml?: string,
+    aiTrace: AIAttemptTrace = DEFAULT_AI_TRACE
   ): Promise<ProcessingCompleteMessage['payload']> {
     this.sendProgress('Cleaning and preparing content...', 20, 'preprocessing');
 
@@ -220,7 +238,7 @@ export class EnhancedOffscreenProcessor {
 
     const exportJson = this.generateStructuredExport(result, url, title);
 
-    this.sendComplete(result.markdown, exportJson, result.metadata, result.processingStats, result.warnings, html);
+    this.sendComplete(result.markdown, exportJson, result.metadata, result.processingStats, result.warnings, html, aiTrace);
     return {
       exportMd: result.markdown,
       exportJson,
@@ -228,6 +246,7 @@ export class EnhancedOffscreenProcessor {
       stats: result.processingStats,
       warnings: result.warnings,
       originalHtml: html,
+      ...aiTrace,
     };
   }
 
@@ -236,7 +255,8 @@ export class EnhancedOffscreenProcessor {
     url: string,
     title: string,
     config: OfflineModeConfig,
-    settings: Settings // Add settings here
+    settings: Settings, // Add settings here
+    metadataHtml?: string
   ): Promise<ProcessingCompleteMessage['payload']> {
     this.sendProgress('Sending to AI for processing...', 30, 'ai-processing');
 
@@ -251,7 +271,19 @@ export class EnhancedOffscreenProcessor {
         const warningCode = 'ai_fallback:provider_not_supported';
         console.warn('[AI Mode] Unsupported BYOK provider. OpenRouter is the only supported provider.');
         this.sendProgress('Only OpenRouter BYOK is supported. Using offline mode...', 50, 'fallback');
-        const offlineResult = await this.processOfflineMode(html, url, title, config);
+        const offlineResult = await this.processOfflineMode(
+          html,
+          url,
+          title,
+          config,
+          metadataHtml,
+          {
+            aiAttempted: false,
+            aiProvider: null,
+            aiOutcome: 'fallback_provider',
+            fallbackCode: warningCode,
+          }
+        );
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
         return offlineResult;
       }
@@ -264,7 +296,19 @@ export class EnhancedOffscreenProcessor {
         const warningCode = 'ai_fallback:missing_openrouter_key';
         console.warn('[AI Mode] Missing OpenRouter API key. Falling back to offline mode.');
         this.sendProgress('No OpenRouter API key configured. Using offline mode...', 50, 'fallback');
-        const offlineResult = await this.processOfflineMode(html, url, title, config);
+        const offlineResult = await this.processOfflineMode(
+          html,
+          url,
+          title,
+          config,
+          metadataHtml,
+          {
+            aiAttempted: false,
+            aiProvider: null,
+            aiOutcome: 'fallback_missing_key',
+            fallbackCode: warningCode,
+          }
+        );
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
         return offlineResult;
       }
@@ -294,7 +338,19 @@ export class EnhancedOffscreenProcessor {
       const postResult = MarkdownPostProcessor.process(processedMarkdown, {});
       const exportJson = this.generateStructuredExport(postResult, url, title);
 
-      this.sendComplete(postResult.markdown, exportJson, { title, url }, {}, aiWarnings, html);
+      this.sendComplete(
+        postResult.markdown,
+        exportJson,
+        { title, url },
+        {},
+        aiWarnings,
+        html,
+        {
+          aiAttempted: true,
+          aiProvider: 'openrouter',
+          aiOutcome: 'success',
+        }
+      );
 
       return {
         exportMd: postResult.markdown,
@@ -303,14 +359,30 @@ export class EnhancedOffscreenProcessor {
         stats: {},
         warnings: aiWarnings,
         originalHtml: html,
+        aiAttempted: true,
+        aiProvider: 'openrouter',
+        aiOutcome: 'success',
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown AI processing error';
       console.error('[AI Mode] Processing failed:', errorMessage);
       this.sendError(errorMessage, 'ai-processing', true);
       this.sendProgress('AI processing failed, falling back to offline mode...', 90, 'fallback');
-      const offlineResult = await this.processOfflineMode(html, url, title, config);
-      offlineResult.warnings = [...(offlineResult.warnings || []), 'ai_fallback:request_failed'];
+      const warningCode = 'ai_fallback:request_failed';
+      const offlineResult = await this.processOfflineMode(
+        html,
+        url,
+        title,
+        config,
+        metadataHtml,
+        {
+          aiAttempted: true,
+          aiProvider: 'openrouter',
+          aiOutcome: 'fallback_request_failed',
+          fallbackCode: warningCode,
+        }
+      );
+      offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
       return offlineResult;
     }
   }
@@ -388,7 +460,8 @@ export class EnhancedOffscreenProcessor {
     metadata: any,
     stats: any,
     warnings: string[],
-    originalHtml: string
+    originalHtml: string,
+    aiTrace: AIAttemptTrace = DEFAULT_AI_TRACE
   ): void {
     browser.runtime.sendMessage({
       type: 'PROCESSING_COMPLETE',
@@ -399,6 +472,7 @@ export class EnhancedOffscreenProcessor {
         stats,
         warnings,
         originalHtml,
+        ...aiTrace,
       },
     }).catch((err) => {
       console.warn('[EnhancedOffscreenProcessor] Failed to send complete event:', err);

@@ -47,6 +47,11 @@ type ExportData = {
   json: any;
   metadata: any;
   qualityReport?: any;
+  warnings?: string[];
+  aiAttempted?: boolean;
+  aiProvider?: 'openrouter' | null;
+  aiOutcome?: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed';
+  fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed';
 };
 
 function isExportData(value: unknown): value is ExportData {
@@ -762,7 +767,18 @@ class EnhancedContentProcessor {
    */
   async handleProcessingComplete(message: any): Promise<void> {
     try {
-      const { exportMd, exportJson, metadata, stats, warnings: payloadWarnings, originalHtml } = message.payload;
+      const {
+        exportMd,
+        exportJson,
+        metadata,
+        stats,
+        warnings: payloadWarnings,
+        originalHtml,
+        aiAttempted = false,
+        aiProvider = null,
+        aiOutcome = 'not_attempted',
+        fallbackCode,
+      } = message.payload;
       const warnings: string[] = Array.isArray(payloadWarnings) ? [...payloadWarnings] : [];
 
       // BMAD TRACE: log what we received from offscreen before any insertion
@@ -854,6 +870,11 @@ class EnhancedContentProcessor {
         json: exportJson,
         metadata: canonicalMetadata,
         qualityReport,
+        warnings,
+        aiAttempted,
+        aiProvider,
+        aiOutcome,
+        fallbackCode,
       });
 
       // Broadcast success with quality information (critical message)
@@ -866,6 +887,10 @@ class EnhancedContentProcessor {
           stats,
           warnings,
           qualityReport,
+          aiAttempted,
+          aiProvider,
+          aiOutcome,
+          fallbackCode,
         },
       });
 
@@ -999,6 +1024,7 @@ class EnhancedContentProcessor {
    */
   async processFallbackResult(result: any, originalPayload: any): Promise<void> {
     try {
+      const fallbackWarningCode = 'processing_fallback:background_error';
       const canonicalMetadata = this.buildCanonicalMetadata(
         undefined,
         {
@@ -1022,6 +1048,10 @@ class EnhancedContentProcessor {
           content: canonicalMarkdown,
         },
         metadata: canonicalMetadata,
+        warnings: [fallbackWarningCode],
+        aiAttempted: false,
+        aiProvider: null,
+        aiOutcome: 'not_attempted' as const,
       };
 
       await this.setCurrentExportData(exportData);
@@ -1033,7 +1063,10 @@ class EnhancedContentProcessor {
           exportJson: exportData.json,
           metadata: exportData.metadata,
           stats: { fallbackUsed: true },
-          warnings: ['Used fallback processing due to errors'],
+          warnings: exportData.warnings,
+          aiAttempted: exportData.aiAttempted,
+          aiProvider: exportData.aiProvider,
+          aiOutcome: exportData.aiOutcome,
         },
       });
 

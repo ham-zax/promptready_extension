@@ -75,11 +75,11 @@ describe('useByokManager', () => {
     });
   });
 
-  it('forces OpenRouter provider and defaults even when a different provider is requested', () => {
+  it('keeps OpenRouter provider and defaults when provider is selected', () => {
     const { result } = renderHook(() => useByokManager());
 
     act(() => {
-      result.current.setProvider('manual');
+      result.current.setProvider('openrouter');
     });
 
     expect(result.current.provider).toBe('openrouter');

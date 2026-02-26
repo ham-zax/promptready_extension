@@ -14,7 +14,7 @@ export interface Settings {
     bundles: PromptBundle[];
   };
   byok: {
-    provider: 'openrouter' | 'manual' | 'z.ai';
+    provider: 'openrouter';
     apiBase: string;
     apiKey: string; // Will be encrypted at rest
     model?: string; // Optional for backward compatibility
@@ -218,6 +218,14 @@ export type CaptureCompleteMessage = Message<'CAPTURE_COMPLETE', {
 export type ProcessingCompleteMessage = Message<'PROCESSING_COMPLETE', {
   exportMd: string;
   exportJson: PromptReadyExport;
+  metadata?: ExportMetadata;
+  stats?: Record<string, unknown>;
+  warnings?: string[];
+  qualityReport?: Record<string, unknown>;
+  aiAttempted?: boolean;
+  aiProvider?: 'openrouter' | null;
+  aiOutcome?: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed';
+  fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed';
 }>;
 
 export type ExportRequestMessage = Message<'EXPORT_REQUEST', {

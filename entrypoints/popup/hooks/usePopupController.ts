@@ -31,9 +31,14 @@ interface PopupState {
     markdown: string;
     json: any;
     metadata: any;
+    warnings?: string[];
     qualityReport?: any;
     pipelineUsed?: 'standard' | 'intelligent-bypass';
     stats?: any;
+    aiAttempted?: boolean;
+    aiProvider?: 'openrouter' | null;
+    aiOutcome?: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed';
+    fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed';
   } | null;
   toast: {
     message: string;
@@ -41,7 +46,7 @@ interface PopupState {
   } | null;
   showUpgrade: boolean;
   settingsView: 'main' | 'byokChoice' | 'byokConfig';
-  byokProvider: 'openrouter' | 'manual' | 'z.ai';
+  byokProvider: 'openrouter';
 }
 
 // Action types
@@ -54,14 +59,14 @@ type PopupAction =
   | { type: 'MODE_CHANGED'; payload: { mode: 'offline' | 'ai' } }
   | { type: 'CAPTURE_START' }
   | { type: 'PROCESSING_PROGRESS'; payload: { status: string; message?: string; progress?: number } }
-  | { type: 'PROCESSING_COMPLETE'; payload: { markdown: string; json: any; metadata: any; qualityReport?: any; stats?: any } }
+  | { type: 'PROCESSING_COMPLETE'; payload: { markdown: string; json: any; metadata: any; warnings?: string[]; qualityReport?: any; stats?: any; aiAttempted?: boolean; aiProvider?: 'openrouter' | null; aiOutcome?: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed'; fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed' } }
   | { type: 'PROCESSING_ERROR'; payload: { error: string } }
   | { type: 'SHOW_TOAST'; payload: { message: string; type: 'success' | 'error' | 'info' } }
   | { type: 'HIDE_TOAST' }
   | { type: 'SHOW_UPGRADE' }
   | { type: 'HIDE_UPGRADE' }
   | { type: 'SET_SETTINGS_VIEW'; payload: { view: 'main' | 'byokChoice' | 'byokConfig' } }
-  | { type: 'SET_BYOK_PROVIDER'; payload: { provider: 'openrouter' | 'manual' | 'z.ai' } };
+  | { type: 'SET_BYOK_PROVIDER'; payload: { provider: 'openrouter' } };
 
 function deriveUiStateFromSettings(settings: Settings) {
   const entitlements = resolveEntitlements(settings);
@@ -173,7 +178,12 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
           ...action.payload,
           markdown: action.payload.markdown || (action.payload as any).exportMd,
           json: action.payload.json || (action.payload as any).exportJson,
-          pipelineUsed 
+          pipelineUsed,
+          warnings: (action.payload as any).warnings,
+          aiAttempted: (action.payload as any).aiAttempted,
+          aiProvider: (action.payload as any).aiProvider,
+          aiOutcome: (action.payload as any).aiOutcome,
+          fallbackCode: (action.payload as any).fallbackCode,
         },
         credits: newCredits,
         trial: {
@@ -633,7 +643,7 @@ export function usePopupController() {
     dispatch({ type: 'SET_SETTINGS_VIEW', payload: { view } });
   }, []);
 
-  const handleSetByokProvider = useCallback((provider: 'openrouter' | 'manual' | 'z.ai') => {
+  const handleSetByokProvider = useCallback((provider: 'openrouter') => {
     dispatch({ type: 'SET_BYOK_PROVIDER', payload: { provider } });
   }, []);
 

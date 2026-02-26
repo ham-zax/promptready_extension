@@ -807,6 +807,24 @@ Paragraph two.
     expect(warnings).toContain('Merged one split heading line');
   });
 
+  it('merges split headings across a single blank line when heading ends with continuation token', () => {
+    const manager = OfflineModeManager as any;
+    const warnings: string[] = [];
+    const input = [
+      '## Built for people who',
+      '',
+      'prompt all day',
+      '',
+      'Everything here exists to reduce friction.',
+    ].join('\n');
+
+    const output = manager.mergeSplitHeadings(input, warnings);
+
+    expect(output).toContain('## Built for people who prompt all day');
+    expect(output).toContain('\n\nEverything here exists to reduce friction.');
+    expect(warnings).toContain('Merged one split heading line');
+  });
+
   it('keeps real-time monitoring singleton-safe across repeated starts', () => {
     const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
     const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');

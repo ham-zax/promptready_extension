@@ -2,7 +2,7 @@
 // Real-time validation for different AI providers
 
 export interface ValidationRequest {
-  provider: 'openrouter' | 'manual' | 'z.ai';
+  provider: 'openrouter';
   apiKey: string;
   apiBase: string;
 }
@@ -67,117 +67,6 @@ export async function validateOpenRouter(apiKey: string): Promise<ValidationResu
   }
 }
 
-// OpenAI/Manual validation
-export async function validateOpenAI(apiKey: string, apiBase: string): Promise<ValidationResult> {
-  try {
-    // Test with models endpoint (lightweight)
-    const response = await fetch(`${apiBase}/models`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        return {
-          isValid: false,
-          message: 'Invalid API key. Please check your OpenAI-compatible key.',
-        };
-      }
-      if (response.status === 403) {
-        return {
-          isValid: false,
-          message: 'API key does not have required permissions.',
-        };
-      }
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    // Try to get a specific model to ensure full access
-    const modelsData: any = await response.json();
-    const hasGpt4 = modelsData.data?.some((model: any) =>
-      model.id.includes('gpt-4') || model.id.includes('gpt-3.5')
-    );
-
-    if (!hasGpt4) {
-      return {
-        isValid: false,
-        message: 'API key valid but no compatible models found.',
-      };
-    }
-
-    return {
-      isValid: true,
-      message: '✅ Valid OpenAI-compatible API key',
-      details: {
-        model: 'OpenAI Compatible',
-      },
-    };
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('Failed to fetch')) {
-      return {
-        isValid: false,
-        message: 'Network error. Please check your internet connection and API URL.',
-      };
-    }
-    if (error instanceof Error && error.message.includes('ERR_NAME_NOT_RESOLVED')) {
-      return {
-        isValid: false,
-        message: 'Invalid API base URL. Please check the server address.',
-      };
-    }
-    return {
-      isValid: false,
-      message: 'Failed to validate API key. Please check the URL and key.',
-    };
-  }
-}
-
-// Z.AI validation (mock for now, replace with actual implementation)
-export async function validateZAI(apiKey: string): Promise<ValidationResult> {
-  try {
-    // Since Z.AI is your service, implement proper validation
-    const response = await fetch('https://api.z.ai/api/coding/paas/v4/models', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        return {
-          isValid: false,
-          message: 'Invalid Z.AI API key.',
-        };
-      }
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    return {
-      isValid: true,
-      message: '✅ Valid Z.AI API key',
-      details: {
-        model: 'z.ai-flash',
-      },
-    };
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('Failed to fetch')) {
-      return {
-        isValid: false,
-        message: 'Network error. Please check your internet connection.',
-      };
-    }
-    return {
-      isValid: false,
-      message: 'Failed to validate Z.AI key. Please try again.',
-    };
-  }
-}
-
 // Main validation function
 export async function validateApiKey(request: ValidationRequest): Promise<ValidationResult> {
   const { provider, apiKey, apiBase } = request;
@@ -229,7 +118,7 @@ export function createDebouncedValidator(
   validator: (request: ValidationRequest) => Promise<ValidationResult>,
   delay: number = 500
 ) {
-  let timeoutId: NodeJS.Timeout;
+  let timeoutId: ReturnType<typeof setTimeout>;
 
   return (request: ValidationRequest): Promise<ValidationResult> => {
     return new Promise((resolve) => {

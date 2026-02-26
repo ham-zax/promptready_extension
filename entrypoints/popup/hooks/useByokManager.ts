@@ -6,7 +6,7 @@ import { Storage } from '@/lib/storage';
 import { validateApiKey, debouncedValidateApiKey } from '@/lib/api-validation';
 
 export interface ByokState {
-  provider: 'openrouter' | 'manual' | 'z.ai';
+  provider: 'openrouter';
   apiKey: string;
   apiBase: string;
   selectedModel: string;
@@ -17,7 +17,7 @@ export interface ByokState {
 }
 
 export interface ByokActions {
-  setProvider: (provider: ByokState['provider']) => void;
+  setProvider: (provider: 'openrouter') => void;
   setApiKey: (apiKey: string) => void;
   setApiBase: (apiBase: string) => void;
   setSelectedModel: (model: string) => void;
@@ -72,7 +72,7 @@ export function useByokManager(): ByokState & ByokActions {
   }, []);
 
   // Update defaults when provider changes
-  const setProvider = useCallback((_provider: ByokState['provider']) => {
+  const setProvider = useCallback((_provider: 'openrouter') => {
     // OpenRouter-only workflow: retain API compatibility while forcing canonical provider.
     setState(prev => ({
       ...prev,

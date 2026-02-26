@@ -1,6 +1,6 @@
 // API Validation Service Tests
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { validateApiKey, validateOpenRouter, validateOpenAI, validateZAI } from '@/lib/api-validation';
+import { validateApiKey, validateOpenRouter } from '@/lib/api-validation';
 
 // Mock fetch for testing
 global.fetch = vi.fn();
@@ -37,22 +37,22 @@ describe('API Validation Service', () => {
       expect(result.message).toBe('OpenRouter keys should start with "sk-or-v1-"');
     });
 
-    it('rejects non-openrouter providers for BYOK', async () => {
+    it('rejects invalid OpenRouter API base URL', async () => {
       const result = await validateApiKey({
-        provider: 'manual',
-        apiKey: 'invalid-key-format',
-        apiBase: 'https://api.openai.com/v1',
+        provider: 'openrouter',
+        apiKey: 'sk-or-v1-valid-key',
+        apiBase: 'invalid-url',
       });
 
       expect(result.isValid).toBe(false);
-      expect(result.message).toBe('Only OpenRouter BYOK is supported right now.');
+      expect(result.message).toBe('Please enter a valid OpenRouter API base URL');
     });
 
-    it('rejects non-openrouter providers before API base validation', async () => {
+    it('fails closed for non-openrouter provider values at runtime', async () => {
       const result = await validateApiKey({
-        provider: 'manual',
-        apiKey: 'sk-validkey123',
-        apiBase: 'invalid-url',
+        provider: 'manual' as any,
+        apiKey: 'sk-or-v1-valid-key',
+        apiBase: 'https://api.openai.com/v1',
       });
 
       expect(result.isValid).toBe(false);
@@ -66,7 +66,7 @@ describe('API Validation Service', () => {
         ok: true,
         json: vi.fn().mockResolvedValue({
           data: {
-            balance: 10.50,
+            balance: 10.5,
             organization: 'test-org',
           },
         }),
@@ -78,17 +78,14 @@ describe('API Validation Service', () => {
 
       expect(result.isValid).toBe(true);
       expect(result.message).toContain('✅ Valid OpenRouter key');
-      expect(result.details?.balance).toBe(10.50);
-      expect(global.fetch).toHaveBeenCalledWith(
-        'https://openrouter.ai/api/v1/auth/key',
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': 'Bearer sk-or-v1-valid-key',
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      expect(result.details?.balance).toBe(10.5);
+      expect(global.fetch).toHaveBeenCalledWith('https://openrouter.ai/api/v1/auth/key', {
+        method: 'GET',
+        headers: {
+          Authorization: 'Bearer sk-or-v1-valid-key',
+          'Content-Type': 'application/json',
+        },
+      });
     });
 
     it('should handle 401 unauthorized', async () => {
@@ -113,130 +110,14 @@ describe('API Validation Service', () => {
       expect(result.isValid).toBe(false);
       expect(result.message).toBe('Network error. Please check your internet connection.');
     });
-  });
 
-  describe('validateOpenAI', () => {
-    it('should handle successful validation with models', async () => {
-      const mockModelsResponse = {
-        ok: true,
-        json: vi.fn().mockResolvedValue({
-          data: [
-            { id: 'gpt-4' },
-            { id: 'gpt-3.5-turbo' },
-          ],
-        }),
-      };
-
-      (global.fetch as any).mockResolvedValue(mockModelsResponse);
-
-      const result = await validateOpenAI('sk-valid-key', 'https://api.openai.com/v1');
-
-      expect(result.isValid).toBe(true);
-      expect(result.message).toBe('✅ Valid OpenAI-compatible API key');
-      expect(global.fetch).toHaveBeenCalledWith(
-        'https://api.openai.com/v1/models',
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': 'Bearer sk-valid-key',
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    });
-
-    it('should reject when no compatible models found', async () => {
-      const mockModelsResponse = {
-        ok: true,
-        json: vi.fn().mockResolvedValue({
-          data: [
-            { id: 'custom-model' },
-            { id: 'another-custom' },
-          ],
-        }),
-      };
-
-      (global.fetch as any).mockResolvedValue(mockModelsResponse);
-
-      const result = await validateOpenAI('sk-valid-key', 'https://api.custom.com/v1');
-
-      expect(result.isValid).toBe(false);
-      expect(result.message).toBe('API key valid but no compatible models found.');
-    });
-
-    it('should handle invalid URL resolution', async () => {
-      (global.fetch as any).mockRejectedValue(new Error('ERR_NAME_NOT_RESOLVED'));
-
-      const result = await validateOpenAI('sk-valid-key', 'https://invalid-url.example');
-
-      expect(result.isValid).toBe(false);
-      expect(result.message).toBe('Invalid API base URL. Please check the server address.');
-    });
-  });
-
-  describe('validateZAI', () => {
-    it('should handle successful validation', async () => {
-      const mockResponse = {
-        ok: true,
-        json: vi.fn().mockResolvedValue({
-          data: [
-            { id: 'z.ai-flash' },
-          ],
-        }),
-      };
-
-      (global.fetch as any).mockResolvedValue(mockResponse);
-
-      const result = await validateZAI('z.ai-valid-key');
-
-      expect(result.isValid).toBe(true);
-      expect(result.message).toBe('✅ Valid Z.AI API key');
-      expect(global.fetch).toHaveBeenCalledWith(
-        'https://api.z.ai/api/coding/paas/v4/models',
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': 'Bearer z.ai-valid-key',
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    });
-
-    it('should handle 401 unauthorized', async () => {
-      const mockResponse = {
-        ok: false,
-        status: 401,
-      };
-
-      (global.fetch as any).mockResolvedValue(mockResponse);
-
-      const result = await validateZAI('invalid-key');
-
-      expect(result.isValid).toBe(false);
-      expect(result.message).toBe('Invalid Z.AI API key.');
-    });
-  });
-
-  describe('Error handling', () => {
-    it('handles unknown provider via openrouter-only guard', async () => {
-      const result = await validateApiKey({
-        provider: 'unknown' as any,
-        apiKey: 'some-key',
-        apiBase: 'https://api.example.com/v1',
-      });
-
-      expect(result.isValid).toBe(false);
-      expect(result.message).toBe('Only OpenRouter BYOK is supported right now.');
-    });
-
-    it('should provide fallback error message', async () => {
+    it('should provide fallback error message for unknown failures', async () => {
       (global.fetch as any).mockRejectedValue(new Error('Unexpected error'));
 
-      const result = await validateOpenAI('sk-key', 'https://api.openai.com/v1');
+      const result = await validateOpenRouter('sk-or-v1-valid-key');
 
       expect(result.isValid).toBe(false);
-      expect(result.message).toBe('Failed to validate API key. Please check the URL and key.');
+      expect(result.message).toBe('Failed to validate OpenRouter key. Please try again.');
     });
   });
 });

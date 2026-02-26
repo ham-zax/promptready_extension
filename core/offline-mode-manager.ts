@@ -4258,20 +4258,36 @@ export class OfflineModeManager {
         merged.push(line);
         continue;
       }
+      const headingText = trimmed.replace(/^#{1,6}\s+/, '').trim();
+      const endsWithContinuationToken = /\b(?:who|what|when|where|why|how|and|or|to|for|with|from|of|in|on|by|via|about|into|over|under|between|through|without|within|during|before|after|while|as|than|that|this|these|those|your|our|their|its|my|his|her|the|a|an)$/i.test(headingText);
 
-      const j = i + 1;
-      if (j >= lines.length) {
+      let continuationIndex = i + 1;
+      if (continuationIndex >= lines.length) {
         merged.push(line);
         continue;
       }
 
-      // Respect paragraph boundaries: do not merge across intentional blank lines.
-      if ((lines[j] ?? '').trim() === '') {
-        merged.push(line);
-        continue;
+      const immediateContinuation = (lines[continuationIndex] ?? '').trim();
+      if (immediateContinuation === '') {
+        // Some renderers insert one blank separator between a heading fragment and
+        // its continuation token; allow exactly one gap for repair only when the
+        // heading clearly looks unfinished (token-ended) or the continuation starts
+        // with lowercase text (typical split-heading artifact).
+        const oneGapAhead = continuationIndex + 1;
+        if (oneGapAhead >= lines.length || (lines[oneGapAhead] ?? '').trim() === '') {
+          merged.push(line);
+          continue;
+        }
+        const gapContinuation = (lines[oneGapAhead] ?? '').trim();
+        const startsLowercaseContinuation = /^[\p{Ll}]/u.test(gapContinuation);
+        if (!endsWithContinuationToken && !startsLowercaseContinuation) {
+          merged.push(line);
+          continue;
+        }
+        continuationIndex = oneGapAhead;
       }
 
-      const continuation = lines[j].trim();
+      const continuation = (lines[continuationIndex] ?? '').trim();
       if (
         continuation.length > 0 &&
         continuation.length <= 60 &&
@@ -4279,7 +4295,7 @@ export class OfflineModeManager {
         /^[\p{L}\p{N}][\p{L}\p{N}\s'"-]*$/u.test(continuation)
       ) {
         merged.push(`${line.trimEnd()} ${continuation}`);
-        i = j;
+        i = continuationIndex;
         changed++;
         continue;
       }
