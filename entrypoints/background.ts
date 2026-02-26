@@ -7,7 +7,6 @@ import { getRuntimeProfile, validateRuntimeProfile, assertRuntimeProfileSafe } f
 import { sanitizeCapturePayload } from '../lib/capture-contract.js';
 import type { ExportMetadata } from '../lib/types.js';
 
-import { ErrorHandler } from '../core/error-handler.js';
 import { ContentQualityValidator } from '../core/content-quality-validator.js';
 import { SessionMetricsStore } from '../core/metrics-session-store.js';
 
@@ -637,25 +636,13 @@ class EnhancedContentProcessor {
       // Process the successful result
       await this.handleProcessingComplete({ payload: response.data });
 
-    } catch (error: any) {
-      console.error('Content processing failed:', error);
-
-      // Try error recovery
-      const fallbackResult = await ErrorHandler.handleError(error as Error, {
-        stage: 'content-extraction',
-        operation: 'handleCaptureComplete',
-        input: { html: message.payload?.html, url: message.payload?.url },
-      });
-
-      if (fallbackResult.success) {
-        console.log('Error recovery successful, using fallback result');
-        // Process fallback result
-        await this.processFallbackResult(fallbackResult.result, message.payload);
-      } else {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        this.broadcastError(`Failed to process content: ${errorMessage}`).catch(console.error);
-      }
-    } finally {
+	    } catch (error: any) {
+	      console.error('Content processing failed:', error);
+	      // Recovery is owned by the offscreen pipeline (DOM context). In the service
+	      // worker context we fail closed and surface a clear error to the user.
+	      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+	      this.broadcastError(`Failed to process content: ${errorMessage}`).catch(console.error);
+	    } finally {
       // Ensure we always clear the gatekeeper entry for this selectionHash so future requests can proceed
       try {
         if (selectionHash && this.inProgressRequests.has(selectionHash)) {
@@ -1201,28 +1188,39 @@ class EnhancedContentProcessor {
   /**
    * Get processing statistics
    */
-  async getProcessingStats(): Promise<any> {
-    try {
-      // Cache stats not available in service worker context
-      const cacheStats = { message: 'Cache stats not available in service worker' };
+	  async getProcessingStats(): Promise<any> {
+	    try {
+	      await this.ensureOffscreenDocument();
+	      let cacheStats: any = { message: 'Cache stats not available' };
+	      let isProcessing = false;
+	      try {
+	        const response = await browser.runtime.sendMessage({
+	          type: 'OFFSCREEN_GET_PROCESSING_STATS',
+	          payload: {},
+	        });
+	        if (response?.success) {
+	          isProcessing = Boolean(response.data?.isProcessing);
+	          cacheStats = response.data?.cacheStats ?? cacheStats;
+	        }
+	      } catch (err) {
+	        console.warn('[Background] Failed to retrieve offscreen stats:', err);
+	      }
 
-      // Get error stats from error handler
-      const errorStats = ErrorHandler.getErrorStats();
+	      // Get current export data from session storage
+	      const currentExportData = await this.getCurrentExportData();
 
-      // Get current export data from session storage
-      const currentExportData = await this.getCurrentExportData();
-
-      return {
-        cache: {
-          ...cacheStats,
-          // Add convenience properties for backward compatibility
-          keys: [], // IndexedDB doesn't expose keys directly for performance
-        },
-        errors: errorStats,
-        currentExport: currentExportData ? {
-          hasContent: true,
-          contentLength: currentExportData.markdown.length,
-          qualityScore: currentExportData.qualityReport?.overallScore,
+	      return {
+	        cache: {
+	          ...cacheStats,
+	          // Add convenience properties for backward compatibility
+	          keys: [], // IndexedDB doesn't expose keys directly for performance
+	        },
+	        errors: { message: 'Error stats not available in service worker' },
+	        isProcessing,
+	        currentExport: currentExportData ? {
+	          hasContent: true,
+	          contentLength: currentExportData.markdown.length,
+	          qualityScore: currentExportData.qualityReport?.overallScore,
         } : { hasContent: false },
       };
     } catch (error: any) {
@@ -1234,14 +1232,20 @@ class EnhancedContentProcessor {
   /**
    * Clear processing cache
    */
-  async clearProcessingCache(): Promise<void> {
-    try {
-      // Cache clearing not available in service worker context
-      console.log('Cache clearing not available in service worker context');
-      ErrorHandler.clearErrorLog();
-      await this.setCurrentExportData(null);
-      console.log('Processing cache cleared');
-    } catch (error: any) {
+	  async clearProcessingCache(): Promise<void> {
+	    try {
+	      await this.ensureOffscreenDocument();
+	      try {
+	        await browser.runtime.sendMessage({
+	          type: 'OFFSCREEN_CLEAR_CACHE',
+	          payload: {},
+	        });
+	      } catch (err) {
+	        console.warn('[Background] Offscreen cache clear failed:', err);
+	      }
+	      await this.setCurrentExportData(null);
+	      console.log('Processing cache cleared');
+	    } catch (error: any) {
       console.error('Failed to clear cache:', error);
       throw error;
     }

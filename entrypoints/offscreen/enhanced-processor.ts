@@ -112,6 +112,27 @@ export class EnhancedOffscreenProcessor {
         return true; // async response
       }
 
+      // Background service worker can’t access IndexedDB/DOM cache directly; proxy via offscreen.
+      if (message.type === 'OFFSCREEN_GET_PROCESSING_STATS') {
+        this.getProcessingStats()
+          .then(data => sendResponse({ success: true, data }))
+          .catch(err => sendResponse({
+            success: false,
+            error: err instanceof Error ? err.message : String(err)
+          }));
+        return true;
+      }
+
+      if (message.type === 'OFFSCREEN_CLEAR_CACHE') {
+        this.clearCache()
+          .then(() => sendResponse({ success: true }))
+          .catch(err => sendResponse({
+            success: false,
+            error: err instanceof Error ? err.message : String(err)
+          }));
+        return true;
+      }
+
       return false;
     });
   }
