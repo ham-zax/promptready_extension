@@ -10,6 +10,18 @@ export default [
   // Base JavaScript rules
   js.configs.recommended,
 
+  // Node-based maintenance scripts
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        performance: 'readonly',
+      },
+    },
+  },
+
   {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
@@ -117,6 +129,41 @@ export default [
       react: {
         version: 'detect',
       },
+    },
+  },
+
+  // Legacy explicit-any debt is isolated to known modules while we keep
+  // strictness for new/untouched files.
+  {
+    files: [
+      'tests/**/*.{ts,tsx}',
+      'vitest.setup.ts',
+      'entrypoints/background.ts',
+      'entrypoints/offscreen/enhanced-processor.ts',
+      'entrypoints/options/main.ts',
+      'entrypoints/popup/Popup.tsx',
+      'entrypoints/popup/components/ModeToggle.tsx',
+      'entrypoints/popup/components/ProcessingProfiles.tsx',
+      'entrypoints/popup/hooks/usePopupController.ts',
+      'core/content-quality-validator.ts',
+      'core/error-handler.ts',
+      'core/extraction-provider.ts',
+      'core/graceful-degradation-pipeline.ts',
+      'core/offline-mode-manager.ts',
+      'core/performance-metrics.ts',
+      'core/quality-gates.ts',
+      'core/reddit-shadow-extractor.ts',
+      'core/turndown-config.ts',
+      'functions/ai-proxy/index.ts',
+      'lib/api-validation.ts',
+      'lib/markdown/markdownload-adapter.ts',
+      'lib/runtime-profile.ts',
+      'lib/storage.ts',
+      'lib/types.ts',
+      'pro/byok-client.ts',
+    ],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
 

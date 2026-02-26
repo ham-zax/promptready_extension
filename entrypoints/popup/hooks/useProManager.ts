@@ -4,6 +4,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Storage } from '@/lib/storage';
 import { MonetizationClient } from '@/pro/monetization-client';
+import type { BillingActionResponse } from '@/pro/monetization-client';
+import type { TrialState } from '@/lib/types';
 
 export interface ProState {
   isPro: boolean;
@@ -17,8 +19,8 @@ export interface ProState {
 }
 
 export interface ProActions {
-  startTrial: (email: string) => Promise<any>;
-  upgradeToPro: (email: string) => Promise<any>;
+  startTrial: (email: string) => Promise<TrialState>;
+  upgradeToPro: (email: string) => Promise<BillingActionResponse>;
   checkTrialStatus: () => Promise<void>;
   cancelTrial: () => Promise<void>;
   hideUpgradePrompt: () => Promise<void>;
@@ -35,12 +37,34 @@ export function useProManager(): ProState & ProActions {
     processingMessage: '',
   });
 
+  const handleTrialExpiry = useCallback(async () => {
+    try {
+      await Storage.updateSettings({
+        isPro: false,
+        trial: {
+          hasExhausted: true,
+          showUpgradePrompt: true,
+        },
+      });
+
+      setState(prev => ({
+        ...prev,
+        isPro: false,
+        isInTrial: false,
+        daysRemaining: 0,
+        showUpgradePrompt: true,
+      }));
+    } catch (error) {
+      console.error('Failed to handle trial expiry:', error);
+    }
+  }, []);
+
   // Load initial state and check trial status
   useEffect(() => {
     const loadAndCheck = async () => {
       try {
         const settings = await Storage.getSettings();
-        const trial = settings.trial || {} as any;
+        const trial = settings.trial ?? {};
         const isPro = settings.isPro || false;
         const isInTrial = Boolean(trial.startedAt && trial.expiresAt);
         const daysRemaining = isInTrial && trial.expiresAt
@@ -66,34 +90,14 @@ export function useProManager(): ProState & ProActions {
       }
     };
 
-    loadAndCheck();
+    void loadAndCheck();
 
     // Check trial status every hour
-    const interval = setInterval(loadAndCheck, 60 * 60 * 1000);
+    const interval = setInterval(() => {
+      void loadAndCheck();
+    }, 60 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
-
-  const handleTrialExpiry = useCallback(async () => {
-    try {
-      await Storage.updateSettings({
-        isPro: false,
-        trial: {
-          hasExhausted: true,
-          showUpgradePrompt: true,
-        },
-      });
-
-      setState(prev => ({
-        ...prev,
-        isPro: false,
-        isInTrial: false,
-        daysRemaining: 0,
-        showUpgradePrompt: true,
-      }));
-    } catch (error) {
-      console.error('Failed to handle trial expiry:', error);
-    }
-  }, []);
+  }, [handleTrialExpiry]);
 
   const startTrial = useCallback(async (email: string) => {
     if (!email || !email.includes('@')) {
@@ -205,7 +209,7 @@ export function useProManager(): ProState & ProActions {
   const checkTrialStatus = useCallback(async () => {
     try {
       const settings = await Storage.getSettings();
-      const trial = settings.trial || {} as any;
+      const trial = settings.trial ?? {};
 
       if (trial.expiresAt) {
         const daysRemaining = Math.max(0, Math.ceil((new Date(trial.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));

@@ -561,15 +561,17 @@ export class ErrorHandler {
         case 'i':
           markdown += `*${element.textContent}*`;
           break;
-        case 'a':
+        case 'a': {
           const href = element.getAttribute('href') || '';
           markdown += `[${element.textContent}](${href})`;
           break;
-        case 'img':
+        }
+        case 'img': {
           const src = element.getAttribute('src') || '';
           const alt = element.getAttribute('alt') || '';
           markdown += `![${alt}](${src})`;
           break;
+        }
         case 'ul':
         case 'ol':
           element.querySelectorAll('li').forEach(li => {
@@ -577,7 +579,7 @@ export class ErrorHandler {
           });
           markdown += '\n';
           break;
-        case 'blockquote':
+        case 'blockquote': {
           const lines = element.textContent?.split('\n') || [];
           lines.forEach(line => {
             if (line.trim()) {
@@ -586,6 +588,7 @@ export class ErrorHandler {
           });
           markdown += '\n';
           break;
+        }
         default:
           // For other elements, just process children
           Array.from(element.children).forEach(processElement);

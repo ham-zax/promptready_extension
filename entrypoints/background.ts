@@ -355,7 +355,7 @@ class EnhancedContentProcessor {
       return `# ${normalizedTitle}`;
     }
 
-    const h1Match = body.match(/^#\s+(.+)$/m);
+    const h1Match = body.match(/^#\s+(\S[^\n]*)$/m);
     if (
       h1Match &&
       this.areHeadingsEquivalent(

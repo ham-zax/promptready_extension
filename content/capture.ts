@@ -383,7 +383,9 @@ export class ContentCapture {
       if (!href || !href.startsWith(window.location.origin)) {
         baseEl.setAttribute('href', window.location.href);
       }
-    } catch { }
+    } catch {
+      // Best-effort DOM normalization for pages with restricted head mutation.
+    }
   }
 
   private static ensureTitle(): void {
@@ -395,7 +397,9 @@ export class ContentCapture {
         titleEl.innerText = document.title || window.location.hostname;
         head.appendChild(titleEl);
       }
-    } catch { }
+    } catch {
+      // Best-effort title injection; safe to skip when DOM is locked down.
+    }
   }
 
   private static addLatexToMathJax3(): void {
@@ -406,7 +410,9 @@ export class ContentCapture {
       for (const math of mathNodes) {
         math.typesetRoot?.setAttribute?.('markdownload-latex', math.math ?? '');
       }
-    } catch { }
+    } catch {
+      // MathJax may not be available on most pages.
+    }
   }
 
   private static markHiddenNodes(root: Element): void {

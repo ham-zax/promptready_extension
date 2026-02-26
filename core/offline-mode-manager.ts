@@ -1284,7 +1284,7 @@ export class OfflineModeManager {
     if (/(?:javascript:|vbscript:|data:text\/html)/i.test(html) || /(javascript:|vbscript:|data:text\/html)/i.test(protocolProbe)) {
       warnings.add('protocol XSS sanitized');
     }
-    if (/(?:expression\s*\(|@import\s+url\s*\(\s*['"]?\s*javascript:)/i.test(lower)) {
+    if (/(?:expression\s*\(|@import\s+url\(\s*(?:['"]\s*)?javascript:)/i.test(lower)) {
       warnings.add('CSS XSS style sanitized');
     }
     if (/(?:&#x?[0-9a-f]+;|%3cscript|&lt;script&gt;)/i.test(lower) && /(script|javascript:|alert\s*\()/i.test(lower)) {
@@ -1298,7 +1298,7 @@ export class OfflineModeManager {
     if (/<!--\[if/i.test(html)) {
       warnings.add('conditional comment browser-specific content detected');
     }
-    if ((/<!--/i.test(html) || /<!\[cdata\[/i.test(html)) && /(alert\s*\(|javascript:|<script\b)/i.test(html)) {
+    if ((/<!--/.test(html) || /<!\[cdata\[/.test(html)) && /(alert\s*\(|javascript:|<script\b)/i.test(html)) {
       warnings.add('comment CDATA suspicious content detected');
     }
 
@@ -1322,7 +1322,10 @@ export class OfflineModeManager {
       warnings.add('attribute quote malformed normalization applied');
     }
 
-    if (/(display\s*:\s*none|visibility\s*:\s*hidden|width\s*:\s*0\s*;?\s*height\s*:\s*0|type\s*=\s*["']hidden["'])/i.test(html)) {
+    const hasHiddenStyleSignal =
+      /(display\s*:\s*none|visibility\s*:\s*hidden|type\s*=\s*["']hidden["'])/i.test(html) ||
+      (/width\s*:\s*0/i.test(html) && /height\s*:\s*0/i.test(html));
+    if (hasHiddenStyleSignal) {
       warnings.add('hidden invisible content detected');
     }
 
@@ -2125,7 +2128,7 @@ export class OfflineModeManager {
       const programmingSignalCount = [
         /\b(import|export|function|const|let|var|class|interface|type)\b/.test(normalizedBlock),
         /\b(fetch|curl|npm|pnpm|yarn|pip|python|node|typescript|javascript)\b/.test(normalizedBlock),
-        /\b(select\s+.+\s+from|insert\s+into|update\s+\w+\s+set|delete\s+from|create\s+table)\b/.test(normalizedBlock),
+        /\b(select(?:\s+\S+){1,40}\s+from|insert\s+into|update\s+\w+\s+set|delete\s+from|create\s+table)\b/.test(normalizedBlock),
         /[{}`;$]|=>/.test(bodyLines.join('\n')),
       ].filter(Boolean).length;
 
@@ -2195,7 +2198,7 @@ export class OfflineModeManager {
       if (
         /^\[\s*]\([^)]+\)\s*$/.test(trimmed) ||
         /^\[\s*$/.test(trimmed) ||
-        /^\]\([^)]+\)\s*\[?\s*$/.test(trimmed) ||
+        /^\]\([^)]+\)(?:\s*\[\s*)?$/.test(trimmed) ||
         /^[-•]\s*$/.test(trimmed) ||
         /^\*\s*$/.test(trimmed)
       ) {
@@ -2455,7 +2458,7 @@ export class OfflineModeManager {
         '$1 $2'
       );
       next = next.replace(/([A-Za-z])(\d+\\\.\s+)/g, '$1 $2');
-      next = next.replace(/(\d+\\\.\s+[^.\n]{2,120}?)(?=\s+\d+\\\.\s+)/g, '$1\n');
+      next = next.replace(/(\d+\\\.\s+\S[^\n]{1,119})(?=[^\S\r\n]+\d+\\\.\s+)/g, '$1\n');
       if (next.includes('|') && !/`/.test(next) && !/^\s*\|/.test(next)) {
         next = next.replace(/([a-z]{2,})([A-Z][a-z])/g, '$1 $2');
       }
@@ -2484,7 +2487,7 @@ export class OfflineModeManager {
       return `# ${normalizedTitle}`;
     }
 
-    const h1Match = body.match(/^#\s+(.+)$/m);
+    const h1Match = body.match(/^#\s+(\S[^\n]*)$/m);
     if (h1Match && this.areHeadingsEquivalent(
       this.normalizeHeadingForComparison(normalizedTitle),
       this.normalizeHeadingForComparison(h1Match[1])
@@ -2555,7 +2558,7 @@ export class OfflineModeManager {
     let selfClosingVoidWithoutSlash = 0;
     let tableTagSeen = false;
     let listTagSeen = false;
-    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9:-]*)([^>]*)>/g;
+    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9:-]*)(?:\s[^>]*)?>/g;
     let match: RegExpExecArray | null;
 
     while ((match = tagRegex.exec(html)) !== null) {
@@ -3397,10 +3400,10 @@ export class OfflineModeManager {
     }
 
     const patterns = [
-      /(?:^|[^0-9])(\d{1,2}:\d{2}\s*(?:\([A-Z]{2,6}\)|[A-Z]{2,6})?\s*[A-Za-z]{3,9}\s+\d{1,2}(?:,\s*\d{2,4})?)/gi,
+      /(?:^|[^0-9])(\d{1,2}:\d{2}(?:\s+(?:\([A-Z]{2,6}\)|[A-Z]{2,6}))?\s+[A-Za-z]{3,9}\s+\d{1,2}(?:,\s*\d{2,4})?)/gi,
       /(?:^|[^0-9])((?:[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{2,4}\s+\d{1,2}:\d{2}(?:\s*[AP]M)?(?:\s*[A-Z]{2,6})?))/gi,
       /(?:^|[^0-9])(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4}\s+\d{1,2}:\d{2}(?:\s*[AP]M)?(?:\s*[A-Z]{2,6})?)/gi,
-      /(?:^|[^0-9])(\d{1,2}:\d{2}\s*(?:[AP]M)?(?:\s*[A-Z]{2,6})?)/gi,
+      /(?:^|[^0-9])(\d{1,2}:\d{2}(?:\s*[AP]M)?(?:\s+[A-Z]{2,6})?)/gi,
     ];
 
     const fragments = new Set<string>();

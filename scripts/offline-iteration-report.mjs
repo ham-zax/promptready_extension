@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 /* eslint-env node */
-/* global process, console */
 import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';

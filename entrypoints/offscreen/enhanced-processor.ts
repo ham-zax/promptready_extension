@@ -421,7 +421,9 @@ export class EnhancedOffscreenProcessor {
 
         try {
           document.body.removeChild(ta);
-        } catch { }
+        } catch {
+          // Textarea may already be detached by browser cleanup.
+        }
 
         if (ok) {
           return { success: true, method: 'offscreen:execCommand' };

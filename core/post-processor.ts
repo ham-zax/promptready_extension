@@ -271,7 +271,7 @@ export class MarkdownPostProcessor {
         continue;
       }
 
-      const headingMatch = trimmed.match(/^(#{1,6})\s*(.+)$/);
+      const headingMatch = trimmed.match(/^(#{1,6})\s+(\S[^\n]*)$/);
       if (!headingMatch || i + 1 >= lines.length) {
         merged.push(raw);
         continue;
@@ -332,7 +332,7 @@ export class MarkdownPostProcessor {
         continue;
       }
 
-      const match = trimmed.match(/^(#{1,6})\s*(.+)$/);
+      const match = trimmed.match(/^(#{1,6})\s+(\S[^\n]*)$/);
       if (!match) {
         output.push(raw);
         continue;
@@ -409,7 +409,7 @@ export class MarkdownPostProcessor {
 
       let nextLine = line;
       // Normalize bullet markers.
-      const bulletMatch = nextLine.match(/^(\s*)[*+]\s+(.+)$/);
+      const bulletMatch = nextLine.match(/^([^\S\r\n]*)[*+][^\S\r\n]+(\S[^\n]*)$/);
       if (bulletMatch) {
         nextLine = `${bulletMatch[1]}- ${bulletMatch[2]}`;
       }
@@ -547,7 +547,6 @@ export class MarkdownPostProcessor {
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i] ?? '';
-      const trimmed = line.trim();
       if (isFenceLine(line)) {
         inFence = !inFence;
         output.push(line);

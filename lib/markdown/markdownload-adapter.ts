@@ -140,7 +140,7 @@ function convertToFencedCodeBlock(node: any, options: any) {
 }
 
 function cleanAttr(a?: string | null) {
-  return a ? a.replace(/(\n+\s*)+/g, '\n') : '';
+  return a ? a.replace(/\n+[^\S\r\n]*/g, '\n') : '';
 }
 
 function stripNonPrintingChars(s: string) {

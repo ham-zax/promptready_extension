@@ -156,7 +156,11 @@ export default defineContentScript({
                 console.log('[BMAD_CLIPBOARD] Manual Copy button: success via navigator.clipboard');
                 await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'manual-button:navigator.clipboard' } }).catch(() => { });
                 // Clean up before removing
-                try { document.body.removeChild(promptDiv); } catch { }
+                try {
+                  document.body.removeChild(promptDiv);
+                } catch {
+                  // Prompt might already be removed by a parallel close path.
+                }
                 return;
               }
             } catch (err) {
@@ -169,7 +173,11 @@ export default defineContentScript({
             if (ok) {
               console.log('[BMAD_CLIPBOARD] Manual Copy button: success via execCommand');
               await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'manual-button:execCommand' } }).catch(() => { });
-              try { document.body.removeChild(promptDiv); } catch { }
+              try {
+                document.body.removeChild(promptDiv);
+              } catch {
+                // Prompt might already be removed by a parallel close path.
+              }
               return;
             }
 
@@ -179,7 +187,11 @@ export default defineContentScript({
             alert('Automatic copy failed. Please press Ctrl+C / Cmd+C to copy the text.');
           } catch (err) {
             console.error('[BMAD_CLIPBOARD] Manual Copy button click failed:', err);
-            try { document.body.removeChild(promptDiv); } catch { }
+            try {
+              document.body.removeChild(promptDiv);
+            } catch {
+              // Prompt might already be removed by a parallel close path.
+            }
           }
         });
 
@@ -187,7 +199,11 @@ export default defineContentScript({
         closeButton.textContent = 'Close';
         closeButton.style.padding = '6px 10px';
         closeButton.addEventListener('click', () => {
-          try { document.body.removeChild(promptDiv); } catch { }
+          try {
+            document.body.removeChild(promptDiv);
+          } catch {
+            // Prompt might already be removed by a parallel close path.
+          }
         });
 
         buttonsRow.appendChild(copyButton);
@@ -200,7 +216,11 @@ export default defineContentScript({
       } catch (err) {
         console.error('[BMAD_CLIPBOARD] Failed to show manual copy prompt:', err);
         // As a last fallback, show alert
-        try { alert('Automatic copy failed. Please copy the following text:\n\n' + text); } catch { }
+        try {
+          alert('Automatic copy failed. Please copy the following text:\n\n' + text);
+        } catch {
+          // Ignore alert failures in restrictive environments.
+        }
       }
     }
 
