@@ -72,12 +72,34 @@ export class MarkdownPostProcessor {
         improvements.push(...result.improvements);
       }
 
+      // Step 1.5: Unescape common markdown tokens that are often escaped in UI demo blocks
+      // (e.g. "\# Heading" -> "# Heading") so later structure steps can reason about them.
+      {
+        const result = this.unescapeLeadingMarkdownTokens(processed);
+        processed = result.markdown;
+        improvements.push(...result.improvements);
+      }
+
+      // Step 1.6: Wrap escaped HTML samples (e.g. "&lt;div&gt;") into fenced code blocks.
+      {
+        const result = this.fenceEscapedHtmlSamples(processed);
+        processed = result.markdown;
+        improvements.push(...result.improvements);
+      }
+
       // Step 2: Normalize headings
       if (config.normalizeHeadings) {
         const result = this.normalizeHeadings(processed);
         processed = result.markdown;
         improvements.push(...result.improvements);
         structureChanges += result.changes;
+      }
+
+      // Step 2.5: Turn "card" lines into bullet lists when they look like a list of benefits.
+      {
+        const result = this.bulletizeStandaloneParagraphRuns(processed);
+        processed = result.markdown;
+        improvements.push(...result.improvements);
       }
 
       // Step 3: Fix list formatting
@@ -230,54 +252,121 @@ export class MarkdownPostProcessor {
     changes: number;
   } {
     const improvements: string[] = [];
-    let processed = markdown;
     let changes = 0;
+    const lines = markdown.split('\n');
 
-    // Fix heading spacing
-    const beforeSpacing = processed;
-    processed = processed.replace(/^(#{1,6})\s*(.+)$/gm, '$1 $2');
-    if (processed !== beforeSpacing) {
-      improvements.push('Fixed heading spacing');
-      changes++;
-    }
-
-    // Ensure headings have proper line breaks
-    const beforeBreaks = processed;
-    processed = processed.replace(/^(#{1,6}\s.+)$/gm, '\n$1\n');
-    processed = processed.replace(/^\n+/gm, '\n'); // Clean up excessive newlines
-    if (processed !== beforeBreaks) {
-      improvements.push('Added proper heading line breaks');
-      changes++;
-    }
-
-    // Fix heading hierarchy (ensure no skipped levels)
-    const headingMatches = processed.match(/^(#{1,6})\s/gm);
-    if (headingMatches) {
-      const levels = headingMatches.map(h => h.length - 1);
-      let currentLevel = 0;
-      let hierarchyFixed = false;
-
-      for (let i = 0; i < levels.length; i++) {
-        const level = levels[i];
-        if (level > currentLevel + 1) {
-          // Skip detected, fix it
-          const newLevel = currentLevel + 1;
-          const oldHeading = '#'.repeat(level);
-          const newHeading = '#'.repeat(newLevel);
-          processed = processed.replace(new RegExp(`^${oldHeading}\\s`, 'm'), `${newHeading} `);
-          hierarchyFixed = true;
-          currentLevel = newLevel;
-        } else {
-          currentLevel = level;
-        }
+    // Pass 1: Merge heading continuation lines (e.g. "## Same source," + "cleaner context")
+    const merged: string[] = [];
+    let inFence = false;
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i] ?? '';
+      const trimmed = raw.trim();
+      if (/^```/.test(trimmed)) {
+        inFence = !inFence;
+        merged.push(raw);
+        continue;
+      }
+      if (inFence) {
+        merged.push(raw);
+        continue;
       }
 
-      if (hierarchyFixed) {
-        improvements.push('Fixed heading hierarchy');
-        changes++;
+      const headingMatch = trimmed.match(/^(#{1,6})\s*(.+)$/);
+      if (!headingMatch || i + 1 >= lines.length) {
+        merged.push(raw);
+        continue;
+      }
+
+      const nextRaw = lines[i + 1] ?? '';
+      const nextTrimmed = nextRaw.trim();
+      const headingText = headingMatch[2].trim();
+
+      const shouldMerge =
+        nextTrimmed.length > 0 &&
+        nextTrimmed.length <= 48 &&
+        !/^#{1,6}\s/.test(nextTrimmed) &&
+        !/^```/.test(nextTrimmed) &&
+        !/^(>|-|\*|\d+\.)\s/.test(nextTrimmed) &&
+        /[,:\u2014\u2013-]$/.test(headingText) &&
+        !/[.!?]$/.test(headingText);
+
+      if (shouldMerge) {
+        merged.push(`${headingMatch[1]} ${headingText} ${nextTrimmed}`.replace(/\s+/g, ' ').trim());
+        i += 1;
+        changes += 1;
+        continue;
+      }
+
+      merged.push(raw);
+    }
+
+    // Pass 2: Normalize spacing + demote early duplicate H1s + enforce blank lines around headings.
+    const output: string[] = [];
+    inFence = false;
+    let seenH1 = false;
+    let lockH1Demotion = false;
+
+    for (let i = 0; i < merged.length; i++) {
+      let raw = merged[i] ?? '';
+      const trimmed = raw.trim();
+
+      if (/^```/.test(trimmed)) {
+        inFence = !inFence;
+        output.push(raw);
+        continue;
+      }
+      if (inFence) {
+        output.push(raw);
+        continue;
+      }
+
+      const match = trimmed.match(/^(#{1,6})\s*(.+)$/);
+      if (!match) {
+        output.push(raw);
+        continue;
+      }
+
+      let level = match[1].length;
+      const text = match[2].trim();
+      if (!text) {
+        output.push(raw);
+        continue;
+      }
+
+      if (!seenH1 && level === 1) {
+        seenH1 = true;
+      } else if (seenH1 && level >= 2) {
+        lockH1Demotion = true;
+      }
+
+      // Many landing pages emit multiple H1s before any real sectioning. Demote those early H1s.
+      if (level === 1 && seenH1 && !lockH1Demotion) {
+        level = 2;
+        changes += 1;
+      }
+
+      const normalizedHeading = `${'#'.repeat(level)} ${text}`;
+
+      // Ensure blank line before heading (except at start or after another blank)
+      if (output.length > 0 && output[output.length - 1].trim() !== '') {
+        output.push('');
+        changes += 1;
+      }
+
+      output.push(normalizedHeading);
+
+      // Ensure blank line after heading if next line is non-empty content.
+      const nextLine = (merged[i + 1] ?? '').trim();
+      if (nextLine && !/^```/.test(nextLine)) {
+        output.push('');
+        changes += 1;
       }
     }
 
+    const processed = output.join('\n');
+    if (changes > 0) {
+      improvements.push('Normalized heading structure');
+    }
     return { markdown: processed, improvements, changes };
   }
 
@@ -289,39 +378,229 @@ export class MarkdownPostProcessor {
     improvements: string[];
   } {
     const improvements: string[] = [];
-    let processed = markdown;
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let inFence = false;
+    let changed = false;
 
-    // Normalize bullet list markers
-    const beforeBullets = processed;
-    processed = processed.replace(/^(\s*)[*+]\s+/gm, '$1- ');
-    if (processed !== beforeBullets) {
-      improvements.push('Normalized bullet list markers');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (/^```/.test(trimmed)) {
+        inFence = !inFence;
+        output.push(line);
+        continue;
+      }
+      if (inFence) {
+        output.push(line);
+        continue;
+      }
+
+      let nextLine = line;
+      // Normalize bullet markers.
+      const bulletMatch = nextLine.match(/^(\s*)[*+]\s+(.+)$/);
+      if (bulletMatch) {
+        nextLine = `${bulletMatch[1]}- ${bulletMatch[2]}`;
+      }
+      // Normalize dash list spacing.
+      nextLine = nextLine.replace(/^(\s*[-])\s+/, '$1 ');
+      // Normalize numbered list spacing.
+      nextLine = nextLine.replace(/^(\s*)(\d+)\.\s+/, '$1$2. ');
+
+      if (nextLine !== line) {
+        changed = true;
+      }
+      output.push(nextLine);
     }
 
-    // Fix list item spacing
-    const beforeSpacing = processed;
-    processed = processed.replace(/^(\s*[-*+])\s+/gm, '$1 ');
-    if (processed !== beforeSpacing) {
-      improvements.push('Fixed list item spacing');
+    if (changed) {
+      improvements.push('Normalized list formatting');
+    }
+    return { markdown: output.join('\n'), improvements };
+  }
+
+  private static unescapeLeadingMarkdownTokens(markdown: string): { markdown: string; improvements: string[] } {
+    const improvements: string[] = [];
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let inFence = false;
+    let changed = false;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (/^```/.test(trimmed)) {
+        inFence = !inFence;
+        output.push(line);
+        continue;
+      }
+      if (inFence) {
+        output.push(line);
+        continue;
+      }
+
+      const nextLine = line.replace(/^\\#(\s+)/, '#$1');
+      if (nextLine !== line) {
+        changed = true;
+      }
+      output.push(nextLine);
     }
 
-    // Fix numbered list formatting
-    const beforeNumbered = processed;
-    processed = processed.replace(/^(\s*)(\d+)\.\s+/gm, '$1$2. ');
-    if (processed !== beforeNumbered) {
-      improvements.push('Fixed numbered list formatting');
+    if (changed) {
+      improvements.push('Unescaped leading markdown tokens');
+    }
+    return { markdown: output.join('\n'), improvements };
+  }
+
+  private static fenceEscapedHtmlSamples(markdown: string): { markdown: string; improvements: string[] } {
+    const improvements: string[] = [];
+    const lines = markdown.split('\n');
+    let inFence = false;
+    let changed = false;
+
+    const isFenceLine = (line: string): boolean => /^```/.test(line.trim());
+    const decode = (value: string): string => this.decodeBasicHtmlEntities(value);
+
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i] ?? '';
+      const trimmed = raw.trim();
+      if (isFenceLine(raw)) {
+        inFence = !inFence;
+        continue;
+      }
+      if (inFence) {
+        continue;
+      }
+
+      const open = trimmed.match(/^&lt;([a-z0-9]+)(?:\s[^&]*)&gt;$/i);
+      if (!open) {
+        continue;
+      }
+      const tag = open[1].toLowerCase();
+      let closeIndex = -1;
+      for (let j = i + 1; j < Math.min(lines.length, i + 60); j++) {
+        const candidate = (lines[j] ?? '').trim().toLowerCase();
+        if (candidate === `&lt;/${tag}&gt;`) {
+          closeIndex = j;
+          break;
+        }
+        if (isFenceLine(lines[j] ?? '')) {
+          break;
+        }
+      }
+      if (closeIndex === -1) {
+        continue;
+      }
+
+      const block = lines.slice(i, closeIndex + 1);
+      const decodedLines = block.map((line) => decode(line).replace(/\u00a0/g, ' '));
+      // Strip leading/trailing empty lines inside the fence.
+      while (decodedLines.length > 0 && decodedLines[0].trim() === '') decodedLines.shift();
+      while (decodedLines.length > 0 && decodedLines[decodedLines.length - 1].trim() === '') decodedLines.pop();
+
+      const fenced = ['```html', ...decodedLines, '```'];
+      lines.splice(i, closeIndex - i + 1, ...fenced);
+      i += fenced.length - 1;
+      changed = true;
     }
 
-    // Ensure proper list line breaks
-    const beforeListBreaks = processed;
-    processed = processed.replace(/^(\s*[-*+]\s.+)$/gm, '\n$1');
-    processed = processed.replace(/^(\s*\d+\.\s.+)$/gm, '\n$1');
-    processed = processed.replace(/\n{3,}/g, '\n\n'); // Clean up excessive newlines
-    if (processed !== beforeListBreaks) {
-      improvements.push('Added proper list line breaks');
+    if (changed) {
+      improvements.push('Wrapped escaped HTML samples in fenced blocks');
+    }
+    return { markdown: lines.join('\n'), improvements };
+  }
+
+  private static bulletizeStandaloneParagraphRuns(markdown: string): { markdown: string; improvements: string[] } {
+    const improvements: string[] = [];
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let inFence = false;
+    let changed = false;
+
+    const isFenceLine = (line: string): boolean => /^```/.test(line.trim());
+    const isItemLine = (line: string): boolean => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      if (/^(>|#|-|\*|\d+\.)\s/.test(trimmed)) return false;
+      if (trimmed.length < 6 || trimmed.length > 64) return false;
+      if (/[.!?;:]$/.test(trimmed)) return false;
+      const words = trimmed.split(/\s+/).filter(Boolean);
+      if (words.length < 2 || words.length > 10) return false;
+      return true;
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      const trimmed = line.trim();
+      if (isFenceLine(line)) {
+        inFence = !inFence;
+        output.push(line);
+        continue;
+      }
+      if (inFence) {
+        output.push(line);
+        continue;
+      }
+
+      if (!isItemLine(line)) {
+        output.push(line);
+        continue;
+      }
+
+      // Candidate sequence is item + blank + item + blank + item...
+      const items: string[] = [];
+      let cursor = i;
+      while (cursor < lines.length) {
+        const candidate = lines[cursor] ?? '';
+        if (!isItemLine(candidate)) {
+          break;
+        }
+        items.push(candidate.trim());
+
+        // Consume blank lines between items.
+        let next = cursor + 1;
+        let sawBlank = false;
+        while (next < lines.length && (lines[next] ?? '').trim() === '') {
+          sawBlank = true;
+          next++;
+        }
+        if (!sawBlank) {
+          break;
+        }
+        cursor = next;
+      }
+
+      if (items.length >= 3) {
+        // Ensure a blank line before the list.
+        if (output.length > 0 && output[output.length - 1].trim() !== '') {
+          output.push('');
+        }
+        for (const item of items) {
+          output.push(`- ${item}`);
+        }
+        output.push('');
+        changed = true;
+        i = cursor - 1;
+        continue;
+      }
+
+      output.push(line);
     }
 
-    return { markdown: processed, improvements };
+    if (changed) {
+      improvements.push('Converted standalone benefit lines into lists');
+    }
+    return { markdown: output.join('\n'), improvements };
+  }
+
+  private static decodeBasicHtmlEntities(value: string): string {
+    return value
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&mdash;/g, '—')
+      .replace(/&ndash;/g, '–');
   }
 
   /**

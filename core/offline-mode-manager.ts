@@ -7,7 +7,7 @@ import { Storage } from '../lib/storage.js';
 import { ExportMetadata } from '../lib/types.js';
 import { CacheManager } from '../lib/cache-manager.js';
 import { PerformanceMetrics } from './performance-metrics.js';
-import { safeParseHTML, extractSemanticContent, removeUnwantedElements, extractTextContent } from '../lib/dom-utils.js';
+import { safeParseHTML, extractSemanticContent, removeUnwantedElements, extractTextContent, fixRelativeUrls } from '../lib/dom-utils.js';
 import type { PipelineConfig, PipelineResult } from './graceful-degradation-pipeline.js';
 
 export interface OfflineModeConfig {
@@ -398,7 +398,7 @@ export class OfflineModeManager {
         html = '<p>Content sanitized due to security filtering.</p>';
       }
 
-      const preparedExtraction = this.prepareHtmlForExtraction(html);
+      const preparedExtraction = this.prepareHtmlForExtraction(html, url);
       const extractionHtml = preparedExtraction.html;
       warnings.push(...preparedExtraction.warnings);
 
@@ -459,7 +459,8 @@ export class OfflineModeManager {
       // NEW: Skip Turndown if content is already markdown (e.g., from Reddit extractor)
       if (config.skipTurndown) {
         console.log('[OfflineModeManager] Skipping Turndown - content is already markdown');
-        markdown = html; // Content is already markdown, use as-is
+        // Content is already markdown (provider stage), use extracted content as-is.
+        markdown = extractedContent;
         fallbacksUsed.push('pre-formatted-markdown');
       } else {
         try {
@@ -838,7 +839,8 @@ export class OfflineModeManager {
   }
 
   private static prepareHtmlForExtraction(
-    html: string
+    html: string,
+    baseUrl?: string
   ): { html: string; warnings: string[] } {
     const warnings: string[] = [];
     const doc = safeParseHTML(html);
@@ -849,12 +851,19 @@ export class OfflineModeManager {
     const body = doc.body as HTMLElement;
     this.removeCommentNodes(body);
 
+    // Strip sponsor ribbons before selector-based removal deletes the sponsored anchors,
+    // so we can remove the whole container instead of leaving "Presents" fragments behind.
+    this.removeSponsoredLinkClusters(body);
+
     removeUnwantedElements(body, [
       'template',
       '[markdownload-hidden="true"]',
       '[data-nosnippet]',
       '[data-ad]',
       '[data-ad-container]',
+      'a[rel*="sponsored"]',
+      '[rel*="sponsored"]',
+      '[data-sponsor]',
       '[data-testid*="cookie"]',
       '[id*="cookie"]',
       '[class*="cookie"]',
@@ -863,6 +872,15 @@ export class OfflineModeManager {
       '[class*="subscribe"]',
       '[class*="popup"]',
       '[class*="modal"]',
+      '[class*="advert"]',
+      '[id*="advert"]',
+      '[aria-label*="advert"]',
+      '[class*="sponsor"]',
+      '[id*="sponsor"]',
+      '[class*="sponser"]',
+      '[id*="sponser"]',
+      '[class*="sponcer"]',
+      '[id*="sponcer"]',
       '[aria-modal="true"]',
       '[role="dialog"]',
       '[role="alertdialog"]',
@@ -886,13 +904,27 @@ export class OfflineModeManager {
       '.side',
       '[class*="sidebar"]',
       '[id*="sidebar"]',
+      'ins.adsbygoogle',
+      '.adsbygoogle',
+      'amp-ad',
       'iframe',
     ]);
 
     this.removeHiddenOrMarkedElements(body);
     this.removeVisualNoiseElements(body);
     this.removeKeywordNoiseBlocks(body);
+    this.removeAdvertisementLabels(body);
+    this.removeImageHeavyBanners(body);
+    this.normalizeInlineTextSpacing(body);
     this.cleanupEmptyContainers(body);
+
+    if (baseUrl) {
+      try {
+        fixRelativeUrls(body, baseUrl);
+      } catch (urlError) {
+        console.warn('[OfflineModeManager] Failed to normalize relative URLs:', urlError);
+      }
+    }
 
     const cleanedHtml = body.innerHTML.trim();
     if (cleanedHtml.length === 0) {
@@ -902,6 +934,63 @@ export class OfflineModeManager {
       warnings.push('Applied pre-extraction boilerplate cleanup');
     }
     return { html: cleanedHtml, warnings };
+  }
+
+  private static normalizeInlineTextSpacing(root: HTMLElement): void {
+    // Some sites split headings into adjacent spans without whitespace (e.g. "into" + "precise").
+    // This inserts a single space between adjacent inline nodes when both sides are alphanumeric.
+    const targets = Array.from(root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li')) as HTMLElement[];
+
+    for (const el of targets) {
+      if (!el.parentElement) {
+        continue;
+      }
+      if (el.closest('pre, code, kbd, samp')) {
+        continue;
+      }
+
+      const childElementCount = el.children.length;
+      if (childElementCount >= 10) {
+        const smallTokenChildren = Array.from(el.children).filter((child) => {
+          const text = (child.textContent || '').trim();
+          return text.length > 0 && text.length <= 1;
+        }).length;
+        // Likely letter-by-letter styling; do not inject spaces.
+        if (smallTokenChildren / childElementCount >= 0.6) {
+          continue;
+        }
+      }
+
+      let node: ChildNode | null = el.firstChild;
+      while (node && node.nextSibling) {
+        const next = node.nextSibling;
+        if (!(next instanceof Node)) {
+          node = next;
+          continue;
+        }
+
+        const leftText = (node.textContent || '').trim();
+        const rightText = (next.textContent || '').trim();
+        if (!leftText || !rightText) {
+          node = next;
+          continue;
+        }
+
+        // Avoid inserting spaces in split-letter patterns.
+        if (leftText.length <= 1 && rightText.length <= 1) {
+          node = next;
+          continue;
+        }
+
+        const leftChar = leftText[leftText.length - 1];
+        const rightChar = rightText[0];
+        if (/[A-Za-z0-9]/.test(leftChar) && /[A-Za-z0-9]/.test(rightChar)) {
+          el.insertBefore(document.createTextNode(' '), next);
+        }
+
+        node = next;
+      }
+    }
   }
 
   private static removeKeywordNoiseBlocks(root: HTMLElement): void {
@@ -946,6 +1035,104 @@ export class OfflineModeManager {
       }
 
       el.remove();
+    }
+  }
+
+  private static removeSponsoredLinkClusters(root: HTMLElement): void {
+    const sponsoredLinks = Array.from(root.querySelectorAll('a[rel*="sponsored"]')) as HTMLAnchorElement[];
+    if (sponsoredLinks.length === 0) {
+      return;
+    }
+
+    const containerCounts = new Map<HTMLElement, number>();
+    for (const link of sponsoredLinks) {
+      let node: HTMLElement | null = link.parentElement as HTMLElement | null;
+      let depth = 0;
+      while (node && depth < 6) {
+        const tag = (node.tagName || '').toLowerCase();
+        if (tag === 'body' || tag === 'html') {
+          break;
+        }
+        if (tag === 'div' || tag === 'section' || tag === 'aside' || tag === 'header' || tag === 'nav') {
+          containerCounts.set(node, (containerCounts.get(node) || 0) + 1);
+        }
+        node = node.parentElement as HTMLElement | null;
+        depth++;
+      }
+    }
+
+    for (const [container, count] of containerCounts.entries()) {
+      if (!container.parentElement) {
+        continue;
+      }
+      if (container.closest('article, main')) {
+        // Avoid removing any container that sits inside main content; sponsored ribbons live outside.
+        continue;
+      }
+      const textLength = this.normalizeInputText(container.textContent || '').length;
+      const headingCount = container.querySelectorAll('h1, h2, h3, h4').length;
+      const imageCount = container.querySelectorAll('img').length;
+      const linkCount = container.querySelectorAll('a').length;
+
+      // Remove sponsor ribbons/strips: many sponsored links + mostly images + no headings.
+      if (
+        headingCount === 0 &&
+        textLength < 260 &&
+        (count >= 2 || (count >= 1 && imageCount >= 3)) &&
+        (imageCount >= 2 || linkCount <= count + 2)
+      ) {
+        container.remove();
+      }
+    }
+  }
+
+  private static removeAdvertisementLabels(root: HTMLElement): void {
+    const candidates = Array.from(root.querySelectorAll('div, section, aside, p, span')) as HTMLElement[];
+    for (const el of candidates) {
+      if (!el.parentElement) {
+        continue;
+      }
+      if (el.querySelector('article, main, h1, h2, h3, pre, code, table')) {
+        continue;
+      }
+      const text = this.normalizeInputText(el.textContent || '').toLowerCase();
+      if (!text) {
+        continue;
+      }
+      const looksLikeLabel = text === 'advertisement' || text === 'sponsored' || text === 'sponsored content';
+      if (!looksLikeLabel) {
+        continue;
+      }
+      if (el.querySelectorAll('a, button, img, iframe').length > 0) {
+        continue;
+      }
+      el.remove();
+    }
+  }
+
+  private static removeImageHeavyBanners(root: HTMLElement): void {
+    const topLevel = Array.from(root.children).slice(0, 12) as HTMLElement[];
+    for (const el of topLevel) {
+      if (!el.parentElement) {
+        continue;
+      }
+      const tag = (el.tagName || '').toLowerCase();
+      if (tag === 'main' || tag === 'article') {
+        continue;
+      }
+      // Avoid removing primary content containers.
+      if (el.querySelector('article, main, h1, h2')) {
+        continue;
+      }
+      const textLength = this.normalizeInputText(el.textContent || '').length;
+      const imageCount = el.querySelectorAll('img').length;
+      const linkCount = el.querySelectorAll('a').length;
+      if (imageCount >= 3 && textLength < 80 && linkCount >= imageCount) {
+        el.remove();
+      }
+      if (imageCount >= 5 && textLength < 140) {
+        el.remove();
+      }
     }
   }
 
@@ -1641,16 +1828,17 @@ export class OfflineModeManager {
       .replace(/^\s*-\s*(hide|report)\s*$/gim, '')
       .replace(/!\[@[^\]]*]\(https?:\/\/avatars\.githubusercontent\.com\/[^)]+\)/gi, '');
 
-    const lines = sanitized.split('\n');
-    const filtered = lines.filter((line) => {
-      const normalized = this.normalizeInputText(line).toLowerCase();
-      const trimmed = line.trim();
-      if (!normalized) {
-        return true;
-      }
-      if (/^#{1,6}\s/.test(line)) {
-        return true;
-      }
+	    const lines = sanitized.split('\n');
+	    const filtered = lines.filter((line) => {
+	      const normalized = this.normalizeInputText(line).toLowerCase();
+	      const trimmed = line.trim();
+	      const bulletless = trimmed.replace(/^[-*+]\s+/, '').replace(/^\d+\.\s+/, '').trim();
+	      if (!normalized) {
+	        return true;
+	      }
+	      if (/^#{1,6}\s/.test(line)) {
+	        return true;
+	      }
 
       const isUiNoise =
         normalized.length <= 200 &&
@@ -1660,25 +1848,39 @@ export class OfflineModeManager {
           /limit my search to|advanced search: by author|see the search faq|join reddit|view more:/.test(normalized) ||
           /welcome to reddit.*front page of the internet/.test(normalized)
         );
-      const isInlineDataUriNoise =
-        /data:image\/svg\+xml/.test(normalized) ||
-        /svg"><g d="m [\d\s.lcz-]+/.test(normalized);
-      const isCounterNoise = /^\d{1,6}$/.test(trimmed) || /^links from:?$/i.test(trimmed) || /^past (hour|24 hours|week|month|year|all time)$/i.test(trimmed);
-      const isRedditTimeFilterLine =
-        /^\[(past hour|past 24 hours|past week|past month|past year|all time)\]\([^)]+\)$/i.test(trimmed);
-      const isVectorPathLine =
-        /<path d=|stroke-width=|stroke-linecap=|stroke-linejoin=|transform="translate\(/i.test(trimmed) ||
-        /<\/svg>/i.test(trimmed);
-      const isSocialActionLine =
-        /^(share|save|sharesave|copy link|print|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)$/i.test(trimmed) ||
-        /^\[(share|save|copy link|print|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)\]\([^)]+\)$/i.test(trimmed);
-      const isSocialIconMarkdown = /^!\[(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share)\]\(/i.test(trimmed);
-      const isStandaloneMarker = trimmed === '*' || trimmed === '•';
-      const isPreferencePromoLine = /^make us preferred source on google$/i.test(normalized);
-      const isGithubChromeLine =
-        /^\[skip to content\]\(#start-of-content\)$/i.test(trimmed) ||
-        /^\[(sponsor|star)\]\(/i.test(trimmed) ||
-        /^\]\(\/[^)]+\)\[?$/.test(trimmed) ||
+	      const isInlineDataUriNoise =
+	        /data:image\/svg\+xml/.test(normalized) ||
+	        /svg"><g d="m [\d\s.lcz-]+/.test(normalized);
+	      const isCounterNoise =
+	        /^\d{1,6}$/.test(trimmed) ||
+	        /^\d{1,6}$/.test(bulletless) ||
+	        /^links from:?$/i.test(trimmed) ||
+	        /^links from:?$/i.test(bulletless) ||
+	        /^past (hour|24 hours|week|month|year|all time)$/i.test(trimmed) ||
+	        /^past (hour|24 hours|week|month|year|all time)$/i.test(bulletless);
+	      const isRedditTimeFilterLine =
+	        /^\[(past hour|past 24 hours|past week|past month|past year|all time)\]\([^)]+\)$/i.test(trimmed) ||
+	        /^\[(past hour|past 24 hours|past week|past month|past year|all time)\]\([^)]+\)$/i.test(bulletless);
+	      const isVectorPathLine =
+	        /<path d=|stroke-width=|stroke-linecap=|stroke-linejoin=|transform="translate\(/i.test(trimmed) ||
+	        /<\/svg>/i.test(trimmed);
+	      const isSocialActionLine =
+	        /^(share|save|sharesave|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)$/i.test(trimmed) ||
+	        /^(share|save|sharesave|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)$/i.test(bulletless) ||
+	        /^\[(share|save|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)\]\([^)]+\)$/i.test(trimmed) ||
+	        /^\[(share|save|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)\]\([^)]+\)$/i.test(bulletless);
+	      const isSocialIconMarkdown =
+	        /^!\[(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share|print|reddit)\]\(/i.test(trimmed) ||
+	        /^!\[(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share|print|reddit)\]\(/i.test(bulletless);
+	      const isStandaloneMarker = trimmed === '*' || trimmed === '•';
+	      const isPreferencePromoLine = /^make us preferred source on google$/i.test(normalized);
+	      const isAdvertisementMarker =
+	        /^(advertisement|sponsored content|sponsored)$/i.test(trimmed) ||
+	        /^(advertisement|sponsored content|sponsored)$/i.test(bulletless);
+	      const isGithubChromeLine =
+	        /^\[skip to content\]\(#.+\)$/i.test(trimmed) ||
+	        /^\[(sponsor|star)\]\(/i.test(trimmed) ||
+	        /^\]\(\/[^)]+\)\[?$/.test(trimmed) ||
         /^built by\s*\[?$/i.test(trimmed);
 
       return !(
@@ -1691,6 +1893,7 @@ export class OfflineModeManager {
         isSocialIconMarkdown ||
         isStandaloneMarker ||
         isPreferencePromoLine ||
+        isAdvertisementMarker ||
         isGithubChromeLine
       );
     });
@@ -3092,7 +3295,24 @@ export class OfflineModeManager {
     }, 0);
     score -= Math.min(18, Math.round(warningPenalty));
 
-    const sourceTextLength = this.normalizeInputText(extractTextContent(originalHtml)).length;
+    // Calibrate "retention" and structural comparisons against the most-likely content root
+    // rather than the entire HTML document (which includes chrome we *want* to remove).
+    let sourceTextLength = 0;
+    let sourceHeadingCount = 0;
+    try {
+      const sourceDoc = safeParseHTML(originalHtml);
+      if (sourceDoc && sourceDoc.body) {
+        const root = this.selectCoverageRoot(sourceDoc);
+        sourceTextLength = this.normalizeInputText(root.textContent || '').length;
+        sourceHeadingCount = root.querySelectorAll('h1, h2, h3, h4, h5, h6').length;
+      }
+    } catch {
+      // fall back to string-based extraction below
+    }
+    if (sourceTextLength === 0) {
+      sourceTextLength = this.normalizeInputText(extractTextContent(originalHtml)).length;
+      sourceHeadingCount = (originalHtml.match(/<h[1-6]/gi) || []).length;
+    }
     const markdownTextLength = this.normalizeInputText(markdown).length;
     const textRetentionRatio = sourceTextLength > 0 ? markdownTextLength / sourceTextLength : 1;
 
@@ -3107,9 +3327,8 @@ export class OfflineModeManager {
 
     // Check structure preservation
     const headings = (markdown.match(/^#{1,6}\s/gm) || []).length;
-    const originalHeadings = (originalHtml.match(/<h[1-6]/gi) || []).length;
-    if (originalHeadings > 0 && headings === 0) score -= 18;
-    else if (originalHeadings >= 4 && headings < Math.ceil(originalHeadings * 0.25)) score -= 10;
+    if (sourceHeadingCount > 0 && headings === 0) score -= 18;
+    else if (sourceHeadingCount >= 4 && headings < Math.ceil(sourceHeadingCount * 0.25)) score -= 10;
 
     // Check for markdown quality
     const rawHtmlTagCount = (
@@ -3125,7 +3344,6 @@ export class OfflineModeManager {
     if (decorativeImageCount > 0) score -= Math.min(12, decorativeImageCount * 2);
 
     if (markdown.match(/\n{4,}/)) score -= 10; // Excessive whitespace
-    if (warnings.some(w => /hidden|invisible/i.test(w))) score -= 20;
 
     // Penalize fragmented low-signal token lines (common in list/avatar chrome leaks)
     const suspiciousTokenLines = markdown.split('\n').filter((line) => {
