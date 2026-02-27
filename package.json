@@ -17,6 +17,8 @@
     "test": "vitest run",
     "test:ui": "vitest",
     "test:smoke": "vitest run tests/hooks.test.tsx tests/ByokSettings.test.tsx tests/offline-processor.test.ts tests/ai-proxy.byok-cors.test.ts tests/runtime-profile.test.ts",
+    "byok:check": "node scripts/byok-self-check.mjs",
+    "byok:compare": "RUN_BYOK_COMPARISON=1 vitest run tests/byok-offline-comparison.manual.test.ts",
     "test:offline:promptready": "vitest run tests/offline-promptready-iteration.test.ts",
     "test:offline:corpus": "vitest run tests/offline-fixture-regression.test.ts",
     "test:offline:news": "vitest run tests/offline-news-fixture-regression.test.ts",
