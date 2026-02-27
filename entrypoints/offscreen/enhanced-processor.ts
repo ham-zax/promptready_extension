@@ -13,6 +13,7 @@ import { PerformanceMetrics } from '../../core/performance-metrics.js';
 import { getRuntimeProfile, validateRuntimeProfile, assertRuntimeProfileSafe } from '../../lib/runtime-profile.js';
 import { normalizeByokProvider } from '../../lib/byok-provider.js';
 import { buildCanonicalMetadata, canonicalizeDeliveredMarkdown } from '../../lib/markdown-canonicalizer.js';
+import { buildByokPrompt } from '../../core/prompts/byok-prompt.js';
 
 interface ProcessingMessage {
   type: 'ENHANCED_OFFSCREEN_PROCESS';
@@ -350,15 +351,27 @@ export class EnhancedOffscreenProcessor {
         return offlineResult;
       }
 
-      // Use OpenRouter BYOK client (single provider workflow)
+      // Use OpenRouter BYOK client (single provider workflow) with a prompt
+      // template sourced from markdown so it is easy to iterate without touching
+      // processing code.
       this.sendProgress(
         runtimeProfile.isDevelopment
           ? 'Using OpenRouter BYOK in development...'
           : 'Using your OpenRouter key for AI processing...',
       40,
       'byok-processing');
+
+      const byokPrompt = buildByokPrompt({
+        html,
+        url,
+        title,
+        selectionHash,
+        metadataHtml,
+        capturedAt: new Date().toISOString(),
+      });
+
       const byokResult = await BYOKClient.makeRequest(
-        { prompt: html, maxTokens: 4000, temperature: 0.7 }, // Use html as prompt
+        { prompt: byokPrompt, maxTokens: 4000, temperature: 0.7 },
         {
           apiBase: 'https://openrouter.ai/api/v1',
           apiKey: apiKey.trim(),
