@@ -182,6 +182,7 @@ export type MessageType =
   | 'CAPTURE_SELECTION_ONLY' // UI → Content Script (no fallback)
   | 'CAPTURE_COMPLETE'     // Content Script → Service Worker
   | 'PROCESSING_COMPLETE'  // Service Worker → UI
+  | 'PROCESSING_FALLBACK'  // Service Worker → UI (non-fatal AI fallback)
   | 'EXPORT_REQUEST'       // UI → Service Worker
   | 'EXPORT_COMPLETE'      // Service Worker → UI
   | 'OFFSCREEN_READY'      // Offscreen → Service Worker
@@ -226,6 +227,13 @@ export type ProcessingCompleteMessage = Message<'PROCESSING_COMPLETE', {
   aiProvider?: 'openrouter' | null;
   aiOutcome?: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed';
   fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed';
+}>;
+
+export type ProcessingFallbackMessage = Message<'PROCESSING_FALLBACK', {
+  error: string;
+  stage: string;
+  fallbackUsed: true;
+  timestamp?: string;
 }>;
 
 export type ExportRequestMessage = Message<'EXPORT_REQUEST', {

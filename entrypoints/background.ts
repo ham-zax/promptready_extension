@@ -1113,7 +1113,18 @@ export class EnhancedContentProcessor {
 
     if (fallbackUsed) {
       console.log('Fallback was used, processing may continue');
-      // Don't broadcast error if fallback was successful
+      // Broadcast a non-fatal fallback notice so the popup can show which AI step failed.
+      await this.broadcastMessage({
+        type: 'PROCESSING_FALLBACK',
+        payload: {
+          error,
+          stage,
+          fallbackUsed: true,
+          timestamp: new Date().toISOString(),
+        },
+      }).catch((err) => {
+        console.warn('[Background] Failed to broadcast PROCESSING_FALLBACK notice:', err);
+      });
       return;
     }
 

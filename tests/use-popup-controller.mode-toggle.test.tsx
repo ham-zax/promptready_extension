@@ -235,6 +235,34 @@ describe('usePopupController mode toggle guard', () => {
     );
   });
 
+  it('shows warning toast when AI falls back to offline output', async () => {
+    let runtimeListener: ((message: any) => void) | undefined;
+    mocks.addListener.mockImplementation((listener: any) => {
+      runtimeListener = listener;
+    });
+
+    mocks.getSettings.mockResolvedValue(makeSettings());
+    const { result } = renderHook(() => usePopupController());
+
+    await waitFor(() => {
+      expect(result.current.state.processing.status).toBe('idle');
+    });
+
+    act(() => {
+      runtimeListener?.({
+        type: 'PROCESSING_COMPLETE',
+        payload: {
+          exportMd: '# Done',
+          exportJson: { version: '1.0' },
+          metadata: { title: 'Done', url: 'https://example.com' },
+          aiOutcome: 'fallback_request_failed',
+        },
+      });
+    });
+
+    expect(result.current.state.toast?.type).toBe('warning');
+  });
+
   it('copies directly from popup clipboard before background fallback', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {

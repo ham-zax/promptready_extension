@@ -16,7 +16,7 @@ import { ProUpgradePrompt } from './components/ProUpgradePrompt';
 import { Storage } from '@/lib/storage';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { browser } from 'wxt/browser';
-import { LayoutTemplate, Settings as SettingsIcon, ClipboardCopy, Download, FileJson, Code2, Globe, CheckCircle2, X } from 'lucide-react';
+import { LayoutTemplate, Settings as SettingsIcon, ClipboardCopy, Download, FileJson, Code2, Globe, CheckCircle2, AlertTriangle, X } from 'lucide-react';
 
 // Developer mode activation state
 let devKeySequence = '';
@@ -29,6 +29,8 @@ export default function RefactoredPopup() {
   const [processingStep, setProcessingStep] = useState('initialization');
   const [processingComplete, setProcessingComplete] = useState(false);
   const [autoCloseCountdown, setAutoCloseCountdown] = useState<number | null>(null);
+  const [aiFallbackInfo, setAiFallbackInfo] = useState<{ stage: string; error: string } | null>(null);
+  const [lastAiOutcome, setLastAiOutcome] = useState<string>('not_attempted');
 
   useEffect(() => {
     // Listen for processing progress
@@ -44,14 +46,41 @@ export default function RefactoredPopup() {
         return;
       }
 
+      if (message.type === 'PROCESSING_FALLBACK') {
+        const stage = typeof message?.payload?.stage === 'string' ? message.payload.stage : 'ai-processing';
+        const error = typeof message?.payload?.error === 'string' ? message.payload.error : 'AI request failed';
+        setAiFallbackInfo({ stage, error });
+        setProcessingStage('AI failed — switching to offline processing…');
+        setIsProcessing(true);
+        setProcessingComplete(false);
+        setAutoCloseCountdown(null);
+        return;
+      }
+
       if (message.type === 'PROCESSING_COMPLETE') {
         setIsProcessing(false);
         setProcessingComplete(true);
         setProcessingStep('complete');
 
-        const aiOutcome = message?.payload?.aiOutcome;
+        const aiOutcome = typeof message?.payload?.aiOutcome === 'string'
+          ? message.payload.aiOutcome
+          : 'not_attempted';
+        setLastAiOutcome(aiOutcome);
+
         const aiResponseReceived = aiOutcome === 'success';
-        setProcessingStage(aiResponseReceived ? 'AI response received' : 'Content ready');
+        const aiFailed = aiOutcome.startsWith('fallback_');
+
+        if (!aiFailed) {
+          setAiFallbackInfo(null);
+        }
+
+        setProcessingStage(
+          aiResponseReceived
+            ? 'AI response received'
+            : aiFailed
+              ? 'AI failed — offline output ready'
+              : 'Content ready'
+        );
 
         // Check user preference for auto-close (AI mode stays open for explicit confirmation).
         const checkAutoClose = async () => {
@@ -130,7 +159,7 @@ export default function RefactoredPopup() {
   const byokManager = useByokManager();
   const proManager = useProManager();
   const toastManager = useToastManager();
-  const { showSuccess, showError, showInfo } = toastManager;
+  const { showSuccess, showError, showInfo, showWarning } = toastManager;
 
   // Bridge legacy controller toasts into the new toast manager so copy/export
   // completion notifications are actually visible in the refactored popup UI.
@@ -147,8 +176,13 @@ export default function RefactoredPopup() {
       return;
     }
 
+    if (state.toast.type === 'warning') {
+      showWarning(state.toast.message);
+      return;
+    }
+
     showInfo(state.toast.message);
-  }, [state.toast, showSuccess, showError, showInfo]);
+  }, [state.toast, showSuccess, showError, showWarning, showInfo]);
 
   const [showSettings, setShowSettings] = useState(false);
 
@@ -234,6 +268,8 @@ export default function RefactoredPopup() {
     setProcessingStep('initialization');
     setProcessingStage(state.mode === 'ai' ? 'Preparing AI request...' : 'Capturing content...');
     setAutoCloseCountdown(null);
+    setAiFallbackInfo(null);
+    setLastAiOutcome('not_attempted');
 
     try {
       await handleCapture();
@@ -262,6 +298,30 @@ export default function RefactoredPopup() {
     : typeof state.credits?.remaining === 'number'
     ? `${Math.max(0, state.credits.remaining)} credits left`
     : 'Checking credits…';
+
+  const formatPipelineStage = (stage: string): string => {
+    switch (stage) {
+      case 'initialization':
+        return 'Capture request queued';
+      case 'preprocessing':
+        return 'Cleaning and preparing content';
+      case 'ai-processing':
+        return 'Sending request to OpenRouter';
+      case 'byok-processing':
+        return 'Waiting for AI response';
+      case 'postprocessing':
+        return 'Validating and finalizing output';
+      case 'fallback':
+        return 'Fallback to offline pipeline';
+      default:
+        return stage;
+    }
+  };
+
+  const truncateMessage = (value: string, max = 140): string => {
+    if (!value) return '';
+    return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+  };
 
   return (
     <div className="relative w-96 max-h-[600px] bg-background text-foreground antialiased flex flex-col overflow-hidden">
@@ -398,19 +458,50 @@ export default function RefactoredPopup() {
               <div>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Export Options</h3>
 
-                {state.mode === 'ai' && state.exportData && (
-                  <div
-                    className={`mb-3 rounded-lg border px-2.5 py-2 text-xs font-medium ${
-                      state.exportData.aiOutcome === 'success'
-                        ? 'border-emerald-600/30 bg-emerald-600/10 text-emerald-700'
-                        : 'border-amber-500/30 bg-amber-500/10 text-amber-700'
-                    }`}
-                  >
-                    {state.exportData.aiOutcome === 'success'
-                      ? 'AI response received from OpenRouter.'
-                      : 'AI request fell back to offline processing. Verify output before sharing.'}
-                  </div>
-                )}
+                {state.mode === 'ai' && state.exportData && (() => {
+                  const outcome = state.exportData.aiOutcome || 'not_attempted';
+                  const isSuccess = outcome === 'success';
+                  const isMissingKey = outcome === 'fallback_missing_key';
+                  const isRequestFailed = outcome === 'fallback_request_failed';
+
+                  const toneClass = isSuccess
+                    ? 'border-emerald-600/30 bg-emerald-600/10 text-emerald-700'
+                    : isMissingKey
+                      ? 'border-sky-600/30 bg-sky-600/10 text-sky-700'
+                      : isRequestFailed
+                        ? 'border-rose-600/30 bg-rose-600/10 text-rose-700'
+                        : 'border-amber-600/30 bg-amber-600/10 text-amber-800';
+
+                  const title = isSuccess
+                    ? 'AI processed successfully'
+                    : isMissingKey
+                      ? 'AI not configured (offline output generated)'
+                      : 'AI failed (offline output generated)';
+
+                  const detail = isSuccess
+                    ? 'OpenRouter response received.'
+                    : isMissingKey
+                      ? 'Add an OpenRouter API key in Settings to enable AI processing.'
+                      : aiFallbackInfo
+                        ? `Failed at ${formatPipelineStage(aiFallbackInfo.stage)}: ${truncateMessage(aiFallbackInfo.error)}`
+                        : 'AI request failed and the extension used the offline pipeline instead.';
+
+                  return (
+                    <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${toneClass}`}>
+                      <div className="flex items-start gap-2">
+                        {isSuccess ? (
+                          <CheckCircle2 className="mt-0.5 h-4 w-4" />
+                        ) : (
+                          <AlertTriangle className="mt-0.5 h-4 w-4" />
+                        )}
+                        <div className="min-w-0">
+                          <div className="font-semibold">{title}</div>
+                          <div className="mt-0.5 text-[11px] opacity-85 leading-snug">{detail}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
               <div className="grid grid-cols-2 gap-2">
                 {/* Copy Markdown (Card) */}
@@ -544,30 +635,71 @@ export default function RefactoredPopup() {
       </div>
 
       {/* Processing complete notification */}
-      {processingComplete && (
-        <div className="absolute bottom-4 left-4 right-4 bg-card border border-border text-foreground px-4 py-3 rounded-xl shadow-lg flex items-center justify-between animate-in slide-in-from-bottom-4 duration-300 z-50">
-          <div className="flex items-center space-x-3">
-            <div className="rounded-full bg-emerald-50 p-1 border border-emerald-200">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+      {processingComplete && (() => {
+        const outcome = lastAiOutcome || 'not_attempted';
+        const isFallback = state.mode === 'ai' && outcome.startsWith('fallback_');
+        const isMissingKey = outcome === 'fallback_missing_key';
+        const isRequestFailed = outcome === 'fallback_request_failed';
+
+        const iconWrapClass = isFallback
+          ? isMissingKey
+            ? 'bg-sky-50 border-sky-200'
+            : isRequestFailed
+              ? 'bg-rose-50 border-rose-200'
+              : 'bg-amber-50 border-amber-200'
+          : 'bg-emerald-50 border-emerald-200';
+
+        const iconClass = isFallback
+          ? isMissingKey
+            ? 'text-sky-700'
+            : isRequestFailed
+              ? 'text-rose-700'
+              : 'text-amber-700'
+          : 'text-emerald-600';
+
+        const title = isFallback
+          ? isMissingKey
+            ? 'Offline output ready (AI not configured)'
+            : 'Offline output ready (AI failed)'
+          : 'Content ready';
+
+        const detail =
+          isFallback && aiFallbackInfo
+            ? `Failed at ${formatPipelineStage(aiFallbackInfo.stage)}`
+            : undefined;
+
+        return (
+          <div className="absolute bottom-4 left-4 right-4 bg-card border border-border text-foreground px-4 py-3 rounded-xl shadow-lg flex items-center justify-between animate-in slide-in-from-bottom-4 duration-300 z-50">
+            <div className="flex items-center space-x-3">
+              <div className={`rounded-full p-1 border ${iconWrapClass}`}>
+                {isFallback ? (
+                  <AlertTriangle className={`w-4 h-4 ${iconClass}`} />
+                ) : (
+                  <CheckCircle2 className={`w-4 h-4 ${iconClass}`} />
+                )}
+              </div>
+              <div>
+                <p className="font-semibold text-sm">{title}</p>
+                {detail && (
+                  <p className="text-xs text-muted-foreground mt-0.5">{detail}</p>
+                )}
+                {autoCloseCountdown !== null && (
+                  <p className="text-xs text-muted-foreground mt-0.5">Closing in {autoCloseCountdown}s...</p>
+                )}
+              </div>
             </div>
-            <div>
-              <p className="font-semibold text-sm">Content ready</p>
-              {autoCloseCountdown !== null && (
-                <p className="text-xs text-muted-foreground mt-0.5">Closing in {autoCloseCountdown}s...</p>
-              )}
-            </div>
+            <button
+              onClick={() => {
+                setAutoCloseCountdown(null);
+                setProcessingComplete(false);
+              }}
+              className="text-muted-foreground hover:text-foreground active:scale-95 transition-all p-1 rounded-md hover:bg-muted"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
-          <button
-            onClick={() => {
-              setAutoCloseCountdown(null);
-              setProcessingComplete(false);
-            }}
-            className="text-muted-foreground hover:text-foreground active:scale-95 transition-all p-1 rounded-md hover:bg-muted"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Toast Notifications */}
       <ToastContainer
@@ -589,6 +721,8 @@ export default function RefactoredPopup() {
           status={state.processing.status}
           stage={processingStep}
           mode={state.mode}
+          failedStage={aiFallbackInfo?.stage}
+          failedMessage={aiFallbackInfo?.error}
           message={processingStage || state.processing.message}
           progress={state.processing.progress}
         />

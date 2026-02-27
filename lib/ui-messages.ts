@@ -16,6 +16,9 @@ export const UI_MESSAGES = {
   switchedToMode: (mode: string) => `Switched to ${mode.toUpperCase()} mode`,
   capturingContent: 'Capturing content...',
   processingFailed: (err: string) => `Processing failed: ${err}`,
+  aiFallbackRequestFailed: 'AI processing failed — used offline output.',
+  aiFallbackMissingKey: 'No OpenRouter key configured — used offline output.',
+  aiFallbackProviderUnsupported: 'Unsupported AI provider — used offline output.',
 
   // Export / copy
   contentProcessed: 'Content processed successfully!',

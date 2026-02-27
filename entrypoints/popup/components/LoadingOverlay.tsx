@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, LoaderCircle } from 'lucide-react';
+import { CheckCircle2, LoaderCircle, XCircle } from 'lucide-react';
 
 type LoadingOverlayProps = {
   status: 'idle' | 'capturing' | 'cleaning' | 'structuring' | 'exporting' | 'complete' | 'error' | 'processing';
@@ -7,6 +7,8 @@ type LoadingOverlayProps = {
   progress?: number;
   stage?: string;
   mode?: 'offline' | 'ai';
+  failedStage?: string;
+  failedMessage?: string;
 };
 
 type StageItem = {
@@ -58,7 +60,7 @@ function stageFromStatus(status: LoadingOverlayProps['status']): string {
   return 'initialization';
 }
 
-export function LoadingOverlay({ status, message, progress, stage, mode = 'offline' }: LoadingOverlayProps) {
+export function LoadingOverlay({ status, message, progress, stage, mode = 'offline', failedStage, failedMessage }: LoadingOverlayProps) {
   const label = message || statusToLabel(status);
   const pct = typeof progress === 'number' ? Math.max(0, Math.min(100, progress)) : undefined;
   const stages = mode === 'ai' ? AI_STAGES : OFFLINE_STAGES;
@@ -89,27 +91,45 @@ export function LoadingOverlay({ status, message, progress, stage, mode = 'offli
 
       <ul className="mt-4 w-full max-w-[320px] space-y-1.5">
         {stages.map((item, index) => {
-          const isDone = index < activeIndex;
-          const isActive = index === activeIndex;
+          const failedStageId = typeof failedStage === 'string' ? failedStage : '';
+          const isFailed = Boolean(failedStageId) && item.id === failedStageId;
+          const isDone = index < activeIndex && !isFailed;
+          const isActive = index === activeIndex && !isFailed;
+
+          const truncatedFailure =
+            typeof failedMessage === 'string' && failedMessage
+              ? (failedMessage.length > 140 ? `${failedMessage.slice(0, 139)}…` : failedMessage)
+              : '';
+
           return (
             <li
               key={item.id}
-              className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px] ${
-                isDone
+              className={`flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-[11px] ${
+                isFailed
+                  ? 'border-rose-600/30 bg-rose-600/10 text-rose-700'
+                  : isDone
                   ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
                   : isActive
                   ? 'border-brand-primary/30 bg-brand-surface text-foreground'
                   : 'border-border bg-card text-muted-foreground'
               }`}
             >
-              {isDone ? (
+              {isFailed ? (
+                <XCircle className="mt-0.5 w-3.5 h-3.5" />
+              ) : isDone ? (
                 <CheckCircle2 className="w-3.5 h-3.5" />
               ) : isActive ? (
                 <LoaderCircle className="w-3.5 h-3.5 animate-spin" />
               ) : (
                 <span className="w-3.5 h-3.5 rounded-full border border-current/60" />
               )}
-              <span>{item.label}</span>
+
+              <div className="min-w-0">
+                <div>{item.label}</div>
+                {isFailed && truncatedFailure && (
+                  <div className="mt-0.5 text-[10px] opacity-80 leading-snug">{truncatedFailure}</div>
+                )}
+              </div>
             </li>
           );
         })}

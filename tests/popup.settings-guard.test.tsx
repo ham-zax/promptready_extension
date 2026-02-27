@@ -150,6 +150,7 @@ describe('Popup settings mount guard', () => {
       hideToast: vi.fn(),
       showSuccess: vi.fn(),
       showError: vi.fn(),
+      showWarning: vi.fn(),
       showInfo: vi.fn(),
     });
     mocks.tabsQuery.mockResolvedValue([]);
@@ -192,6 +193,7 @@ describe('Popup settings mount guard', () => {
       hideToast: vi.fn(),
       showSuccess,
       showError: vi.fn(),
+      showWarning: vi.fn(),
       showInfo: vi.fn(),
     });
 

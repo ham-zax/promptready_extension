@@ -42,7 +42,7 @@ interface PopupState {
   } | null;
   toast: {
     message: string;
-    type: 'success' | 'error' | 'info';
+    type: 'success' | 'error' | 'info' | 'warning';
   } | null;
   showUpgrade: boolean;
   settingsView: 'main' | 'byokChoice' | 'byokConfig';
@@ -61,7 +61,7 @@ type PopupAction =
   | { type: 'PROCESSING_PROGRESS'; payload: { status: string; message?: string; progress?: number } }
   | { type: 'PROCESSING_COMPLETE'; payload: { markdown: string; json: any; metadata: any; warnings?: string[]; qualityReport?: any; stats?: any; aiAttempted?: boolean; aiProvider?: 'openrouter' | null; aiOutcome?: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed'; fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed' } }
   | { type: 'PROCESSING_ERROR'; payload: { error: string } }
-  | { type: 'SHOW_TOAST'; payload: { message: string; type: 'success' | 'error' | 'info' } }
+  | { type: 'SHOW_TOAST'; payload: { message: string; type: 'success' | 'error' | 'info' | 'warning' } }
   | { type: 'HIDE_TOAST' }
   | { type: 'SHOW_UPGRADE' }
   | { type: 'HIDE_UPGRADE' }
@@ -256,7 +256,7 @@ export function usePopupController() {
   const [state, dispatch] = useReducer(popupReducer, initialState);
 
   // Toast helper
-  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
     dispatch({ type: 'SHOW_TOAST', payload: { message, type } });
     setTimeout(() => {
       dispatch({ type: 'HIDE_TOAST' });
@@ -336,7 +336,21 @@ export function usePopupController() {
                       pipeline === 'intelligent-bypass'
                         ? UI_MESSAGES.intelligentBypassSuccess
                         : UI_MESSAGES.contentProcessed;
-                    showToast(successMessage, 'success');
+
+                    const aiOutcome = (msg?.payload as any)?.aiOutcome;
+                    const isFallback = typeof aiOutcome === 'string' && aiOutcome.startsWith('fallback_');
+
+                    if (isFallback) {
+                      const fallbackMessage =
+                        aiOutcome === 'fallback_missing_key'
+                          ? UI_MESSAGES.aiFallbackMissingKey
+                          : aiOutcome === 'fallback_provider'
+                            ? UI_MESSAGES.aiFallbackProviderUnsupported
+                            : UI_MESSAGES.aiFallbackRequestFailed;
+                      showToast(fallbackMessage, 'warning');
+                    } else {
+                      showToast(successMessage, 'success');
+                    }
                   }
                   break;
                 case 'EXPORT_COMPLETE':
@@ -397,12 +411,26 @@ export function usePopupController() {
             type: 'PROCESSING_COMPLETE',
             payload: message.payload,
           });
-          // Show a dynamic success message when intelligent-bypass pipeline was used
+          // Show a dynamic completion message; AI fallbacks should be visible to users.
           const pipeline = (message?.payload as any)?.stats?.pipelineUsed;
           const successMessage = pipeline === 'intelligent-bypass'
             ? UI_MESSAGES.intelligentBypassSuccess
             : UI_MESSAGES.contentProcessed;
-          showToast(successMessage, 'success');
+
+          const aiOutcome = (message?.payload as any)?.aiOutcome;
+          const isFallback = typeof aiOutcome === 'string' && aiOutcome.startsWith('fallback_');
+
+          if (isFallback) {
+            const fallbackMessage =
+              aiOutcome === 'fallback_missing_key'
+                ? UI_MESSAGES.aiFallbackMissingKey
+                : aiOutcome === 'fallback_provider'
+                  ? UI_MESSAGES.aiFallbackProviderUnsupported
+                  : UI_MESSAGES.aiFallbackRequestFailed;
+            showToast(fallbackMessage, 'warning');
+          } else {
+            showToast(successMessage, 'success');
+          }
           break;
         }
 
