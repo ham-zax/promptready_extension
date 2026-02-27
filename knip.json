@@ -1,0 +1,52 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "entrypoints/background.ts",
+    "entrypoints/content.ts",
+    "entrypoints/options/main.ts",
+    "entrypoints/popup/main.tsx",
+    "entrypoints/offscreen/enhanced-processor.ts",
+    "functions/**/index.ts",
+    "scripts/**/*.mjs",
+    "tests/**/*.{test,spec}.{ts,tsx}",
+    "test/**/*.ts"
+  ],
+  "project": [
+    "components/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+    "content/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+    "core/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+    "entrypoints/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,html,css}",
+    "functions/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+    "lib/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+    "pro/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+    "scripts/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+    "services/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,py}",
+    "test/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,md}",
+    "tests/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+    "types/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+    "assets/**/*.css"
+  ],
+  "ignoreBinaries": [
+    "prettier",
+    "commitlint"
+  ],
+  "ignoreDependencies": [
+    "@tailwindcss/vite",
+    "@wxt-dev/module-react",
+    "dompurify",
+    "wrangler"
+  ],
+  "rules": {
+    "exports": "warn",
+    "types": "warn",
+    "duplicates": "warn",
+    "enumMembers": "warn"
+  },
+  "ignoreExportsUsedInFile": {
+    "interface": true,
+    "type": true
+  },
+  "tags": [
+    "-lintignore"
+  ]
+}

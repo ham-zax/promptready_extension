@@ -9,5 +9,7 @@
     },
     "types": ["vitest/globals", "node"]
   },
-  "exclude": []
+  "exclude": [
+    "archive/**"
+  ]
 }
