@@ -245,6 +245,8 @@ export type ByokMessageResponse = Message<'BYOK_MESSAGE_RESPONSE', {
 export type FetchModelsMessage = Message<'FETCH_MODELS', {
   provider?: 'openrouter';
   apiBase?: string; // allow override
+  freeOnly?: boolean;
+  forceRefresh?: boolean;
 }>;
 
 export type ModelsResultMessage = Message<'MODELS_RESULT', {

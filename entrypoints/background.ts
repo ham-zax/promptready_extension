@@ -9,6 +9,10 @@ import type { ExportMetadata } from '../lib/types.js';
 
 import { ContentQualityValidator } from '../core/content-quality-validator.js';
 import { SessionMetricsStore } from '../core/metrics-session-store.js';
+import {
+  fallbackOpenRouterFreeModelOptions,
+  selectOpenRouterModelOptions,
+} from '../lib/openrouter-models.js';
 
 export default defineBackground(() => {
   const runtimeProfile = getRuntimeProfile();
@@ -54,6 +58,13 @@ type ExportData = {
   fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed';
 };
 
+type OpenRouterModelItem = {
+  id: string;
+  name: string;
+  isFree?: boolean;
+  contextLength?: number;
+};
+
 function isExportData(value: unknown): value is ExportData {
   if (!value || typeof value !== 'object') return false;
   const v = value as any;
@@ -77,6 +88,8 @@ export class EnhancedContentProcessor {
   private fingerprintCleanupTimer: any = null;
   private captureDebounceTimer: any = null;
   private readonly CAPTURE_DEBOUNCE_MS = 500; // 500ms debounce
+  private readonly OPENROUTER_MODELS_CACHE_TTL_MS = 10 * 60 * 1000;
+  private readonly OPENROUTER_MODELS_TIMEOUT_MS = 12_000;
 
   constructor() {
     // Setup periodic cleanup of old fingerprints every 2 minutes
@@ -559,6 +572,11 @@ export class EnhancedContentProcessor {
           console.log('Content script ready signal received from tab');
           break;
 
+        case 'FETCH_MODELS':
+          await this.handleFetchModels(message);
+          sendResponse({ success: true });
+          break;
+
         default:
           console.warn('Unknown message type:', message.type);
           break;
@@ -569,6 +587,178 @@ export class EnhancedContentProcessor {
     }
 
     return true; // Keep message channel open
+  }
+
+  private normalizeApiBase(apiBase: unknown): string {
+    const fallback = 'https://openrouter.ai/api/v1';
+    if (typeof apiBase !== 'string' || !apiBase.trim()) {
+      return fallback;
+    }
+
+    try {
+      const parsed = new URL(apiBase.trim());
+      return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '');
+    } catch {
+      return fallback;
+    }
+  }
+
+  private coerceModelItems(value: unknown): OpenRouterModelItem[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value
+      .filter((item) => Boolean(item) && typeof item === 'object')
+      .map((item) => {
+        const model = item as Record<string, unknown>;
+        const id = typeof model.id === 'string' ? model.id : '';
+        const name = typeof model.name === 'string' ? model.name : '';
+        const isFree = typeof model.isFree === 'boolean' ? model.isFree : undefined;
+        const contextLength = typeof model.contextLength === 'number' ? model.contextLength : undefined;
+        return { id, name, isFree, contextLength } satisfies OpenRouterModelItem;
+      })
+      .filter((model) => model.id.trim().length > 0 && model.name.trim().length > 0);
+  }
+
+  private async readCachedOpenRouterModels(cacheKey: string): Promise<OpenRouterModelItem[] | null> {
+    const metaKey = `${cacheKey}_meta`;
+    const result = (await browser.storage.session.get([metaKey])) as Record<string, unknown>;
+    const raw = result[metaKey];
+
+    if (!raw || typeof raw !== 'object') {
+      return null;
+    }
+
+    const entry = raw as Record<string, unknown>;
+    const timestamp = typeof entry.timestamp === 'number' ? entry.timestamp : 0;
+    if (Date.now() - timestamp > this.OPENROUTER_MODELS_CACHE_TTL_MS) {
+      return null;
+    }
+
+    const models = this.coerceModelItems(entry.models);
+    return models.length > 0 ? models : null;
+  }
+
+  private async writeCachedOpenRouterModels(cacheKey: string, models: OpenRouterModelItem[]): Promise<void> {
+    const metaKey = `${cacheKey}_meta`;
+    await browser.storage.session.set({
+      [cacheKey]: models,
+      [metaKey]: {
+        timestamp: Date.now(),
+        models,
+      },
+    });
+  }
+
+  private async getOpenRouterApiKey(): Promise<string> {
+    try {
+      const settings = await Storage.getSettings();
+      return (settings?.byok?.apiKey || '').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  private async requestOpenRouterModels(apiBase: string, apiKey: string): Promise<unknown> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.OPENROUTER_MODELS_TIMEOUT_MS);
+
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://promptready.app/',
+        'X-Title': 'PromptReady Extension',
+        'X-OpenRouter-Title': 'PromptReady Extension',
+      };
+      if (apiKey) {
+        headers.Authorization = `Bearer ${apiKey}`;
+      }
+
+      const response = await fetch(`${apiBase}/models`, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`OpenRouter models request failed: ${response.status} ${text.slice(0, 200)}`);
+      }
+
+      return await response.json();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async publishModelResults(models: OpenRouterModelItem[], freeOnly: boolean): Promise<void> {
+    await this.broadcastMessage({
+      type: 'MODELS_RESULT',
+      payload: { models, freeOnly },
+    });
+  }
+
+  private async handleFetchModels(message: unknown): Promise<void> {
+    const payload = (message && typeof message === 'object')
+      ? ((message as Record<string, unknown>).payload as Record<string, unknown> | undefined)
+      : undefined;
+
+    const provider = typeof payload?.provider === 'string' ? payload.provider : 'openrouter';
+    if (provider !== 'openrouter') {
+      await this.broadcastMessage({ type: 'ERROR', payload: { message: 'Only OpenRouter is supported.' } });
+      return;
+    }
+
+    const apiBase = this.normalizeApiBase(payload?.apiBase);
+    const freeOnly = payload?.freeOnly !== false;
+    const forceRefresh = payload?.forceRefresh === true;
+    const cacheKey = freeOnly ? 'openrouter_models_free' : 'openrouter_models_all';
+
+    if (!forceRefresh) {
+      const cached = await this.readCachedOpenRouterModels(cacheKey);
+      if (cached && cached.length > 0) {
+        await this.publishModelResults(cached, freeOnly);
+        return;
+      }
+    }
+
+    try {
+      const apiKey = await this.getOpenRouterApiKey();
+      const rawPayload = await this.requestOpenRouterModels(apiBase, apiKey);
+      const selected = selectOpenRouterModelOptions(rawPayload, { freeOnly }).map((model) => ({
+        id: model.id,
+        name: model.name,
+        isFree: model.isFree,
+        contextLength: model.contextLength,
+      }));
+
+      await this.writeCachedOpenRouterModels(cacheKey, selected);
+      await this.publishModelResults(selected, freeOnly);
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : 'Unknown models fetch error';
+      console.warn('[Background] Failed to fetch OpenRouter models:', messageText);
+
+      const fallback = freeOnly
+        ? fallbackOpenRouterFreeModelOptions().map((model) => ({
+          id: model.id,
+          name: model.name,
+          isFree: model.isFree,
+          contextLength: model.contextLength,
+        }))
+        : [];
+
+      if (fallback.length > 0) {
+        await this.writeCachedOpenRouterModels(cacheKey, fallback);
+        await this.publishModelResults(fallback, freeOnly);
+        return;
+      }
+
+      await this.broadcastMessage({
+        type: 'ERROR',
+        payload: { message: 'Failed to load OpenRouter models. Please try Refresh.' },
+      });
+    }
   }
 
   /**
