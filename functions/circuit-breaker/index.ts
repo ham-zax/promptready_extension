@@ -1,9 +1,38 @@
-
 /// <reference types="@cloudflare/workers-types" />
 
 export interface Env {
   // This binding is provided by Cloudflare and holds our key-value store.
   BUDGET_KV: KVNamespace;
+  SERVICE_SECRET: string;
+  ALLOWED_ORIGINS?: string;
+}
+
+function isServiceAuthenticated(request: Request, env: Env): boolean {
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return false;
+  }
+
+  const token = authHeader.substring('Bearer '.length);
+  return token === env.SERVICE_SECRET;
+}
+
+function isOriginAllowed(request: Request, env: Env): boolean {
+  const origin = request.headers.get('Origin');
+  if (!origin) {
+    return false;
+  }
+
+  const allowedOrigins = (env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  if (allowedOrigins.length === 0) {
+    return false;
+  }
+
+  return allowedOrigins.includes(origin);
 }
 
 export default {
@@ -13,6 +42,19 @@ export default {
     _ctx: ExecutionContext
   ): Promise<Response> {
     try {
+      if (!isServiceAuthenticated(request, env) && !isOriginAllowed(request, env)) {
+        return new Response(
+          JSON.stringify({
+            status: 'UNAUTHORIZED',
+            error: 'Access denied',
+          }),
+          {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
       // 1. Get the current weekly spend and the weekly cap from the KV store.
       const weeklySpendStr = await env.BUDGET_KV.get('weekly_spend_usd');
       const weeklyCapStr = await env.BUDGET_KV.get('weekly_cap_usd');

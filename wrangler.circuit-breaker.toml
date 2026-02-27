@@ -8,3 +8,5 @@ id = "placeholder_for_local_dev_3"
 
 [vars]
 weekly_cap_usd = "100"
+SERVICE_SECRET = "local-secret-string"
+ALLOWED_ORIGINS = ""

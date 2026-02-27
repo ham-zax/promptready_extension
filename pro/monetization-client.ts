@@ -5,8 +5,13 @@ import { getRuntimeProfile } from '@/lib/runtime-profile';
 // --- Define the explicit API response contracts ---
 
 interface CheckCreditsApiResponse {
-  balance: number;
-  weeklyCap: number;
+  // Canonical UI contract is { balance, weeklyCap }.
+  // credit-service currently returns { creditsRemaining }.
+  // ai-proxy may return { balance, weeklyCap } (preferred).
+  creditsRemaining?: number;
+  balance?: number;
+  weeklyCap?: number;
+  userId?: string;
 }
 
 interface ProcessAiSuccessResponse {
@@ -40,6 +45,13 @@ export interface ProcessAIResponse {
 
 export interface BillingActionResponse {
   success: boolean;
+  error?: string;
+}
+
+export interface EnsureUserResponse {
+  success: boolean;
+  balance?: number;
+  weeklyCap?: number;
   error?: string;
 }
 
@@ -96,12 +108,57 @@ export class MonetizationClient {
   /**
    * Checks a user's credit balance by calling the backend endpoint.
    */
+  static async ensureUser(userId: string): Promise<EnsureUserResponse> {
+    if (this.shouldFailOpenWithoutNetwork()) {
+      return { success: true, ...this.unlimitedCredits() };
+    }
+
+    const url = `${this.getApiBase()}/user/create`;
+
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+
+      if (!resp.ok) {
+        if (!this.shouldSuppressFallbackLog(resp.status)) {
+          console.warn(`[MonetizationClient] ensureUser returned ${resp.status}`);
+        }
+        return { success: false, error: `HTTP_${resp.status}` };
+      }
+
+      const data = await resp.json() as CheckCreditsApiResponse;
+
+      const balance =
+        typeof data.balance === 'number'
+          ? data.balance
+          : typeof data.creditsRemaining === 'number'
+            ? data.creditsRemaining
+            : 0;
+
+      const weeklyCap = typeof data.weeklyCap === 'number' ? data.weeklyCap : this.DEV_BALANCE;
+
+      return { success: true, balance, weeklyCap };
+    } catch (err) {
+      if (!this.shouldSuppressFallbackLog()) {
+        console.error('[MonetizationClient] ensureUser error:', err);
+      }
+      return { success: false, error: 'NETWORK_ERROR' };
+    }
+  }
+
   static async checkCredits(userId: string): Promise<CheckCreditsResponse> {
     if (this.shouldFailOpenWithoutNetwork()) {
       return this.unlimitedCredits();
     }
 
-    const url = `${this.getApiBase()}/user/status`; // Corrected endpoint from your functions/credit-service
+    // Ensure the user exists / is provisioned once.
+    // If provisioning fails, we still attempt /user/status (some deployments may pre-provision).
+    await this.ensureUser(userId).catch(() => undefined);
+
+    const url = `${this.getApiBase()}/user/status`;
 
     try {
       const resp = await fetch(url, {
@@ -118,13 +175,19 @@ export class MonetizationClient {
         return this.unlimitedCredits();
       }
 
-      // Use the type assertion here
       const data = await resp.json() as CheckCreditsApiResponse;
-      
-      return {
-        balance: typeof data.balance === 'number' ? data.balance : 0,
-        weeklyCap: typeof data.weeklyCap === 'number' ? data.weeklyCap : 0,
-      };
+
+      const balance =
+        typeof data.balance === 'number'
+          ? data.balance
+          : typeof data.creditsRemaining === 'number'
+            ? data.creditsRemaining
+            : 0;
+
+      const weeklyCap = typeof data.weeklyCap === 'number' ? data.weeklyCap : this.DEV_BALANCE;
+
+      // Keep UI contract stable: always return { balance, weeklyCap }.
+      return { balance, weeklyCap };
     } catch (err) {
       if (!this.shouldSuppressFallbackLog()) {
         console.error('[MonetizationClient] checkCredits error:', err);
