@@ -7,10 +7,12 @@ import { processWithProviderChain } from '../../core/extraction-provider.js';
 
 import { BYOKClient } from '../../pro/byok-client';
 import { CaptureDiagnostics, Settings } from '../../lib/types';
+import type { ExportMetadata } from '../../lib/types';
 import { MarkdownPostProcessor } from '../../core/post-processor.js';
 import { PerformanceMetrics } from '../../core/performance-metrics.js';
 import { getRuntimeProfile, validateRuntimeProfile, assertRuntimeProfileSafe } from '../../lib/runtime-profile.js';
 import { normalizeByokProvider } from '../../lib/byok-provider.js';
+import { buildCanonicalMetadata, canonicalizeDeliveredMarkdown } from '../../lib/markdown-canonicalizer.js';
 
 interface ProcessingMessage {
   type: 'ENHANCED_OFFSCREEN_PROCESS';
@@ -178,7 +180,15 @@ export class EnhancedOffscreenProcessor {
       if (mode === 'offline') {
         processingResult = await this.processOfflineMode(html, url, title, finalConfig, metadataHtml);
       } else {
-        processingResult = await this.processAIMode(html, url, title, finalConfig, settings, metadataHtml);
+        processingResult = await this.processAIMode(
+          html,
+          url,
+          title,
+          finalConfig,
+          settings,
+          metadataHtml,
+          selectionHash
+        );
       }
 
       // Propagate selectionHash back to the background so it can map results to originating tab
@@ -200,6 +210,33 @@ export class EnhancedOffscreenProcessor {
         }
       } catch (attachErr) {
         console.warn('[EnhancedOffscreenProcessor] Failed to attach selectionHash to result:', attachErr);
+      }
+
+      const warnings = Array.isArray(processingResult.warnings) ? processingResult.warnings : [];
+      const metadata = buildCanonicalMetadata(
+        processingResult.metadata as Partial<ExportMetadata>,
+        {
+          title,
+          url,
+          capturedAt: new Date().toISOString(),
+          selectionHash: selectionHash || undefined,
+        }
+      );
+      processingResult.metadata = metadata;
+      processingResult.exportMd = canonicalizeDeliveredMarkdown(processingResult.exportMd || '', metadata, warnings);
+      processingResult.warnings = warnings;
+      if (processingResult.exportJson && typeof processingResult.exportJson === 'object') {
+        if (!processingResult.exportJson.metadata) {
+          processingResult.exportJson.metadata = metadata;
+        } else {
+          processingResult.exportJson.metadata = {
+            ...processingResult.exportJson.metadata,
+            ...metadata,
+          };
+        }
+        if (processingResult.exportJson.content && typeof processingResult.exportJson.content === 'object') {
+          processingResult.exportJson.content.markdown = processingResult.exportMd;
+        }
       }
 
       return processingResult;
@@ -238,7 +275,6 @@ export class EnhancedOffscreenProcessor {
 
     const exportJson = this.generateStructuredExport(result, url, title);
 
-    this.sendComplete(result.markdown, exportJson, result.metadata, result.processingStats, result.warnings, html, aiTrace);
     return {
       exportMd: result.markdown,
       exportJson,
@@ -256,7 +292,8 @@ export class EnhancedOffscreenProcessor {
     title: string,
     config: OfflineModeConfig,
     settings: Settings, // Add settings here
-    metadataHtml?: string
+    metadataHtml?: string,
+    selectionHash?: string
   ): Promise<ProcessingCompleteMessage['payload']> {
     this.sendProgress('Sending to AI for processing...', 30, 'ai-processing');
 
@@ -336,26 +373,21 @@ export class EnhancedOffscreenProcessor {
 
       this.sendProgress('Post-processing AI response...', 80, 'postprocessing');
       const postResult = MarkdownPostProcessor.process(processedMarkdown, {});
-      const exportJson = this.generateStructuredExport(postResult, url, title);
-
-      this.sendComplete(
-        postResult.markdown,
-        exportJson,
-        { title, url },
-        {},
-        aiWarnings,
-        html,
-        {
-          aiAttempted: true,
-          aiProvider: 'openrouter',
-          aiOutcome: 'success',
-        }
+      const canonicalMetadata = buildCanonicalMetadata(
+        { title, url, selectionHash },
+        { title, url, capturedAt: new Date().toISOString(), selectionHash }
       );
+      const canonicalMarkdown = canonicalizeDeliveredMarkdown(postResult.markdown, canonicalMetadata, aiWarnings);
+      const exportJson = this.generateStructuredExport(postResult, url, title);
+      if (exportJson?.content && typeof exportJson.content === 'object') {
+        exportJson.content.markdown = canonicalMarkdown;
+      }
+      exportJson.metadata = { ...(exportJson.metadata || {}), ...canonicalMetadata };
 
       return {
-        exportMd: postResult.markdown,
+        exportMd: canonicalMarkdown,
         exportJson,
-        metadata: { title, url },
+        metadata: canonicalMetadata,
         stats: {},
         warnings: aiWarnings,
         originalHtml: html,

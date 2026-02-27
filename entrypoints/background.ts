@@ -60,7 +60,7 @@ function isExportData(value: unknown): value is ExportData {
   return typeof v.markdown === 'string' && 'json' in v && 'metadata' in v;
 }
 
-class EnhancedContentProcessor {
+export class EnhancedContentProcessor {
   private readonly offscreenPath = '/offscreen.html' as const;
   private readonly EXPORT_DATA_KEY = 'currentExportData';
   private offscreenCreationPromise: Promise<void> | null = null;
@@ -787,8 +787,13 @@ class EnhancedContentProcessor {
       const sourceMetadata = (metadata || exportJson?.metadata || {}) as Partial<ExportMetadata>;
       const canonicalMetadata = this.buildCanonicalMetadata(sourceMetadata);
 
-      // Enforce one canonical finalization path for every delivery route.
-      const finalMd = this.canonicalizeDeliveredMarkdown(exportMd || '', canonicalMetadata, warnings);
+      // Offscreen is the single source of truth for markdown finalization.
+      // Background must treat exportMd as canonical and avoid re-finalizing it.
+      let finalMd = typeof exportMd === 'string' ? exportMd : '';
+      if (!finalMd.trim()) {
+        warnings.push('processing_warning:empty_markdown_payload');
+        finalMd = this.canonicalizeDeliveredMarkdown('', canonicalMetadata, warnings);
+      }
 
       // BMAD TRACE: log the finalized markdown after insertion (or unchanged)
       console.log('[BMAD_TRACE] Background after cite block insertion:', (finalMd || '').substring(0, 100));
@@ -987,19 +992,10 @@ class EnhancedContentProcessor {
         throw new Error('No content provided for clipboard copy');
       }
 
-      const currentExportData = await this.getCurrentExportData();
-      const canonicalMetadata = this.buildCanonicalMetadata(
-        (currentExportData?.metadata || message.payload?.metadata || {}) as Partial<ExportMetadata>
-      );
-      const normalizedContent = this.canonicalizeDeliveredMarkdown(
-        content,
-        canonicalMetadata
-      );
-
-      console.log('[Background] Handling clipboard copy request, content length:', normalizedContent.length);
+      console.log('[Background] Handling clipboard copy request, content length:', content.length);
 
       // Enhanced clipboard copy with better error handling
-      await this.copyToClipboardEnhanced(normalizedContent);
+      await this.copyToClipboardEnhanced(content);
 
       // Send success response back to popup
       await this.broadcastMessage({

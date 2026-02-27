@@ -56,6 +56,8 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
           model: 'arcee-ai/trinity-large-preview:free',
         },
       } as any,
+      undefined,
+      'sel-123',
     );
 
     expect(byokSpy).toHaveBeenCalledTimes(1);
@@ -64,6 +66,9 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
     expect(result.aiAttempted).toBe(true);
     expect(result.aiProvider).toBe('openrouter');
     expect(result.aiOutcome).toBe('success');
+    expect(result.exportMd).toContain('> Source: [Title](https://example.com)');
+    expect(result.exportMd).toContain('> Hash: sel-123');
+    expect(result.exportMd).toContain('# normalized');
   });
 
   it('returns deterministic fallback trace when key is missing', async () => {
