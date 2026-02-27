@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import Popup from '@/entrypoints/popup/Popup';
 
 const mocks = vi.hoisted(() => ({
@@ -131,6 +131,7 @@ describe('Popup settings mount guard', () => {
         hasApiKey: false,
         processing: { status: 'idle' },
         exportData: null,
+        toast: null,
         showUpgrade: false,
       },
       hasContent: false,
@@ -144,7 +145,13 @@ describe('Popup settings mount guard', () => {
 
     mocks.useByokManager.mockReturnValue({ hasApiKey: false });
     mocks.useProManager.mockReturnValue({ isInTrial: false });
-    mocks.useToastManager.mockReturnValue({ toasts: [], hideToast: vi.fn(), showSuccess: vi.fn() });
+    mocks.useToastManager.mockReturnValue({
+      toasts: [],
+      hideToast: vi.fn(),
+      showSuccess: vi.fn(),
+      showError: vi.fn(),
+      showInfo: vi.fn(),
+    });
     mocks.tabsQuery.mockResolvedValue([]);
   });
 
@@ -153,5 +160,45 @@ describe('Popup settings mount guard', () => {
 
     expect(screen.queryByTestId('unified-settings')).not.toBeInTheDocument();
     expect(screen.getByText('Capture Content')).toBeInTheDocument();
+  });
+
+  it('forwards controller copy success toast to toast manager', async () => {
+    const showSuccess = vi.fn();
+
+    mocks.usePopupController.mockReturnValue({
+      state: {
+        mode: 'offline',
+        isPro: false,
+        settings: undefined,
+        credits: { remaining: 10, total: 10, lastReset: new Date().toISOString() },
+        trial: { hasExhausted: false },
+        hasApiKey: false,
+        processing: { status: 'idle' },
+        exportData: null,
+        toast: { message: 'Copied to clipboard!', type: 'success' },
+        showUpgrade: false,
+      },
+      hasContent: false,
+      handleModeToggle: vi.fn(),
+      handleCapture: vi.fn(),
+      handleCopy: vi.fn(),
+      handleExport: vi.fn(),
+      handleUpgradeClose: vi.fn(),
+      onSettingsChange: vi.fn(),
+    });
+
+    mocks.useToastManager.mockReturnValue({
+      toasts: [],
+      hideToast: vi.fn(),
+      showSuccess,
+      showError: vi.fn(),
+      showInfo: vi.fn(),
+    });
+
+    render(<Popup />);
+
+    await waitFor(() => {
+      expect(showSuccess).toHaveBeenCalledWith('Copied to clipboard!');
+    });
   });
 });

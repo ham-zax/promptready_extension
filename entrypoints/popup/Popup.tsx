@@ -111,6 +111,25 @@ export default function RefactoredPopup() {
   const byokManager = useByokManager();
   const proManager = useProManager();
   const toastManager = useToastManager();
+  const { showSuccess, showError, showInfo } = toastManager;
+
+  // Bridge legacy controller toasts into the new toast manager so copy/export
+  // completion notifications are actually visible in the refactored popup UI.
+  useEffect(() => {
+    if (!state.toast) return;
+
+    if (state.toast.type === 'success') {
+      showSuccess(state.toast.message);
+      return;
+    }
+
+    if (state.toast.type === 'error') {
+      showError(state.toast.message);
+      return;
+    }
+
+    showInfo(state.toast.message);
+  }, [state.toast, showSuccess, showError, showInfo]);
 
   const [showSettings, setShowSettings] = useState(false);
 
