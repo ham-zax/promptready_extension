@@ -78,7 +78,7 @@ const PROCESSING_PROFILES: ProcessingProfile[] = [
 
 export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingProfilesProps) {
   const selectedProfile = settings.processing?.profile || 'standard';
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(true);
 
   const handleProfileChange = (profileId: string) => {
     const profile = PROCESSING_PROFILES.find(p => p.id === profileId);

@@ -16,6 +16,48 @@ export default defineContentScript({
     // and finally shows a manual UI prompt if all programmatic approaches fail.
     // ====================================================================================
 
+    function showInPageToast(message: string, tone: 'success' | 'warning' = 'success'): void {
+      try {
+        const existing = document.getElementById('promptready-inline-toast');
+        if (existing) {
+          existing.remove();
+        }
+
+        const toast = document.createElement('div');
+        toast.id = 'promptready-inline-toast';
+        toast.textContent = message;
+        toast.style.position = 'fixed';
+        toast.style.right = '16px';
+        toast.style.bottom = '16px';
+        toast.style.zIndex = '2147483647';
+        toast.style.padding = '10px 12px';
+        toast.style.borderRadius = '10px';
+        toast.style.fontSize = '12px';
+        toast.style.fontWeight = '600';
+        toast.style.boxShadow = '0 6px 20px rgba(0,0,0,0.15)';
+        toast.style.border = tone === 'success' ? '1px solid #16a34a33' : '1px solid #f59e0b66';
+        toast.style.background = tone === 'success' ? '#ecfdf3' : '#fffbeb';
+        toast.style.color = tone === 'success' ? '#166534' : '#92400e';
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        toast.style.transition = 'all 180ms ease-out';
+
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => {
+          toast.style.opacity = '1';
+          toast.style.transform = 'translateY(0)';
+        });
+
+        setTimeout(() => {
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateY(10px)';
+          setTimeout(() => toast.remove(), 200);
+        }, 2200);
+      } catch (toastError) {
+        console.warn('[BMAD_CLIPBOARD] Failed to display in-page toast:', toastError);
+      }
+    }
+
     async function copyTextToClipboard(text: string): Promise<{ success: boolean; method?: string; error?: unknown }> {
       // Check permissions API for additional diagnostics
       const permState = await checkClipboardPermission();
@@ -35,6 +77,7 @@ export default defineContentScript({
           console.log('[BMAD_CLIPBOARD] Success via navigator.clipboard');
           // Notify background/popup that copy succeeded
           await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'navigator.clipboard' } }).catch(() => { });
+          showInPageToast('PromptReady copied content to your clipboard.');
           return { success: true, method: 'navigator.clipboard' };
         }
       } catch (err) {
@@ -60,6 +103,7 @@ export default defineContentScript({
         if (ok) {
           console.log('[BMAD_CLIPBOARD] Success via execCommand fallback');
           await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'execCommand' } }).catch(() => { });
+          showInPageToast('PromptReady copied content to your clipboard.');
           return { success: true, method: 'execCommand' };
         }
       } catch (err) {
@@ -70,6 +114,7 @@ export default defineContentScript({
       try {
         showManualCopyPrompt(text);
         await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: false, method: 'manual-prompt' } }).catch(() => { });
+        showInPageToast('Automatic copy failed. Use the manual copy dialog.', 'warning');
         return { success: false, method: 'manual-prompt' };
       } catch (err) {
         console.error('[BMAD_CLIPBOARD] Manual prompt failed:', err);
@@ -155,6 +200,7 @@ export default defineContentScript({
                 await navigator.clipboard.writeText(manualTextArea.value);
                 console.log('[BMAD_CLIPBOARD] Manual Copy button: success via navigator.clipboard');
                 await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'manual-button:navigator.clipboard' } }).catch(() => { });
+                showInPageToast('PromptReady copied content to your clipboard.');
                 // Clean up before removing
                 try {
                   document.body.removeChild(promptDiv);
@@ -173,6 +219,7 @@ export default defineContentScript({
             if (ok) {
               console.log('[BMAD_CLIPBOARD] Manual Copy button: success via execCommand');
               await browser.runtime.sendMessage({ type: 'COPY_COMPLETE', payload: { success: true, method: 'manual-button:execCommand' } }).catch(() => { });
+              showInPageToast('PromptReady copied content to your clipboard.');
               try {
                 document.body.removeChild(promptDiv);
               } catch {

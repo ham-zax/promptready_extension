@@ -26,6 +26,7 @@ const DEV_MODE_SEQUENCE = 'devmode'; // Type 'devmode' to activate
 export default function RefactoredPopup() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStage, setProcessingStage] = useState('');
+  const [processingStep, setProcessingStep] = useState('initialization');
   const [processingComplete, setProcessingComplete] = useState(false);
   const [autoCloseCountdown, setAutoCloseCountdown] = useState<number | null>(null);
 
@@ -33,24 +34,35 @@ export default function RefactoredPopup() {
     // Listen for processing progress
     const handleProgress = (message: any) => {
       if (message.type === 'PROCESSING_PROGRESS') {
-        setProcessingStage(message.payload.message);
+        const stage = typeof message?.payload?.stage === 'string' ? message.payload.stage : 'processing';
+        const statusMessage = typeof message?.payload?.message === 'string' ? message.payload.message : 'Processing...';
+        setProcessingStep(stage);
+        setProcessingStage(statusMessage);
         setIsProcessing(true);
         setProcessingComplete(false);
-      } else if (message.type === 'PROCESSING_COMPLETE') {
+        setAutoCloseCountdown(null);
+        return;
+      }
+
+      if (message.type === 'PROCESSING_COMPLETE') {
         setIsProcessing(false);
         setProcessingComplete(true);
-        
-        // Check user preference for auto-close
+        setProcessingStep('complete');
+
+        const aiOutcome = message?.payload?.aiOutcome;
+        const aiResponseReceived = aiOutcome === 'success';
+        setProcessingStage(aiResponseReceived ? 'AI response received' : 'Content ready');
+
+        // Check user preference for auto-close (AI mode stays open for explicit confirmation).
         const checkAutoClose = async () => {
           const settings = await Storage.getSettings();
-          // Default to keeping popup open (true) if setting doesn't exist
           const keepOpen = settings?.ui?.keepPopupOpen ?? true;
           const delay = settings?.ui?.autoCloseDelay ?? 3000;
+          const isAiFlow = typeof aiOutcome === 'string' && aiOutcome !== 'not_attempted';
 
-          if (!keepOpen) {
-            // Start countdown
+          if (!keepOpen && !isAiFlow) {
             setAutoCloseCountdown(Math.floor(delay / 1000));
-            
+
             const countdownInterval = setInterval(() => {
               setAutoCloseCountdown(prev => {
                 if (prev === null || prev <= 1) {
@@ -61,23 +73,29 @@ export default function RefactoredPopup() {
                 return prev - 1;
               });
             }, 1000);
-          } else {
-            console.log('[Popup] Keeping popup open (keepPopupOpen:', keepOpen, ')');
+            return;
           }
+
+          setAutoCloseCountdown(null);
+          console.log('[Popup] Keeping popup open after processing');
         };
 
         checkAutoClose();
-      } else if (message.type === 'PROCESSING_ERROR') {
+        return;
+      }
+
+      if (message.type === 'PROCESSING_ERROR') {
         if (message?.payload?.fallbackUsed) {
           // Expected degradation path: AI attempt failed and pipeline continues in offline mode.
           return;
         }
         setIsProcessing(false);
         setProcessingComplete(false);
+        setProcessingStep('error');
         setAutoCloseCountdown(null);
       }
     };
-  
+
     browser.runtime.onMessage.addListener(handleProgress);
     return () => browser.runtime.onMessage.removeListener(handleProgress);
   }, []);
@@ -99,6 +117,7 @@ export default function RefactoredPopup() {
   const {
     state,
     hasContent,
+    isProcessing: controllerIsProcessing,
     handleModeToggle,
     handleCapture,
     handleCopy,
@@ -207,6 +226,23 @@ export default function RefactoredPopup() {
     setShowSettings(true);
   };
 
+  const processingActive = isProcessing || controllerIsProcessing;
+
+  const handleCaptureWithUiLock = async () => {
+    setIsProcessing(true);
+    setProcessingComplete(false);
+    setProcessingStep('initialization');
+    setProcessingStage(state.mode === 'ai' ? 'Preparing AI request...' : 'Capturing content...');
+    setAutoCloseCountdown(null);
+
+    try {
+      await handleCapture();
+    } catch {
+      setIsProcessing(false);
+      setProcessingStep('error');
+    }
+  };
+
   const animationsEnabled = state.settings?.ui?.animations ?? true;
   const revealClass = animationsEnabled ? 'animate-in fade-in slide-in-from-bottom-2 duration-300' : '';
   const modeStatusLabel =
@@ -304,9 +340,9 @@ export default function RefactoredPopup() {
         <div className="p-4 flex-1 flex flex-col gap-3">
           <section className={`rounded-2xl border border-border bg-card p-3 shadow-sm ${revealClass}`}>
             <PrimaryButton
-              onClick={handleCapture}
+              onClick={handleCaptureWithUiLock}
               disabled={
-                isProcessing ||
+                processingActive ||
                 (
                   state.mode === 'ai' &&
                   state.credits?.remaining === 0 &&
@@ -314,20 +350,20 @@ export default function RefactoredPopup() {
                   !byokManager.hasApiKey
                 )
               }
-              isProcessing={isProcessing}
-              processingText={processingStage || 'Processing...'}
+              isProcessing={processingActive}
+              processingText={processingStage || state.processing.message || 'Processing...'}
             >
               Capture Content
             </PrimaryButton>
 
-            {!hasContent && !isProcessing && (
+            {!hasContent && !processingActive && (
               <p className="mt-2 px-1 text-xs text-muted-foreground leading-snug">
                 Capture the active tab and generate clean Markdown + structured JSON in one click.
               </p>
             )}
 
             {/* Processing Progress */}
-            {isProcessing && state.processing.progress && (
+            {processingActive && state.processing.progress && (
               <div className="mt-3">
                 <div className="bg-muted rounded-full h-1.5 overflow-hidden border border-border">
                   <div
@@ -336,7 +372,7 @@ export default function RefactoredPopup() {
                   ></div>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2 text-center font-medium animate-pulse">
-                  {state.processing.message}
+                  {state.processing.message || processingStage}
                 </p>
               </div>
             )}
@@ -361,6 +397,20 @@ export default function RefactoredPopup() {
             <div className={`space-y-3 rounded-2xl border border-border bg-card p-3 shadow-sm ${revealClass}`}>
               <div>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Export Options</h3>
+
+                {state.mode === 'ai' && state.exportData && (
+                  <div
+                    className={`mb-3 rounded-lg border px-2.5 py-2 text-xs font-medium ${
+                      state.exportData.aiOutcome === 'success'
+                        ? 'border-emerald-600/30 bg-emerald-600/10 text-emerald-700'
+                        : 'border-amber-500/30 bg-amber-500/10 text-amber-700'
+                    }`}
+                  >
+                    {state.exportData.aiOutcome === 'success'
+                      ? 'AI response received from OpenRouter.'
+                      : 'AI request fell back to offline processing. Verify output before sharing.'}
+                  </div>
+                )}
 
               <div className="grid grid-cols-2 gap-2">
                 {/* Copy Markdown (Card) */}
@@ -501,14 +551,17 @@ export default function RefactoredPopup() {
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             </div>
             <div>
-              <p className="font-semibold text-sm">Content copied!</p>
+              <p className="font-semibold text-sm">Content ready</p>
               {autoCloseCountdown !== null && (
                 <p className="text-xs text-muted-foreground mt-0.5">Closing in {autoCloseCountdown}s...</p>
               )}
             </div>
           </div>
           <button
-            onClick={() => setAutoCloseCountdown(null)}
+            onClick={() => {
+              setAutoCloseCountdown(null);
+              setProcessingComplete(false);
+            }}
             className="text-muted-foreground hover:text-foreground active:scale-95 transition-all p-1 rounded-md hover:bg-muted"
           >
             <X className="w-4 h-4" />
@@ -531,8 +584,14 @@ export default function RefactoredPopup() {
           handleUpgradeClose();
         }}
       />
-      {isProcessing && (
-        <LoadingOverlay status="processing" message={processingStage} progress={undefined} />
+      {processingActive && (
+        <LoadingOverlay
+          status={state.processing.status}
+          stage={processingStep}
+          mode={state.mode}
+          message={processingStage || state.processing.message}
+          progress={state.processing.progress}
+        />
       )}
     </div>
   );

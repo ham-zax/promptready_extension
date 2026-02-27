@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ProcessingProfiles } from '@/entrypoints/popup/components/ProcessingProfiles';
 import type { Settings } from '@/lib/types';
 
@@ -42,16 +42,27 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
   };
 }
 
+afterEach(() => {
+  cleanup();
+});
+
 describe('ProcessingProfiles deep capture toggle', () => {
-  it('updates capture policy when deep capture is toggled in advanced settings', () => {
+  it('shows deep capture toggle without opening advanced settings', () => {
     const onSettingsChange = vi.fn();
     render(<ProcessingProfiles settings={makeSettings()} onSettingsChange={onSettingsChange} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
-    expect(screen.getByText('Capture Strategy')).toBeInTheDocument();
-    const checkbox = screen.getByRole('checkbox', {
+    expect(
+      screen.getByRole('checkbox', { name: /enable deep capture \(full-page only\)/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('updates capture policy when deep capture is toggled', () => {
+    const onSettingsChange = vi.fn();
+    render(<ProcessingProfiles settings={makeSettings()} onSettingsChange={onSettingsChange} />);
+
+    const checkbox = screen.getAllByRole('checkbox', {
       name: /enable deep capture \(full-page only\)/i,
-    }) as HTMLInputElement;
+    })[0] as HTMLInputElement;
     expect(checkbox.checked).toBe(false);
 
     fireEvent.click(checkbox);

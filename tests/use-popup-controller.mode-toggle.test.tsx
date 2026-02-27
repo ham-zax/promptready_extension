@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getCohort: vi.fn(),
   addListener: vi.fn(),
   removeListener: vi.fn(),
+  runtimeSendMessage: vi.fn(),
   sessionGet: vi.fn(),
   sessionRemove: vi.fn(),
 }));
@@ -20,7 +21,7 @@ vi.mock('wxt/browser', () => ({
         addListener: mocks.addListener,
         removeListener: mocks.removeListener,
       },
-      sendMessage: vi.fn(),
+      sendMessage: mocks.runtimeSendMessage,
     },
     storage: {
       session: {
@@ -98,6 +99,7 @@ describe('usePopupController mode toggle guard', () => {
     mocks.getCohort.mockResolvedValue(undefined);
     mocks.sessionGet.mockResolvedValue({});
     mocks.sessionRemove.mockResolvedValue(undefined);
+    mocks.runtimeSendMessage.mockResolvedValue(undefined);
     mocks.updateSettings.mockResolvedValue(undefined);
   });
 
@@ -199,5 +201,61 @@ describe('usePopupController mode toggle guard', () => {
     });
 
     expect(result.current.state.processing.status).toBe('idle');
+  });
+
+  it('does not auto-copy when PROCESSING_COMPLETE is received', async () => {
+    let runtimeListener: ((message: any) => void) | undefined;
+    mocks.addListener.mockImplementation((listener: any) => {
+      runtimeListener = listener;
+    });
+
+    mocks.getSettings.mockResolvedValue(makeSettings());
+    const { result } = renderHook(() => usePopupController());
+
+    await waitFor(() => {
+      expect(result.current.state.processing.status).toBe('idle');
+    });
+
+    mocks.runtimeSendMessage.mockClear();
+
+    act(() => {
+      runtimeListener?.({
+        type: 'PROCESSING_COMPLETE',
+        payload: {
+          exportMd: '# Done',
+          exportJson: { version: '1.0' },
+          metadata: { title: 'Done', url: 'https://example.com' },
+          aiOutcome: 'success',
+        },
+      });
+    });
+
+    expect(mocks.runtimeSendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'EXPORT_REQUEST' }),
+    );
+  });
+
+  it('copies directly from popup clipboard before background fallback', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+
+    mocks.getSettings.mockResolvedValue(makeSettings());
+    const { result } = renderHook(() => usePopupController());
+
+    await waitFor(() => {
+      expect(result.current.state.processing.status).toBe('idle');
+    });
+
+    mocks.runtimeSendMessage.mockClear();
+
+    await act(async () => {
+      await result.current.handleCopy('hello world');
+    });
+
+    expect(writeText).toHaveBeenCalledWith('hello world');
+    expect(mocks.runtimeSendMessage).not.toHaveBeenCalled();
   });
 });

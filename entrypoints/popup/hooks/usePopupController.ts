@@ -403,18 +403,6 @@ export function usePopupController() {
             ? UI_MESSAGES.intelligentBypassSuccess
             : UI_MESSAGES.contentProcessed;
           showToast(successMessage, 'success');
-
-          // Auto-copy Markdown after processing completes (like working version)
-          (async () => {
-            try {
-              await browser.runtime.sendMessage({
-                type: 'EXPORT_REQUEST',
-                payload: { format: 'md', action: 'copy' },
-              });
-            } catch (e) {
-              console.warn('Auto-copy request failed:', e);
-            }
-          })();
           break;
         }
 
@@ -586,23 +574,36 @@ export function usePopupController() {
         payload: { error: error instanceof Error ? error.message : 'Capture failed' },
       });
       showToast(UI_MESSAGES.failedToCapture, 'error');
+      throw (error instanceof Error ? error : new Error('Capture failed'));
     }
   }, [showToast]);
 
   const handleCopy = useCallback(async (content: string) => {
-    try {
-      console.log('handleCopy called, delegating to background script...');
+    const text = typeof content === 'string' ? content : '';
+    if (!text.trim()) {
+      showToast(UI_MESSAGES.noContentToExport, 'error');
+      return;
+    }
 
-      // Always delegate to background script (like the working version)
+    try {
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText === 'function'
+      ) {
+        await navigator.clipboard.writeText(text);
+        showToast(UI_MESSAGES.copiedToClipboard, 'success');
+        return;
+      }
+    } catch (error) {
+      console.warn('Popup clipboard write failed, delegating to background:', error);
+    }
+
+    try {
       await browser.runtime.sendMessage({
         type: 'EXPORT_REQUEST',
-        payload: { format: 'md', action: 'copy', content },
+        payload: { format: 'md', action: 'copy', content: text },
       });
-
-      console.log('Copy request sent to background successfully');
-      // Success toast will be shown via EXPORT_COMPLETE message
-      // Popup will close after receiving EXPORT_COMPLETE/COPY_COMPLETE message
-
     } catch (error) {
       console.error('Copy request failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Copy failed';
