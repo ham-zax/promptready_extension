@@ -78,6 +78,60 @@ Configure these in your Cloudflare Workers:
 - `CREDITS_KV`: KV namespace for user credits
 - `BUDGET_KV`: KV namespace for budget tracking
 
+### BYOK Self-Check Pipeline (OpenRouter)
+Use this when you want to directly verify BYOK key health outside the extension UI.
+
+```bash
+# Provide your key via env (do not commit it)
+export OPENROUTER_API_KEY="sk-or-v1-..."
+
+# Optional overrides
+export BYOK_CHECK_MODEL="openai/gpt-oss-20b:free"
+export BYOK_CHECK_TIMEOUT_MS="20000"
+
+# Run direct BYOK health check
+npm run byok:check
+```
+
+Expected outcomes:
+- `AUTH_AND_CHAT_OK` → key works and chat completion succeeded.
+- `AUTH_OK_NO_CREDITS` → key is valid but account has no usable credits (acceptable for test keys).
+
+### Dynamic OpenRouter Model Picker (Free-first)
+When a BYOK key is saved, the popup model selector now loads models dynamically from OpenRouter `GET /api/v1/models`.
+
+- Free-only toggle (default) to avoid accidental paid model selection.
+- All-models toggle when you want the full catalog.
+- Includes `openrouter/free` router option for automatic free-model routing.
+- Session cache with refresh button for deterministic reload.
+
+### Offline vs BYOK Comparison Pipeline
+Run a manual comparison using an offline fixture and the BYOK model. This writes artifacts to `output/byok-compare/`.
+
+```bash
+export OPENROUTER_API_KEY="sk-or-v1-..."
+export BYOK_CHECK_MODEL="arcee-ai/trinity-large-preview:free"
+
+# Optional fixture overrides
+export OFFLINE_FIXTURE_FILE="tests/fixtures/offline-corpus/promptready-homepage.html"
+export OFFLINE_SOURCE_URL="https://promptready.app/"
+export OFFLINE_SOURCE_TITLE="PromptReady - One-click clean Markdown from any page"
+export BYOK_COMPARE_OUTPUT_DIR="output/byok-compare"
+
+npm run byok:compare
+```
+
+Generated artifacts:
+- `output/byok-compare/prompt.md` (the exact markdown prompt used by AI)
+- `output/byok-compare/offline.md`
+- `output/byok-compare/ai.md`
+- `output/byok-compare/summary.json` (includes char/heading/bullet stats + lexical overlap)
+- `output/byok-compare/comparison.md`
+
+Prompt template file used by pipeline:
+- `core/prompts/byok-processing-prompt.md`
+- Runtime prompt builder: `core/prompts/byok-prompt.ts` (injects source metadata, optional metadata HTML, and prunes script/style noise before truncation)
+
 ## Architecture
 
 ### Extension Structure
