@@ -60,3 +60,4 @@ MVP_INTEGRATION_TEST_REPORT.md
 
 # Local debug artifacts
 output/
+.ant-colony/
