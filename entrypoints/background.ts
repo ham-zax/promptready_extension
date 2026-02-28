@@ -4,8 +4,15 @@
 import { browser } from 'wxt/browser';
 import { Storage } from '../lib/storage.js';
 import { getRuntimeProfile, validateRuntimeProfile, assertRuntimeProfileSafe } from '../lib/runtime-profile.js';
+import { resolveEntitlements, FREE_BYOK_DAILY_LIMIT } from '../lib/entitlement-policy.js';
 import { sanitizeCapturePayload } from '../lib/capture-contract.js';
-import type { ExportMetadata } from '../lib/types.js';
+import type {
+  AIAttemptOutcome,
+  AIFallbackCode,
+  ByokUsageState,
+  ExportMetadata,
+  Settings,
+} from '../lib/types.js';
 
 import { ContentQualityValidator } from '../core/content-quality-validator.js';
 import { SessionMetricsStore } from '../core/metrics-session-store.js';
@@ -54,8 +61,9 @@ type ExportData = {
   warnings?: string[];
   aiAttempted?: boolean;
   aiProvider?: 'openrouter' | null;
-  aiOutcome?: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed';
-  fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed';
+  aiOutcome?: AIAttemptOutcome;
+  fallbackCode?: AIFallbackCode;
+  runId?: string;
 };
 
 type OpenRouterModelItem = {
@@ -90,12 +98,19 @@ export class EnhancedContentProcessor {
   private readonly CAPTURE_DEBOUNCE_MS = 500; // 500ms debounce
   private readonly OPENROUTER_MODELS_CACHE_TTL_MS = 10 * 60 * 1000;
   private readonly OPENROUTER_MODELS_TIMEOUT_MS = 12_000;
+  private readonly BYOK_STALE_INFLIGHT_TIMEOUT_MS = 10 * 60 * 1000;
+  private readonly COUNTED_SUCCESS_RING_SIZE = 20;
+  private usageWriteQueue: Promise<void> = Promise.resolve();
 
   constructor() {
     // Setup periodic cleanup of old fingerprints every 2 minutes
     this.fingerprintCleanupTimer = setInterval(() => {
       this.cleanupOldFingerprints();
     }, 2 * 60 * 1000);
+
+    this.purgeStaleInflightOnStartup().catch((error) => {
+      console.warn('[Background] Failed to purge stale inflight usage on startup:', error);
+    });
   }
 
   private cleanupOldFingerprints(): void {
@@ -110,6 +125,207 @@ export class EnhancedContentProcessor {
     if (pruned.length > 0) {
       console.log(`[Background] Pruned ${pruned.length} old copy fingerprints`);
     }
+  }
+
+  private toLocalDayKey(date: Date = new Date()): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private createRunId(): string {
+    const randomPart = Math.random().toString(36).slice(2, 10);
+    return `run_${Date.now().toString(36)}_${randomPart}`;
+  }
+
+  private normalizeByokUsageForNow(
+    usage: Settings['byokUsage'] | undefined,
+    now: Date = new Date()
+  ): ByokUsageState {
+    const currentDayKey = this.toLocalDayKey(now);
+    const source = usage || {
+      dayKey: currentDayKey,
+      successfulAiCount: 0,
+      inflightRuns: {},
+      countedSuccessIds: [],
+    };
+
+    if (source.dayKey !== currentDayKey) {
+      return {
+        dayKey: currentDayKey,
+        successfulAiCount: 0,
+        inflightRuns: {},
+        countedSuccessIds: [],
+      };
+    }
+
+    const nowMs = now.getTime();
+    const inflightRuns: ByokUsageState['inflightRuns'] = {};
+    for (const [runId, raw] of Object.entries(source.inflightRuns || {})) {
+      if (!runId || !runId.trim()) {
+        continue;
+      }
+
+      const startedAt = typeof raw?.startedAt === 'number' ? Math.trunc(raw.startedAt) : 0;
+      const dayKey = typeof raw?.dayKey === 'string' ? raw.dayKey : currentDayKey;
+
+      if (startedAt <= 0 || dayKey !== currentDayKey) {
+        continue;
+      }
+
+      if (nowMs - startedAt > this.BYOK_STALE_INFLIGHT_TIMEOUT_MS) {
+        continue;
+      }
+
+      inflightRuns[runId] = {
+        startedAt,
+        dayKey,
+      };
+    }
+
+    return {
+      dayKey: currentDayKey,
+      successfulAiCount:
+        typeof source.successfulAiCount === 'number' && Number.isFinite(source.successfulAiCount)
+          ? Math.max(0, Math.trunc(source.successfulAiCount))
+          : 0,
+      inflightRuns,
+      countedSuccessIds: Array.isArray(source.countedSuccessIds)
+        ? source.countedSuccessIds
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+            .map((value) => value.trim())
+            .slice(-this.COUNTED_SUCCESS_RING_SIZE)
+        : [],
+    };
+  }
+
+  private async withUsageWriteLock<T>(task: () => Promise<T>): Promise<T> {
+    const previous = this.usageWriteQueue;
+    let releaseCurrent!: () => void;
+    const current = new Promise<void>((resolve) => {
+      releaseCurrent = resolve;
+    });
+    this.usageWriteQueue = current;
+
+    await previous;
+
+    try {
+      return await task();
+    } finally {
+      releaseCurrent();
+    }
+  }
+
+  private async purgeStaleInflightOnStartup(): Promise<void> {
+    await this.withUsageWriteLock(async () => {
+      const settings = await Storage.getSettings();
+      const normalizedUsage = this.normalizeByokUsageForNow(settings.byokUsage);
+      if (JSON.stringify(settings.byokUsage || {}) !== JSON.stringify(normalizedUsage)) {
+        await Storage.updateSettings({ byokUsage: normalizedUsage });
+      }
+    });
+  }
+
+  private async reserveAiRunSlot(
+    settings: Settings,
+    runId: string
+  ): Promise<{
+    canUseAIMode: boolean;
+    lockReason?: 'missing_api_key' | 'daily_limit_reached' | null;
+    fallbackCode?: AIFallbackCode;
+    reservationGranted: boolean;
+  }> {
+    if (settings.mode !== 'ai') {
+      return {
+        canUseAIMode: true,
+        lockReason: null,
+        reservationGranted: false,
+      };
+    }
+
+    return this.withUsageWriteLock(async () => {
+      const latestSettings = await Storage.getSettings();
+      const normalizedUsage = this.normalizeByokUsageForNow(latestSettings.byokUsage);
+      const normalizedSettings: Settings = {
+        ...latestSettings,
+        byokUsage: normalizedUsage,
+      };
+      const entitlements = resolveEntitlements(normalizedSettings);
+
+      const usageChanged = JSON.stringify(latestSettings.byokUsage || {}) !== JSON.stringify(normalizedUsage);
+      if (usageChanged) {
+        await Storage.updateSettings({ byokUsage: normalizedUsage });
+      }
+
+      if (!entitlements.canUseAIMode && entitlements.aiLockReason === 'daily_limit_reached') {
+        return {
+          canUseAIMode: false,
+          lockReason: 'daily_limit_reached',
+          fallbackCode: 'ai_fallback:daily_limit_reached' as const,
+          reservationGranted: false,
+        };
+      }
+
+      if (!entitlements.hasApiKey && !entitlements.hasUnlimitedAccess) {
+        return {
+          canUseAIMode: false,
+          lockReason: 'missing_api_key',
+          reservationGranted: false,
+        };
+      }
+
+      if (!entitlements.hasUnlimitedAccess && (entitlements.successfulAiCountToday + entitlements.inflightAiCount) >= FREE_BYOK_DAILY_LIMIT) {
+        return {
+          canUseAIMode: false,
+          lockReason: 'daily_limit_reached',
+          fallbackCode: 'ai_fallback:daily_limit_reached' as const,
+          reservationGranted: false,
+        };
+      }
+
+      const updatedUsage = this.normalizeByokUsageForNow(normalizedUsage);
+      updatedUsage.inflightRuns[runId] = {
+        startedAt: Date.now(),
+        dayKey: updatedUsage.dayKey,
+      };
+
+      await Storage.updateSettings({ byokUsage: updatedUsage });
+
+      return {
+        canUseAIMode: true,
+        lockReason: null,
+        reservationGranted: true,
+      };
+    });
+  }
+
+  private async settleAiRunCompletion(
+    runId: string | undefined,
+    aiOutcome: AIAttemptOutcome | undefined
+  ): Promise<void> {
+    if (!runId) {
+      return;
+    }
+
+    await this.withUsageWriteLock(async () => {
+      const settings = await Storage.getSettings();
+      const usage = this.normalizeByokUsageForNow(settings.byokUsage);
+      const before = JSON.stringify(usage);
+
+      if (usage.inflightRuns[runId]) {
+        delete usage.inflightRuns[runId];
+      }
+
+      if (aiOutcome === 'success' && !usage.countedSuccessIds.includes(runId)) {
+        usage.successfulAiCount += 1;
+        usage.countedSuccessIds = [...usage.countedSuccessIds, runId].slice(-this.COUNTED_SUCCESS_RING_SIZE);
+      }
+
+      if (before !== JSON.stringify(usage) || JSON.stringify(settings.byokUsage || {}) !== JSON.stringify(usage)) {
+        await Storage.updateSettings({ byokUsage: usage });
+      }
+    });
   }
 
   /**
@@ -767,6 +983,7 @@ export class EnhancedContentProcessor {
   async handleCaptureComplete(message: any, sender: any): Promise<void> {
     // Gatekeeper: ensure only one processing pipeline runs per unique selectionHash
     const selectionHash = message?.payload?.selectionHash;
+    let runId: string | undefined;
 
     if (!selectionHash) {
       // If there's no selectionHash, proceed but log a warning — we can't gate duplicate requests
@@ -800,6 +1017,8 @@ export class EnhancedContentProcessor {
       }
 
       const settings = await Storage.getSettings();
+      runId = this.createRunId();
+      const aiGate = await this.reserveAiRunSlot(settings, runId);
 
       console.log(`Processing content: ${title} (${html.length} chars)`);
 
@@ -826,6 +1045,8 @@ export class EnhancedContentProcessor {
           renderer: settings.renderer || 'turndown',
           customConfig: undefined,
           settings: settings, // Pass full settings to offscreen document
+          runId,
+          aiGate,
         },
       });
 
@@ -847,6 +1068,10 @@ export class EnhancedContentProcessor {
 
 	    } catch (error: any) {
 	      console.error('Content processing failed:', error);
+	      // Ensure inflight reservation is released on any orchestration failure.
+	      await this.settleAiRunCompletion(runId, 'not_attempted').catch((settleError) => {
+	        console.warn('[Background] Failed to settle AI run after capture error:', settleError);
+	      });
 	      // Recovery is owned by the offscreen pipeline (DOM context). In the service
 	      // worker context we fail closed and surface a clear error to the user.
 	      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -968,8 +1193,13 @@ export class EnhancedContentProcessor {
         aiProvider = null,
         aiOutcome = 'not_attempted',
         fallbackCode,
+        runId,
       } = message.payload;
       const warnings: string[] = Array.isArray(payloadWarnings) ? [...payloadWarnings] : [];
+
+      await this.settleAiRunCompletion(runId, aiOutcome as AIAttemptOutcome).catch((error) => {
+        console.warn('[Background] Failed to settle AI run completion state:', error);
+      });
 
       // BMAD TRACE: log what we received from offscreen before any insertion
       console.log('[BMAD_TRACE] Background received from offscreen:', (exportMd || '').substring(0, 100));
@@ -1070,6 +1300,7 @@ export class EnhancedContentProcessor {
         aiProvider,
         aiOutcome,
         fallbackCode,
+        runId,
       });
 
       // Broadcast success with quality information (critical message)
@@ -1086,6 +1317,7 @@ export class EnhancedContentProcessor {
           aiProvider,
           aiOutcome,
           fallbackCode,
+          runId,
         },
       });
 
@@ -1107,7 +1339,11 @@ export class EnhancedContentProcessor {
    * Handle processing errors from offscreen document
    */
   async handleProcessingError(message: any): Promise<void> {
-    const { error, stage, fallbackUsed } = message.payload;
+    const { error, stage, fallbackUsed, runId } = message.payload;
+
+    await this.settleAiRunCompletion(runId, 'not_attempted').catch((settleError) => {
+      console.warn('[Background] Failed to release inflight slot on PROCESSING_ERROR:', settleError);
+    });
 
     console.error(`Processing error in ${stage}:`, error);
 

@@ -153,4 +153,51 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
     expect(result.fallbackCode).toBe('ai_fallback:request_failed');
     expect(result.warnings).toContain('ai_fallback:request_failed');
   });
+
+  it('returns daily-limit fallback without attempting OpenRouter request when gate blocks AI', async () => {
+    const processor = Object.create((EnhancedOffscreenProcessor as any).prototype) as any;
+    processor.sendProgress = vi.fn();
+    processor.sendError = vi.fn();
+    processor.sendComplete = vi.fn();
+    processor.generateStructuredExport = vi.fn().mockReturnValue({ version: '1.0' });
+    processor.processOfflineMode = vi.fn().mockImplementation(
+      async (_html: string, _url: string, _title: string, _config: unknown, _metadataHtml: unknown, aiTrace: any) => ({
+        exportMd: 'offline',
+        exportJson: { version: '1.0' },
+        metadata: {},
+        stats: {},
+        warnings: [],
+        originalHtml: '<p>offline</p>',
+        ...aiTrace,
+      })
+    );
+
+    const result = await processor.processAIMode(
+      '<article><h1>Title</h1><p>Body</p></article>',
+      'https://example.com',
+      'Title',
+      {} as any,
+      {
+        byok: {
+          provider: 'openrouter',
+          apiKey: 'sk-or-v1-test-key',
+          model: 'arcee-ai/trinity-large-preview:free',
+        },
+      } as any,
+      undefined,
+      'sel-limit',
+      'run_1',
+      {
+        canUseAIMode: false,
+        lockReason: 'daily_limit_reached',
+        fallbackCode: 'ai_fallback:daily_limit_reached',
+      },
+    );
+
+    expect(byokSpy).not.toHaveBeenCalled();
+    expect(processor.processOfflineMode).toHaveBeenCalledTimes(1);
+    expect(result.aiOutcome).toBe('fallback_daily_limit_reached');
+    expect(result.fallbackCode).toBe('ai_fallback:daily_limit_reached');
+    expect(result.runId).toBe('run_1');
+  });
 });

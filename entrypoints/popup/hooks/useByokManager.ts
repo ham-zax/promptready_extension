@@ -180,8 +180,6 @@ export function useByokManager(): ByokState & ByokActions {
           model: state.selectedModel,
           selectedByokModel: state.selectedModel,
         },
-        isPro: true,
-        trial: { hasExhausted: false, showUpgradePrompt: false },
       });
 
       setState(prev => ({

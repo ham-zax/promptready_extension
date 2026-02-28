@@ -7,10 +7,12 @@ export interface ByokPromptInput {
   capturedAt?: string;
   selectionHash?: string;
   metadataHtml?: string;
+  customPrompt?: string;
 }
 
 const MAX_HTML_CHARS = 120_000;
 const MAX_METADATA_HTML_CHARS = 20_000;
+const MAX_CUSTOM_PROMPT_CHARS = 1_000;
 
 function pruneHtmlForPrompt(html: string): string {
   const normalized = (html || '').trim();
@@ -51,12 +53,31 @@ function trimPayloadForPrompt(
   return `${normalized.slice(0, maxChars)}\n\n<!-- ${truncationMarker}:${normalized.length - maxChars} -->`;
 }
 
+function normalizeCustomPromptPreference(customPrompt: string | undefined): string {
+  const normalized = (customPrompt || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  if (!normalized) {
+    return 'n/a';
+  }
+
+  if (normalized.length <= MAX_CUSTOM_PROMPT_CHARS) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, MAX_CUSTOM_PROMPT_CHARS)}\n\n<!-- PROMPTREADY_CUSTOM_PROMPT_TRUNCATED:${normalized.length - MAX_CUSTOM_PROMPT_CHARS} -->`;
+}
+
 export function buildByokPrompt(input: ByokPromptInput): string {
   const replacements: Record<string, string> = {
     SOURCE_TITLE: trimToNonEmpty(input.title, 'Untitled'),
     SOURCE_URL: trimToNonEmpty(input.url, 'about:blank'),
     CAPTURED_AT: trimToNonEmpty(input.capturedAt, new Date().toISOString()),
     SELECTION_HASH: trimToNonEmpty(input.selectionHash, 'n/a'),
+    USER_CUSTOM_PROMPT: normalizeCustomPromptPreference(input.customPrompt),
     METADATA_HTML: trimPayloadForPrompt(
       input.metadataHtml,
       MAX_METADATA_HTML_CHARS,

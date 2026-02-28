@@ -1,6 +1,6 @@
 # PromptReady - AI-Powered Content Cleaning Extension
 
-A sophisticated Chrome extension that instantly cleans and structures webpage content into prompt-ready formats. Features advanced AI processing with a metered freemium model and BYOK (Bring Your Own Key) support.
+A sophisticated Chrome extension that instantly cleans and structures webpage content into prompt-ready formats. AI mode is BYOK-first with a simple local freemium gate: 5 successful AI runs/day, then optional one-time unlock for unlimited usage.
 
 ## Features
 
@@ -14,9 +14,10 @@ A sophisticated Chrome extension that instantly cleans and structures webpage co
 - **Citation Preservation**: Maintains source URLs and timestamps for proper attribution
 
 ### 💰 Monetization Model
-- **Free Trial**: 150 monthly credits for AI mode testing
-- **BYOK Upgrade**: Connect your own API key for unlimited processing
-- **Advanced Models**: Access to premium AI models when using BYOK
+- **Offline Mode**: Always free
+- **BYOK Freemium**: Up to 5 successful AI runs/day (local day reset)
+- **One-Time Unlock (Option B)**: External checkout + local unlock code entry for unlimited BYOK usage
+- **Honor-System Tradeoff**: Unlock code verification is currently local-only (no server-side license enforcement yet)
 
 ### 🛡️ Enterprise-Grade Security
 - **Budget Protection**: Global circuit breaker prevents cost overruns
@@ -46,7 +47,7 @@ npm run dev
 
 ### Basic Usage
 1. **Select Content**: Highlight text on any webpage
-2. **Choose Mode**: Toggle between Offline (free) and AI (trial/BYOK) modes
+2. **Choose Mode**: Toggle between Offline (always free) and AI (BYOK) modes
 3. **Process**: Click "Capture Content" to clean and structure
 4. **Export**: Copy to clipboard or save as Markdown/JSON
 
@@ -73,7 +74,7 @@ wrangler deploy
 
 ### Environment Variables
 Configure these in your Cloudflare Workers:
-- `AI_API_KEY`: Groq API key for trial processing
+- `AI_API_KEY`: Optional upstream API key for worker-side diagnostics/testing
 - `SERVICE_SECRET`: Internal service authentication
 - `CREDITS_KV`: KV namespace for user credits
 - `BUDGET_KV`: KV namespace for budget tracking
@@ -159,25 +160,26 @@ Prompt template file used by pipeline:
 
 ## Development Status
 
-### ✅ Implemented Features (95% Complete)
-- Complete backend services (credit tracking, AI proxy, circuit breaker)
+### ✅ Implemented Features
 - Sophisticated content processing with hybrid pipeline
-- Full monetization system with trial → BYOK upgrade flow
+- BYOK-first AI mode (OpenRouter)
+- Local freemium gating (5 successful AI runs/day)
+- Local unlock-code flow for unlimited BYOK
+- Custom BYOK prompt preference with guardrails
 - Advanced UI components and settings management
-- Quality scoring and content assessment
-- Cross-platform clipboard integration
+- Quality scoring and cross-platform clipboard integration
 
 ### 🔄 Remaining Work
-- Complete citation formatting implementation
-- Performance optimization and testing
-- Additional AI model integrations
+- Replace placeholder checkout URL with production billing URL
+- Add server-verified licensing (future hardening beyond honor-system unlock)
+- Additional AI model integrations and UX polish
 
 ## Configuration
 
 ### Extension Settings
 - **Mode Preference**: Default to Offline or AI mode
-- **BYOK Providers**: OpenRouter, OpenAI, or custom endpoints
-- **Model Selection**: Advanced AI models for BYOK users
+- **BYOK Provider**: OpenRouter (canonical)
+- **Model Selection**: Free-first dynamic OpenRouter model picker
 - **Privacy Options**: Opt-in telemetry and data preferences
 
 ### Quality Settings
@@ -206,4 +208,4 @@ For support and questions:
 
 ---
 
-**Built with WXT + React** • **Powered by Groq AI** • **Protected by Cloudflare**
+**Built with WXT + React** • **BYOK via OpenRouter** • **Protected by Cloudflare**

@@ -2,15 +2,7 @@ import React from 'react';
 import { render, fireEvent, screen, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ModeToggle } from '../entrypoints/popup/components/ModeToggle';
-import { Storage } from '../lib/storage';
 import { authService } from '../lib/auth-service';
-
-// Mock the Storage class
-vi.mock('../lib/storage', () => ({
-  Storage: {
-    updateSettings: vi.fn(),
-  },
-}));
 
 vi.mock('../lib/auth-service', () => ({
   authService: {
@@ -20,8 +12,11 @@ vi.mock('../lib/auth-service', () => ({
       hasUnlimitedAccess: true,
       canUseAIMode: true,
       planType: 'developer',
-      remainingCredits: 999999,
       hasApiKey: false,
+      isUnlocked: true,
+      remainingFreeByokUsesToday: 999999,
+      remainingFreeByokStartsToday: 999999,
+      aiLockReason: null,
     }),
   },
 }));
@@ -29,7 +24,7 @@ vi.mock('../lib/auth-service', () => ({
 describe('ModeToggle', () => {
   afterEach(() => {
     cleanup();
-    vi.clearAllMocks(); // Clear mocks after each test
+    vi.clearAllMocks();
   });
 
   it('renders with AI mode selected by default', () => {
@@ -44,7 +39,7 @@ describe('ModeToggle', () => {
     expect(aiButton).toHaveAttribute('data-state', 'on');
   });
 
-  it('calls onChange and updates storage when a new mode is selected', () => {
+  it('calls onChange when a new mode is selected', () => {
     const handleChange = vi.fn();
     render(
       <ModeToggle
@@ -58,20 +53,23 @@ describe('ModeToggle', () => {
     fireEvent.click(offlineButton);
 
     expect(handleChange).toHaveBeenCalledWith('offline');
-    expect(Storage.updateSettings).toHaveBeenCalledWith({ mode: 'offline' });
   });
 
-  it('calls onUpgradePrompt when a non-pro user clicks AI mode', async () => {
+  it('calls onUpgradePrompt when AI mode is locked', async () => {
     const handleUpgradePrompt = vi.fn();
     const handleChange = vi.fn();
+
     vi.mocked(authService.getAuthState).mockResolvedValueOnce({
       isAuthenticated: true,
       isDeveloperMode: false,
       hasUnlimitedAccess: false,
       canUseAIMode: false,
       planType: 'free',
-      remainingCredits: 0,
       hasApiKey: false,
+      isUnlocked: false,
+      remainingFreeByokUsesToday: 0,
+      remainingFreeByokStartsToday: 0,
+      aiLockReason: 'daily_limit_reached',
     });
 
     render(
@@ -82,12 +80,11 @@ describe('ModeToggle', () => {
       />
     );
 
-    await screen.findByText('Upgrade required for AI mode');
-    const aiButton = screen.getByLabelText('AI Mode');
+    const aiButton = await screen.findByLabelText('AI Mode');
+    expect(aiButton).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(aiButton);
 
     expect(handleUpgradePrompt).toHaveBeenCalled();
     expect(handleChange).not.toHaveBeenCalled();
-    expect(Storage.updateSettings).not.toHaveBeenCalled();
   });
 });

@@ -7,10 +7,11 @@ import { processWithProviderChain } from '../../core/extraction-provider.js';
 
 import { BYOKClient } from '../../pro/byok-client';
 import { CaptureDiagnostics, Settings } from '../../lib/types';
-import type { ExportMetadata } from '../../lib/types';
+import type { AIAttemptOutcome, AIFallbackCode, ExportMetadata } from '../../lib/types';
 import { MarkdownPostProcessor } from '../../core/post-processor.js';
 import { PerformanceMetrics } from '../../core/performance-metrics.js';
 import { getRuntimeProfile, validateRuntimeProfile, assertRuntimeProfileSafe } from '../../lib/runtime-profile.js';
+import { resolveEntitlements } from '../../lib/entitlement-policy.js';
 import { normalizeByokProvider } from '../../lib/byok-provider.js';
 import { buildCanonicalMetadata, canonicalizeDeliveredMarkdown } from '../../lib/markdown-canonicalizer.js';
 import { buildByokPrompt } from '../../core/prompts/byok-prompt.js';
@@ -29,6 +30,12 @@ interface ProcessingMessage {
     renderer?: 'turndown' | 'structurer';
     customConfig?: Partial<OfflineModeConfig>;
     settings?: any; // Pass settings from background to avoid storage access issues
+    runId?: string;
+    aiGate?: {
+      canUseAIMode: boolean;
+      lockReason?: 'missing_api_key' | 'daily_limit_reached' | null;
+      fallbackCode?: AIFallbackCode;
+    };
   };
 }
 
@@ -43,16 +50,18 @@ interface ProcessingCompleteMessage {
     originalHtml: string; // Include original HTML for quality validation
     aiAttempted: boolean;
     aiProvider: 'openrouter' | null;
-    aiOutcome: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed';
-    fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed';
+    aiOutcome: AIAttemptOutcome;
+    fallbackCode?: AIFallbackCode;
+    runId?: string;
   };
 }
 
 type AIAttemptTrace = {
   aiAttempted: boolean;
   aiProvider: 'openrouter' | null;
-  aiOutcome: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed';
-  fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed';
+  aiOutcome: AIAttemptOutcome;
+  fallbackCode?: AIFallbackCode;
+  runId?: string;
 };
 
 const DEFAULT_AI_TRACE: AIAttemptTrace = {
@@ -170,7 +179,19 @@ export class EnhancedOffscreenProcessor {
     EnhancedOffscreenProcessor.performance.recordProcessingSnapshot('offscreen_processing_start');
 
     try {
-      const { html, url, title, mode, customConfig, settings, selectionHash, metadataHtml, captureDiagnostics } = message.payload;
+      const {
+        html,
+        url,
+        title,
+        mode,
+        customConfig,
+        settings,
+        selectionHash,
+        metadataHtml,
+        captureDiagnostics,
+        runId,
+        aiGate,
+      } = message.payload;
       this.sendProgress('Processing content...', 10, 'initialization');
       if (!html || html.trim().length === 0) throw new Error('No HTML content provided');
 
@@ -188,7 +209,9 @@ export class EnhancedOffscreenProcessor {
           finalConfig,
           settings,
           metadataHtml,
-          selectionHash
+          selectionHash,
+          runId,
+          aiGate,
         );
       }
 
@@ -240,6 +263,7 @@ export class EnhancedOffscreenProcessor {
         }
       }
 
+      processingResult.runId = runId;
       return processingResult;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown processing error';
@@ -292,21 +316,53 @@ export class EnhancedOffscreenProcessor {
     url: string,
     title: string,
     config: OfflineModeConfig,
-    settings: Settings, // Add settings here
+    settings: Settings,
     metadataHtml?: string,
-    selectionHash?: string
+    selectionHash?: string,
+    runId?: string,
+    aiGate?: {
+      canUseAIMode: boolean;
+      lockReason?: 'missing_api_key' | 'daily_limit_reached' | null;
+      fallbackCode?: AIFallbackCode;
+    },
   ): Promise<ProcessingCompleteMessage['payload']> {
     this.sendProgress('Sending to AI for processing...', 30, 'ai-processing');
 
     try {
       const runtimeProfile = getRuntimeProfile();
+      const entitlements = resolveEntitlements(settings, runtimeProfile);
       const providerNormalization = normalizeByokProvider(settings.byok?.provider);
       const provider = providerNormalization.canonicalProvider;
       const apiKey = settings.byok?.apiKey || '';
       const model = settings.byok?.model || settings.byok?.selectedByokModel || 'arcee-ai/trinity-large-preview:free';
 
+      const gateBlockedByDailyLimit =
+        aiGate?.fallbackCode === 'ai_fallback:daily_limit_reached' ||
+        (!entitlements.hasUnlimitedAccess && entitlements.aiLockReason === 'daily_limit_reached');
+
+      if (gateBlockedByDailyLimit) {
+        const warningCode: AIFallbackCode = 'ai_fallback:daily_limit_reached';
+        this.sendProgress('Daily free AI limit reached. Using offline mode...', 50, 'fallback');
+        const offlineResult = await this.processOfflineMode(
+          html,
+          url,
+          title,
+          config,
+          metadataHtml,
+          {
+            aiAttempted: false,
+            aiProvider: null,
+            aiOutcome: 'fallback_daily_limit_reached',
+            fallbackCode: warningCode,
+            runId,
+          }
+        );
+        offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
+        return offlineResult;
+      }
+
       if (!providerNormalization.isSupported || provider !== 'openrouter') {
-        const warningCode = 'ai_fallback:provider_not_supported';
+        const warningCode: AIFallbackCode = 'ai_fallback:provider_not_supported';
         console.warn('[AI Mode] Unsupported BYOK provider. OpenRouter is the only supported provider.');
         this.sendProgress('Only OpenRouter BYOK is supported. Using offline mode...', 50, 'fallback');
         const offlineResult = await this.processOfflineMode(
@@ -320,6 +376,7 @@ export class EnhancedOffscreenProcessor {
             aiProvider: null,
             aiOutcome: 'fallback_provider',
             fallbackCode: warningCode,
+            runId,
           }
         );
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
@@ -331,7 +388,7 @@ export class EnhancedOffscreenProcessor {
       }
 
       if (!apiKey.trim()) {
-        const warningCode = 'ai_fallback:missing_openrouter_key';
+        const warningCode: AIFallbackCode = 'ai_fallback:missing_openrouter_key';
         console.warn('[AI Mode] Missing OpenRouter API key. Falling back to offline mode.');
         this.sendProgress('No OpenRouter API key configured. Using offline mode...', 50, 'fallback');
         const offlineResult = await this.processOfflineMode(
@@ -345,15 +402,13 @@ export class EnhancedOffscreenProcessor {
             aiProvider: null,
             aiOutcome: 'fallback_missing_key',
             fallbackCode: warningCode,
+            runId,
           }
         );
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
         return offlineResult;
       }
 
-      // Use OpenRouter BYOK client (single provider workflow) with a prompt
-      // template sourced from markdown so it is easy to iterate without touching
-      // processing code.
       this.sendProgress(
         runtimeProfile.isDevelopment
           ? 'Using OpenRouter BYOK in development...'
@@ -368,6 +423,7 @@ export class EnhancedOffscreenProcessor {
         selectionHash,
         metadataHtml,
         capturedAt: new Date().toISOString(),
+        customPrompt: settings.byok?.customPrompt,
       });
 
       const byokResult = await BYOKClient.makeRequest(
@@ -375,7 +431,7 @@ export class EnhancedOffscreenProcessor {
         {
           apiBase: 'https://openrouter.ai/api/v1',
           apiKey: apiKey.trim(),
-          model: model
+          model,
         }
       );
 
@@ -407,13 +463,22 @@ export class EnhancedOffscreenProcessor {
         aiAttempted: true,
         aiProvider: 'openrouter',
         aiOutcome: 'success',
+        runId,
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown AI processing error';
+      const isCancelled = /cancel|abort/i.test(errorMessage);
+      const warningCode: AIFallbackCode = isCancelled
+        ? 'ai_fallback:cancelled'
+        : 'ai_fallback:request_failed';
+      const aiOutcome: AIAttemptOutcome = isCancelled
+        ? 'fallback_cancelled'
+        : 'fallback_request_failed';
+
       console.error('[AI Mode] Processing failed:', errorMessage);
-      this.sendError(errorMessage, 'ai-processing', true);
+      this.sendError(errorMessage, isCancelled ? 'cancelled' : 'ai-processing', true, runId);
       this.sendProgress('AI processing failed, falling back to offline mode...', 90, 'fallback');
-      const warningCode = 'ai_fallback:request_failed';
+
       const offlineResult = await this.processOfflineMode(
         html,
         url,
@@ -423,8 +488,9 @@ export class EnhancedOffscreenProcessor {
         {
           aiAttempted: true,
           aiProvider: 'openrouter',
-          aiOutcome: 'fallback_request_failed',
+          aiOutcome,
           fallbackCode: warningCode,
+          runId,
         }
       );
       offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
@@ -526,13 +592,14 @@ export class EnhancedOffscreenProcessor {
     });
   }
 
-  private sendError(error: string, stage: string, fallbackUsed = false): void {
+  private sendError(error: string, stage: string, fallbackUsed = false, runId?: string): void {
     browser.runtime.sendMessage({
       type: 'PROCESSING_ERROR',
       payload: {
         error,
         stage,
         fallbackUsed,
+        runId,
       },
     }).catch((err) => {
       console.warn('[EnhancedOffscreenProcessor] Failed to send error event:', err);

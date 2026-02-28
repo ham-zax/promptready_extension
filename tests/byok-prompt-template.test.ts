@@ -11,12 +11,15 @@ describe('BYOK markdown prompt template', () => {
       capturedAt: '2026-02-28T00:00:00.000Z',
       selectionHash: 'sel-abc-123',
       metadataHtml: '<meta property="article:published_time" content="2026-02-27T10:00:00Z" />',
+      customPrompt: 'Prefer concise bullet points for long sections.',
     });
 
     expect(prompt).toContain('Title: Example Post');
     expect(prompt).toContain('URL: https://example.com/post');
     expect(prompt).toContain('Captured At: 2026-02-28T00:00:00.000Z');
     expect(prompt).toContain('Selection Hash: sel-abc-123');
+    expect(prompt).toContain('<user_preference>');
+    expect(prompt).toContain('Prefer concise bullet points for long sections.');
     expect(prompt).toContain('<metadata_html>');
     expect(prompt).toContain('article:published_time');
     expect(prompt).toContain('<captured_html>');
@@ -71,5 +74,22 @@ describe('BYOK markdown prompt template', () => {
     });
 
     expect(prompt).toContain('PROMPTREADY_METADATA_HTML_TRUNCATED');
+  });
+
+  it('normalizes and caps custom prompt preference deterministically', () => {
+    const customPrompt = `  Keep   headings concise.\n\n\n${'x'.repeat(1200)}  `;
+
+    const prompt = buildByokPrompt({
+      html: '<p>small</p>',
+      url: 'https://example.com/custom',
+      title: 'Custom Prompt',
+      capturedAt: '2026-02-28T00:00:00.000Z',
+      selectionHash: 'sel-custom',
+      customPrompt,
+    });
+
+    expect(prompt).toContain('<user_preference>');
+    expect(prompt).toContain('Keep headings concise.');
+    expect(prompt).toContain('PROMPTREADY_CUSTOM_PROMPT_TRUNCATED');
   });
 });

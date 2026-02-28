@@ -18,13 +18,12 @@ type ProviderInfo = {
   icon: React.ReactNode;
   placeholder: string;
   defaultBase: string;
-  fixedBase?: boolean;
 };
 
 const PROVIDERS: Record<Provider, ProviderInfo> = {
   openrouter: {
     name: 'OpenRouter',
-    description: 'Access multiple AI models through one API',
+    description: 'Use your own key to access AI models',
     icon: <Globe className="w-5 h-5 text-blue-500" />,
     placeholder: 'sk-or-v1-...',
     defaultBase: 'https://openrouter.ai/api/v1',
@@ -33,7 +32,7 @@ const PROVIDERS: Record<Provider, ProviderInfo> = {
 
 export function SimplifiedByokSetup({ settings, onComplete, onCancel }: SimplifiedByokSetupProps) {
   const provider: Provider = 'openrouter';
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState(settings.byok?.apiKey || '');
   const [apiBase] = useState('https://openrouter.ai/api/v1');
   const [isValidating, setIsValidating] = useState(false);
   const [validationStatus, setValidationStatus] = useState<{
@@ -41,10 +40,11 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
     message: string;
   } | null>(null);
 
-  const handleValidate = async () => {
-    if (!apiKey.trim()) {
+  const handleValidate = async (): Promise<boolean> => {
+    const nextKey = apiKey.trim();
+    if (!nextKey) {
       setValidationStatus({ isValid: false, message: 'Please enter an API key' });
-      return;
+      return false;
     }
 
     setIsValidating(true);
@@ -53,40 +53,40 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
     try {
       const result = await validateApiKey({
         provider: 'openrouter',
-        apiKey,
+        apiKey: nextKey,
         apiBase,
       });
 
       setValidationStatus(result);
+      return result.isValid;
     } catch {
       setValidationStatus({
         isValid: false,
         message: 'Validation failed. Please check your API key and connection.',
       });
+      return false;
     } finally {
       setIsValidating(false);
     }
   };
 
   const handleSave = async () => {
-    if (!validationStatus?.isValid) {
-      await handleValidate();
-      if (!validationStatus?.isValid) return;
+    const isValid = validationStatus?.isValid || await handleValidate();
+    if (!isValid) {
+      return;
     }
 
     try {
-      const selectedModel = 'arcee-ai/trinity-large-preview:free';
+      const selectedModel = settings.byok?.selectedByokModel || 'arcee-ai/trinity-large-preview:free';
 
       await Storage.updateSettings({
         byok: {
           provider: 'openrouter',
-          apiKey,
+          apiKey: apiKey.trim(),
           apiBase: 'https://openrouter.ai/api/v1',
           model: selectedModel,
           selectedByokModel: selectedModel,
         },
-        isPro: true,
-        trial: { ...settings.trial, hasExhausted: false, showUpgradePrompt: false },
       });
 
       onComplete();
@@ -103,20 +103,18 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
 
   return (
     <div className="bg-white rounded-xl p-6 max-w-md mx-auto shadow-sm border border-gray-100">
-      {/* Header */}
       <div className="text-center mb-6">
         <div className="w-12 h-12 bg-brand-surface text-brand-primary rounded-full flex items-center justify-center mx-auto mb-3 border border-brand-border">
           <Bot className="w-6 h-6" />
         </div>
         <h2 className="text-lg font-bold text-gray-900 mb-1">
-          Connect Your AI Provider
+          Connect OpenRouter
         </h2>
         <p className="text-xs text-gray-500">
-          Use your own API key for unlimited AI processing
+          Your key stays local in your browser storage.
         </p>
       </div>
 
-      {/* Provider Selection (OpenRouter-only) */}
       <div className="mb-6">
         <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-3">
           AI Provider
@@ -134,9 +132,7 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
         </div>
       </div>
 
-      {/* API Configuration */}
       <div className="space-y-4 mb-6">
-        {/* API Key */}
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1.5">
             API Key
@@ -162,7 +158,6 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
           />
         </div>
 
-        {/* Validation Status */}
         {validationStatus && (
           <div className={`p-3 rounded-lg text-sm font-medium animate-in fade-in duration-200 ${validationStatus.isValid
               ? 'bg-green-50 text-green-700 border border-green-200'
@@ -173,14 +168,13 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
         )}
       </div>
 
-      {/* Actions */}
       <div className="flex flex-col space-y-2">
         <button
           onClick={handleSave}
-          disabled={!validationStatus?.isValid}
+          disabled={isValidating || !apiKey.trim()}
           className="w-full py-2.5 bg-brand-primary text-brand-primary-foreground font-semibold rounded-lg hover:opacity-90 active:scale-[0.98] disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-all shadow-sm"
         >
-          Connect & Start
+          Save API Key
         </button>
 
         <div className="flex space-x-2">
@@ -200,10 +194,9 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
         </div>
       </div>
 
-      {/* Help Text */}
       <div className="mt-5 pt-4 border-t border-gray-100 text-center">
         <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">
-          Your API key is stored locally
+          Offline mode always remains free
         </p>
       </div>
     </div>

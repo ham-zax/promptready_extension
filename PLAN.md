@@ -109,45 +109,45 @@
   - `entrypoints/options/index.html` + `entrypoints/options/main.ts` (dev options consistency)
 
 ## Steps
-- [ ] Add new persisted fields for BYOK monetization state in settings:
+- [x] Add new persisted fields for BYOK monetization state in settings:
   - [ ] `unlock` state (`isUnlocked`, `unlockCodeLast4`, `unlockedAt`, `unlockSchemeVersion`)
   - [ ] daily usage bucket (`dayKey`, `successfulAiCount`, `inflightRuns`, `countedSuccessIds[]` per-day ring buffer)
   - [ ] define `inflightRuns` shape as `Record<runId, { startedAt: number; dayKey: string }>` (SSOT)
   - [ ] derive `inflightAiCount` from `inflightRuns` during normalization/entitlement computation
   - [ ] optional `customPrompt` text
-- [ ] Implement settings **purge-on-read** normalization:
+- [x] Implement settings **purge-on-read** normalization:
   - [ ] add `settingsSchemaVersion` (target: `2`)
   - [ ] when `< 2`, strip explicit legacy monetization key list (`isPro`, `trial`, `credits`, related legacy fields)
   - [ ] initialize new monetization defaults deterministically
   - [ ] persist sanitized settings back to storage immediately
-- [ ] Implement daily-window normalization using local date key (`YYYY-MM-DD` from local getters, not `toISOString()`) and apply it before gate checks.
+- [x] Implement daily-window normalization using local date key (`YYYY-MM-DD` from local getters, not `toISOString()`) and apply it before gate checks.
   - [ ] on `dayKey` change, reset `successfulAiCount`, `inflightRuns`, and `countedSuccessIds` (derived `inflightAiCount` becomes 0)
-- [ ] Add local unlock code validator helper (`lib/unlock-code.ts`) for Option B flow:
+- [x] Add local unlock code validator helper (`lib/unlock-code.ts`) for Option B flow:
   - [ ] accept entered code
   - [ ] deterministic offline verifier (non-obvious/checksum-style placeholder)
   - [ ] store only `unlockCodeLast4` + `unlockedAt` on success (never full code)
-- [ ] Add per-run processing identity:
+- [x] Add per-run processing identity:
   - [ ] generate `runId` per AI attempt in background/offscreen message contract
   - [ ] include `runId` in completion payload for all outcomes (success/fallback/error/cancel)
   - [ ] add explicit cancel outcome/cancel fallback code path carrying `runId` so inflight can be released deterministically
   - [ ] dedupe increments using `countedSuccessIds` only when `aiOutcome === 'success'`
-- [ ] Refactor `resolveEntitlements` to compute:
+- [x] Refactor `resolveEntitlements` to compute:
   - [ ] hasApiKey
   - [ ] isUnlocked
   - [ ] remainingFreeByokUsesToday (max 5)
   - [ ] canUseAIMode using `(successfulAiCount + inflightAiCount)` for gating
   - [ ] stale inflight purge (drop runs older than timeout and recompute inflight)
   - [ ] stable lock reason codes (missing key, limit reached)
-- [ ] Remove runtime dependency on credit/trial backend checks in `usePopupController` and stop using `MonetizationClient.checkCredits`.
-- [ ] Update popup + mode toggle messaging from “credits/trial/pro” to “free daily BYOK uses / unlocked unlimited”.
+- [x] Remove runtime dependency on credit/trial backend checks in `usePopupController` and stop using `MonetizationClient.checkCredits`.
+- [x] Update popup + mode toggle messaging from “credits/trial/pro” to “free daily BYOK uses / unlocked unlimited”.
   - [ ] show remaining free uses near the mode toggle
   - [ ] on limit reached, show actions: `Enter unlock code` and `Go to checkout` + confirm offline fallback still works
-- [ ] Update dev options page semantics (`entrypoints/options/*`) to remove trial/pro wording and keep deterministic dev bypass toggles aligned with new unlock model.
-- [ ] Add checkout + unlock UX in settings:
+- [x] Update dev options page semantics (`entrypoints/options/*`) to remove trial/pro wording and keep deterministic dev bypass toggles aligned with new unlock model.
+- [x] Add checkout + unlock UX in settings:
   - [ ] checkout CTA using placeholder URL (`https://example.com/promptready-checkout`)
   - [ ] unlock code input + validate/apply action
-- [ ] Enforce free-limit fallback in `processAIMode` with a stable warning/fallback code (new code for daily limit reached).
-- [ ] Implement counter updates in background completion flow:
+- [x] Enforce free-limit fallback in `processAIMode` with a stable warning/fallback code (new code for daily limit reached).
+- [x] Implement counter updates in background completion flow:
   - [ ] on AI start: reserve inflight slot by `runId` (if gate permits)
   - [ ] perform gate check + reservation atomically under the same background mutex (UI checks are advisory only)
   - [ ] on completion/failure/cancel: release inflight slot by `runId`
@@ -155,10 +155,10 @@
   - [ ] on background startup: clear stale/unknown inflight reservations safely
   - [ ] on normalize/evaluate: purge inflight runs older than timeout (5–10 minutes)
   - [ ] enforce serialized single-writer updates (mutex/queue around storage writes)
-- [ ] Add custom prompt UI and persist it to settings.
-- [ ] Extend BYOK prompt builder/template to include custom prompt instructions deterministically.
-- [ ] Remove trial/credit hooks/components and related dead references from popup runtime.
-- [ ] Update README/docs copy to match the new monetization model and the “honor-system unlock” tradeoff.
+- [x] Add custom prompt UI and persist it to settings.
+- [x] Extend BYOK prompt builder/template to include custom prompt instructions deterministically.
+- [x] Remove trial/credit hooks/components and related dead references from popup runtime.
+- [x] Update README/docs copy to match the new monetization model and the “honor-system unlock” tradeoff.
 
 ## Verification
 - Unit tests (fail before / pass after):

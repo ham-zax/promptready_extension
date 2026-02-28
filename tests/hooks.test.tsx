@@ -120,8 +120,6 @@ describe('useByokManager', () => {
         model: 'arcee-ai/trinity-large-preview:free',
         selectedByokModel: 'arcee-ai/trinity-large-preview:free',
       },
-      isPro: true,
-      trial: { hasExhausted: false, showUpgradePrompt: false },
     });
   });
 });

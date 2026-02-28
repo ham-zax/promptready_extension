@@ -6,7 +6,6 @@ import Popup from '@/entrypoints/popup/Popup';
 const mocks = vi.hoisted(() => ({
   usePopupController: vi.fn(),
   useByokManager: vi.fn(),
-  useProManager: vi.fn(),
   useToastManager: vi.fn(),
   runtimeAddListener: vi.fn(),
   runtimeRemoveListener: vi.fn(),
@@ -25,6 +24,7 @@ vi.mock('wxt/browser', () => ({
     },
     tabs: {
       query: mocks.tabsQuery,
+      create: vi.fn().mockResolvedValue(undefined),
     },
   },
 }));
@@ -39,6 +39,19 @@ vi.mock('@/lib/storage', () => ({
         apiBase: 'https://openrouter.ai/api/v1',
         apiKey: '',
         selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+        customPrompt: '',
+      },
+      byokUnlock: {
+        isUnlocked: false,
+        unlockCodeLast4: null,
+        unlockedAt: null,
+        unlockSchemeVersion: 1,
+      },
+      byokUsage: {
+        dayKey: '2026-02-28',
+        successfulAiCount: 0,
+        inflightRuns: {},
+        countedSuccessIds: [],
       },
       privacy: { telemetryEnabled: false },
       ui: {
@@ -66,10 +79,6 @@ vi.mock('@/entrypoints/popup/hooks/useByokManager', () => ({
   useByokManager: () => mocks.useByokManager(),
 }));
 
-vi.mock('@/entrypoints/popup/hooks/useProManager', () => ({
-  useProManager: () => mocks.useProManager(),
-}));
-
 vi.mock('@/entrypoints/popup/hooks/useToastManager', () => ({
   useToastManager: () => mocks.useToastManager(),
 }));
@@ -82,10 +91,6 @@ vi.mock('@/entrypoints/popup/components/ToastContainer', () => ({
   ToastContainer: () => null,
 }));
 
-vi.mock('@/entrypoints/popup/components/ProBadge', () => ({
-  ProBadge: () => null,
-}));
-
 vi.mock('@/entrypoints/popup/components/ModeToggle', () => ({
   ModeToggle: () => <div data-testid="mode-toggle">mode</div>,
 }));
@@ -94,10 +99,6 @@ vi.mock('@/entrypoints/popup/components/PrimaryButton', () => ({
   PrimaryButton: ({ children, onClick, disabled }: { children: React.ReactNode; onClick: () => void; disabled?: boolean }) => (
     <button onClick={onClick} disabled={disabled}>{children}</button>
   ),
-}));
-
-vi.mock('@/entrypoints/popup/components/ProUpgradePrompt', () => ({
-  ProUpgradePrompt: () => null,
 }));
 
 vi.mock('@/entrypoints/popup/components/LoadingOverlay', () => ({
@@ -124,27 +125,27 @@ describe('Popup settings mount guard', () => {
     mocks.usePopupController.mockReturnValue({
       state: {
         mode: 'offline',
-        isPro: false,
         settings: undefined,
-        credits: { remaining: 10, total: 10, lastReset: new Date().toISOString() },
-        trial: { hasExhausted: false },
         hasApiKey: false,
+        isUnlocked: false,
+        canUseAIMode: false,
+        aiLockReason: 'missing_api_key',
+        remainingFreeByokUsesToday: 0,
+        remainingFreeByokStartsToday: 0,
         processing: { status: 'idle' },
         exportData: null,
         toast: null,
-        showUpgrade: false,
       },
       hasContent: false,
+      isProcessing: false,
       handleModeToggle: vi.fn(),
       handleCapture: vi.fn(),
       handleCopy: vi.fn(),
       handleExport: vi.fn(),
-      handleUpgradeClose: vi.fn(),
       onSettingsChange: vi.fn(),
     });
 
     mocks.useByokManager.mockReturnValue({ hasApiKey: false });
-    mocks.useProManager.mockReturnValue({ isInTrial: false });
     mocks.useToastManager.mockReturnValue({
       toasts: [],
       hideToast: vi.fn(),
@@ -169,22 +170,23 @@ describe('Popup settings mount guard', () => {
     mocks.usePopupController.mockReturnValue({
       state: {
         mode: 'offline',
-        isPro: false,
         settings: undefined,
-        credits: { remaining: 10, total: 10, lastReset: new Date().toISOString() },
-        trial: { hasExhausted: false },
         hasApiKey: false,
+        isUnlocked: false,
+        canUseAIMode: false,
+        aiLockReason: 'missing_api_key',
+        remainingFreeByokUsesToday: 0,
+        remainingFreeByokStartsToday: 0,
         processing: { status: 'idle' },
         exportData: null,
         toast: { message: 'Copied to clipboard!', type: 'success' },
-        showUpgrade: false,
       },
       hasContent: false,
+      isProcessing: false,
       handleModeToggle: vi.fn(),
       handleCapture: vi.fn(),
       handleCopy: vi.fn(),
       handleExport: vi.fn(),
-      handleUpgradeClose: vi.fn(),
       onSettingsChange: vi.fn(),
     });
 

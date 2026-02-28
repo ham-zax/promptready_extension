@@ -3,17 +3,8 @@ import type { Settings } from '@/lib/types';
 import { resolveEntitlements } from '@/lib/entitlement-policy';
 import type { RuntimeProfile } from '@/lib/runtime-profile';
 
-type SettingsOverrides = Omit<Partial<Settings>, 'byok' | 'privacy' | 'credits' | 'user' | 'flags' | 'templates'> & {
-  byok?: Partial<Settings['byok']>;
-  privacy?: Partial<Settings['privacy']>;
-  credits?: Partial<NonNullable<Settings['credits']>>;
-  user?: Partial<NonNullable<Settings['user']>>;
-  flags?: Partial<NonNullable<Settings['flags']>>;
-  templates?: Partial<Settings['templates']>;
-};
-
-function makeSettings(overrides: SettingsOverrides = {}): Settings {
-  const base: Settings = {
+function makeSettings(overrides: Partial<Settings> = {}): Settings {
+  return {
     mode: 'ai',
     templates: { bundles: [] },
     byok: {
@@ -22,117 +13,195 @@ function makeSettings(overrides: SettingsOverrides = {}): Settings {
       apiKey: '',
       model: 'arcee-ai/trinity-large-preview:free',
       selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+      customPrompt: '',
+    },
+    byokUnlock: {
+      isUnlocked: false,
+      unlockCodeLast4: null,
+      unlockedAt: null,
+      unlockSchemeVersion: 1,
+    },
+    byokUsage: {
+      dayKey: '2026-02-28',
+      successfulAiCount: 0,
+      inflightRuns: {},
+      countedSuccessIds: [],
     },
     privacy: { telemetryEnabled: false },
-    isPro: false,
-    credits: {
-      remaining: 0,
-      total: 150,
-      lastReset: '2026-01-01T00:00:00.000Z',
-    },
-    user: { id: 'user_1' },
     flags: {
       aiModeEnabled: true,
       byokEnabled: true,
       trialEnabled: true,
       developerMode: false,
     },
-  };
-  const baseCredits = base.credits as NonNullable<Settings['credits']>;
-  const baseUser = base.user as NonNullable<Settings['user']>;
-  const baseFlags = base.flags as NonNullable<Settings['flags']>;
-
-  return {
-    ...base,
     ...overrides,
-    byok: { ...base.byok, ...(overrides.byok || {}) },
-    privacy: { ...base.privacy, ...(overrides.privacy || {}) },
-    credits: { ...baseCredits, ...(overrides.credits || {}) },
-    user: { ...baseUser, ...(overrides.user || {}) },
-    flags: { ...baseFlags, ...(overrides.flags || {}) },
-    templates: { ...base.templates, ...(overrides.templates || {}) },
   };
+}
+
+function toLocalDayKey(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function makeProfile(overrides: Partial<RuntimeProfile> = {}): RuntimeProfile {
   return {
-    isDevelopment: true,
-    openAccessEnabled: true,
-    premiumBypassEnabled: true,
-    enforceDeveloperMode: true,
-    useMockMonetization: true,
-    monetizationApiBase: 'http://127.0.0.1:8788',
-    byokProxyUrl: 'http://127.0.0.1:8788/byok/proxy',
-    trafilaturaServiceUrl: 'http://127.0.0.1:8089',
+    isDevelopment: false,
+    openAccessEnabled: false,
+    premiumBypassEnabled: false,
+    enforceDeveloperMode: false,
+    useMockMonetization: false,
+    monetizationApiBase: 'https://promptready.app',
+    byokProxyUrl: 'https://promptready.app/api/proxy',
+    trafilaturaServiceUrl: '',
     ...overrides,
   };
 }
 
 describe('resolveEntitlements', () => {
-  it('disables remote credit fetch when open access is enabled', () => {
-    const settings = makeSettings();
-    const profile = makeProfile({
-      openAccessEnabled: true,
-      premiumBypassEnabled: false,
-      enforceDeveloperMode: false,
-      useMockMonetization: false,
+  it('locks AI mode when OpenRouter API key is missing', () => {
+    const settings = makeSettings({
+      byok: {
+        provider: 'openrouter',
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: '',
+        model: 'arcee-ai/trinity-large-preview:free',
+        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+        customPrompt: '',
+      },
     });
 
-    const result = resolveEntitlements(settings, profile);
+    const result = resolveEntitlements(settings, makeProfile());
 
-    expect(result.hasUnlimitedAccess).toBe(true);
-    expect(result.isPro).toBe(true);
-    expect(result.shouldFetchRemoteCredits).toBe(false);
+    expect(result.hasApiKey).toBe(false);
+    expect(result.canUseAIMode).toBe(false);
+    expect(result.aiLockReason).toBe('missing_api_key');
+    expect(result.remainingFreeByokUsesToday).toBe(5);
   });
 
-  it('enables remote credit fetch for production free users', () => {
+  it('allows AI mode when key exists and free usage remains', () => {
     const settings = makeSettings({
-      isPro: false,
-      byok: { apiKey: '' },
-      credits: { remaining: 0, total: 150 },
-      flags: { developerMode: false },
-      user: { id: 'prod_user' },
-    });
-    const profile = makeProfile({
-      isDevelopment: false,
-      openAccessEnabled: false,
-      premiumBypassEnabled: false,
-      enforceDeveloperMode: false,
-      useMockMonetization: false,
-      monetizationApiBase: 'https://promptready.app',
-      byokProxyUrl: 'https://promptready.app/api/proxy',
-      trafilaturaServiceUrl: '',
-    });
-
-    const result = resolveEntitlements(settings, profile);
-
-    expect(result.hasUnlimitedAccess).toBe(false);
-    expect(result.isPro).toBe(false);
-    expect(result.shouldFetchRemoteCredits).toBe(true);
-  });
-
-  it('treats BYOK users as pro without forcing remote credit fetch', () => {
-    const settings = makeSettings({
-      byok: { apiKey: 'sk-test' },
-      user: { id: 'prod_user' },
-      credits: { remaining: 0, total: 150 },
-    });
-    const profile = makeProfile({
-      isDevelopment: false,
-      openAccessEnabled: false,
-      premiumBypassEnabled: false,
-      enforceDeveloperMode: false,
-      useMockMonetization: false,
-      monetizationApiBase: 'https://promptready.app',
-      byokProxyUrl: 'https://promptready.app/api/proxy',
-      trafilaturaServiceUrl: '',
+      byok: {
+        provider: 'openrouter',
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-or-v1-test',
+        model: 'arcee-ai/trinity-large-preview:free',
+        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+        customPrompt: '',
+      },
+      byokUsage: {
+        dayKey: toLocalDayKey(),
+        successfulAiCount: 2,
+        inflightRuns: {},
+        countedSuccessIds: ['run_a', 'run_b'],
+      },
     });
 
-    const result = resolveEntitlements(settings, profile);
+    const result = resolveEntitlements(settings, makeProfile());
 
     expect(result.hasApiKey).toBe(true);
+    expect(result.canUseAIMode).toBe(true);
+    expect(result.aiLockReason).toBe(null);
+    expect(result.remainingFreeByokUsesToday).toBe(3);
+    expect(result.remainingFreeByokStartsToday).toBe(3);
+  });
+
+  it('blocks AI mode when successful + inflight reaches daily cap', () => {
+    const now = Date.now();
+    const settings = makeSettings({
+      byok: {
+        provider: 'openrouter',
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-or-v1-test',
+        model: 'arcee-ai/trinity-large-preview:free',
+        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+        customPrompt: '',
+      },
+      byokUsage: {
+        dayKey: toLocalDayKey(),
+        successfulAiCount: 4,
+        inflightRuns: {
+          run_1: {
+            startedAt: now,
+            dayKey: toLocalDayKey(),
+          },
+        },
+        countedSuccessIds: ['run_prev_1', 'run_prev_2', 'run_prev_3', 'run_prev_4'],
+      },
+    });
+
+    const result = resolveEntitlements(settings, makeProfile());
+
+    expect(result.canUseAIMode).toBe(false);
+    expect(result.aiLockReason).toBe('daily_limit_reached');
+    expect(result.inflightAiCount).toBe(1);
+    expect(result.remainingFreeByokUsesToday).toBe(1);
+    expect(result.remainingFreeByokStartsToday).toBe(0);
+  });
+
+  it('grants unlimited access when local unlock is active', () => {
+    const settings = makeSettings({
+      byok: {
+        provider: 'openrouter',
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-or-v1-test',
+        model: 'arcee-ai/trinity-large-preview:free',
+        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+        customPrompt: '',
+      },
+      byokUnlock: {
+        isUnlocked: true,
+        unlockCodeLast4: '5A91',
+        unlockedAt: '2026-02-28T01:23:45.000Z',
+        unlockSchemeVersion: 1,
+      },
+      byokUsage: {
+        dayKey: toLocalDayKey(),
+        successfulAiCount: 5,
+        inflightRuns: {},
+        countedSuccessIds: ['a', 'b', 'c', 'd', 'e'],
+      },
+    });
+
+    const result = resolveEntitlements(settings, makeProfile());
+
+    expect(result.isUnlocked).toBe(true);
     expect(result.hasUnlimitedAccess).toBe(true);
-    expect(result.isPro).toBe(true);
-    expect(result.shouldFetchRemoteCredits).toBe(false);
+    expect(result.canUseAIMode).toBe(true);
+    expect(result.aiLockReason).toBe(null);
+  });
+
+  it('drops stale inflight runs and resets stale day buckets before gating', () => {
+    const staleStartedAt = Date.now() - (15 * 60 * 1000);
+    const settings = makeSettings({
+      byok: {
+        provider: 'openrouter',
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-or-v1-test',
+        model: 'arcee-ai/trinity-large-preview:free',
+        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+        customPrompt: '',
+      },
+      byokUsage: {
+        dayKey: '2000-01-01',
+        successfulAiCount: 999,
+        inflightRuns: {
+          run_old: {
+            startedAt: staleStartedAt,
+            dayKey: '2000-01-01',
+          },
+        },
+        countedSuccessIds: ['run_old'],
+      },
+    });
+
+    const result = resolveEntitlements(settings, makeProfile());
+
+    expect(result.usageDayKey).not.toBe('2000-01-01');
+    expect(result.successfulAiCountToday).toBe(0);
+    expect(result.inflightAiCount).toBe(0);
+    expect(result.remainingFreeByokStartsToday).toBe(5);
+    expect(result.canUseAIMode).toBe(true);
   });
 });

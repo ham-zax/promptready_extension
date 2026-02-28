@@ -1,26 +1,25 @@
 // Custom hook for popup controller logic
-// Separates UI logic from presentation for clean architecture
 
 import { useReducer, useEffect, useCallback } from 'react';
-import { getUserId } from '@/lib/user';
 import { browser } from 'wxt/browser';
 import { Storage } from '@/lib/storage';
-import type { Settings, CreditsState, UserState, TrialState } from '@/lib/types';
-import { MonetizationClient } from '@/pro/monetization-client';
-import { resolveEntitlements } from '@/lib/entitlement-policy';
-import { ExperimentationClient, type CohortAssignment } from '@/pro/experimentation-client';
+import type {
+  AIFallbackCode,
+  AIAttemptOutcome,
+  Settings,
+} from '@/lib/types';
+import { resolveEntitlements, type AILockReason } from '@/lib/entitlement-policy';
 import UI_MESSAGES from '@/lib/ui-messages';
 
-// State types
 interface PopupState {
   mode: 'offline' | 'ai';
-  isPro: boolean;
   settings?: Settings;
-  credits?: CreditsState;
-  user?: UserState;
-  trial?: TrialState;
-  cohort?: CohortAssignment;
   hasApiKey: boolean;
+  isUnlocked: boolean;
+  canUseAIMode: boolean;
+  aiLockReason: AILockReason;
+  remainingFreeByokUsesToday: number;
+  remainingFreeByokStartsToday: number;
   apiKeyInput: string;
   processing: {
     status: 'idle' | 'capturing' | 'cleaning' | 'processing' | 'structuring' | 'exporting' | 'complete' | 'error';
@@ -37,53 +36,66 @@ interface PopupState {
     stats?: any;
     aiAttempted?: boolean;
     aiProvider?: 'openrouter' | null;
-    aiOutcome?: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed';
-    fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed';
+    aiOutcome?: AIAttemptOutcome;
+    fallbackCode?: AIFallbackCode;
+    runId?: string;
   } | null;
   toast: {
     message: string;
     type: 'success' | 'error' | 'info' | 'warning';
   } | null;
-  showUpgrade: boolean;
   settingsView: 'main' | 'byokChoice' | 'byokConfig';
   byokProvider: 'openrouter';
 }
 
-// Action types
+type ProcessingCompletePayload = {
+  markdown?: string;
+  exportMd?: string;
+  json?: any;
+  exportJson?: any;
+  metadata: any;
+  warnings?: string[];
+  qualityReport?: any;
+  stats?: any;
+  aiAttempted?: boolean;
+  aiProvider?: 'openrouter' | null;
+  aiOutcome?: AIAttemptOutcome;
+  fallbackCode?: AIFallbackCode;
+  runId?: string;
+};
+
 type PopupAction =
   | { type: 'SETTINGS_LOADED'; payload: { settings: Settings } }
   | { type: 'SETTINGS_UPDATED'; payload: { settings: Settings } }
-  | { type: 'CREDITS_UPDATED'; payload: { credits: CreditsState } }
-  | { type: 'COHORT_UPDATED'; payload: { cohort: CohortAssignment } }
   | { type: 'SET_APIKEY_INPUT'; payload: { value: string } }
   | { type: 'MODE_CHANGED'; payload: { mode: 'offline' | 'ai' } }
   | { type: 'CAPTURE_START' }
   | { type: 'PROCESSING_PROGRESS'; payload: { status: string; message?: string; progress?: number } }
-  | { type: 'PROCESSING_COMPLETE'; payload: { markdown: string; json: any; metadata: any; warnings?: string[]; qualityReport?: any; stats?: any; aiAttempted?: boolean; aiProvider?: 'openrouter' | null; aiOutcome?: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed'; fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed' } }
+  | { type: 'PROCESSING_COMPLETE'; payload: ProcessingCompletePayload }
   | { type: 'PROCESSING_ERROR'; payload: { error: string } }
   | { type: 'SHOW_TOAST'; payload: { message: string; type: 'success' | 'error' | 'info' | 'warning' } }
   | { type: 'HIDE_TOAST' }
-  | { type: 'SHOW_UPGRADE' }
-  | { type: 'HIDE_UPGRADE' }
   | { type: 'SET_SETTINGS_VIEW'; payload: { view: 'main' | 'byokChoice' | 'byokConfig' } }
   | { type: 'SET_BYOK_PROVIDER'; payload: { provider: 'openrouter' } };
 
 function deriveUiStateFromSettings(settings: Settings) {
   const entitlements = resolveEntitlements(settings);
   const effectiveMode =
-    (entitlements.flags.aiModeEnabled || entitlements.flags.developerMode)
+    entitlements.flags.aiModeEnabled || entitlements.flags.developerMode
       ? settings.mode
       : 'offline';
 
   return {
     effectiveMode,
-    isPro: entitlements.isPro,
     hasApiKey: entitlements.hasApiKey,
-    credits: entitlements.credits,
+    isUnlocked: entitlements.isUnlocked,
+    canUseAIMode: entitlements.canUseAIMode,
+    aiLockReason: entitlements.aiLockReason,
+    remainingFreeByokUsesToday: entitlements.remainingFreeByokUsesToday,
+    remainingFreeByokStartsToday: entitlements.remainingFreeByokStartsToday,
   };
 }
 
-// Reducer function
 function popupReducer(state: PopupState, action: PopupAction): PopupState {
   switch (action.type) {
     case 'SETTINGS_LOADED': {
@@ -93,55 +105,37 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
       return {
         ...state,
         mode: next.effectiveMode,
-        isPro: next.isPro,
         settings,
-        credits: next.credits,
-        user: settings.user,
-        trial: settings.trial,
         hasApiKey: next.hasApiKey,
+        isUnlocked: next.isUnlocked,
+        canUseAIMode: next.canUseAIMode,
+        aiLockReason: next.aiLockReason,
+        remainingFreeByokUsesToday: next.remainingFreeByokUsesToday,
+        remainingFreeByokStartsToday: next.remainingFreeByokStartsToday,
         apiKeyInput: '',
-      };
-    }
-
-    // V-- THIS IS THE MISSING PIECE --V
-    case 'CREDITS_UPDATED': {
-      const credits = action.payload.credits;
-      const hasExhausted = credits.remaining <= 0;
-      const derived = state.settings
-        ? deriveUiStateFromSettings({ ...state.settings, credits } as Settings)
-        : null;
-      return {
-        ...state,
-        credits: credits,
-        trial: { ...state.trial, hasExhausted: hasExhausted },
-        isPro: derived ? derived.isPro : ((state.settings?.flags?.developerMode) || state.hasApiKey || !hasExhausted),
-      };
-    }
-    // A-- THIS IS THE MISSING PIECE --A
-
-    case 'COHORT_UPDATED': {
-      return {
-        ...state,
-        cohort: action.payload.cohort,
       };
     }
     case 'SETTINGS_UPDATED': {
       const { settings } = action.payload;
       const next = deriveUiStateFromSettings(settings);
+
       return {
         ...state,
         mode: next.effectiveMode,
         settings,
-        isPro: next.isPro,
-        credits: next.credits,
-        user: settings.user,
-        trial: settings.trial,
         hasApiKey: next.hasApiKey,
+        isUnlocked: next.isUnlocked,
+        canUseAIMode: next.canUseAIMode,
+        aiLockReason: next.aiLockReason,
+        remainingFreeByokUsesToday: next.remainingFreeByokUsesToday,
+        remainingFreeByokStartsToday: next.remainingFreeByokStartsToday,
       };
     }
-    case 'SET_APIKEY_INPUT': {
-      return { ...state, apiKeyInput: action.payload.value };
-    }
+    case 'SET_APIKEY_INPUT':
+      return {
+        ...state,
+        apiKeyInput: action.payload.value,
+      };
     case 'MODE_CHANGED':
       return {
         ...state,
@@ -163,34 +157,16 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
         },
       };
     case 'PROCESSING_COMPLETE': {
-      const remainingCredits = (action.payload.metadata as any)?.remainingCredits;
-      const newCredits: CreditsState | undefined = remainingCredits !== undefined ? {
-        ...state.credits!,
-        remaining: remainingCredits,
-      } : state.credits;
-
-      const hasExhausted = newCredits ? newCredits.remaining <= 0 : true;
-      const pipelineUsed = (action.payload as any)?.stats?.pipelineUsed;
+      const pipelineUsed = action.payload?.stats?.pipelineUsed;
       return {
         ...state,
         processing: { status: 'complete' },
         exportData: {
           ...action.payload,
-          markdown: action.payload.markdown || (action.payload as any).exportMd,
-          json: action.payload.json || (action.payload as any).exportJson,
+          markdown: action.payload.markdown || action.payload.exportMd || '',
+          json: action.payload.json || action.payload.exportJson,
           pipelineUsed,
-          warnings: (action.payload as any).warnings,
-          aiAttempted: (action.payload as any).aiAttempted,
-          aiProvider: (action.payload as any).aiProvider,
-          aiOutcome: (action.payload as any).aiOutcome,
-          fallbackCode: (action.payload as any).fallbackCode,
         },
-        credits: newCredits,
-        trial: {
-          ...state.trial,
-          hasExhausted: hasExhausted,
-        },
-        isPro: (state.settings?.flags?.developerMode) || state.hasApiKey || !hasExhausted,
       };
     }
     case 'PROCESSING_ERROR':
@@ -208,16 +184,6 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
         ...state,
         toast: null,
       };
-    case 'SHOW_UPGRADE':
-      return {
-        ...state,
-        showUpgrade: true,
-      };
-    case 'HIDE_UPGRADE':
-      return {
-        ...state,
-        showUpgrade: false,
-      };
     case 'SET_SETTINGS_VIEW':
       return {
         ...state,
@@ -233,29 +199,42 @@ function popupReducer(state: PopupState, action: PopupAction): PopupState {
   }
 }
 
-// Initial state
 const initialState: PopupState = {
   mode: 'offline',
-  isPro: false,
   settings: undefined,
-  credits: undefined,
-  user: undefined,
-  trial: undefined,
   hasApiKey: false,
+  isUnlocked: false,
+  canUseAIMode: false,
+  aiLockReason: 'missing_api_key',
+  remainingFreeByokUsesToday: 0,
+  remainingFreeByokStartsToday: 0,
   apiKeyInput: '',
   processing: { status: 'idle' },
   exportData: null,
   toast: null,
-  showUpgrade: false,
   settingsView: 'main',
   byokProvider: 'openrouter',
 };
 
-// Custom hook
+function resolveFallbackToastMessage(aiOutcome?: AIAttemptOutcome): string {
+  if (aiOutcome === 'fallback_missing_key') {
+    return UI_MESSAGES.aiFallbackMissingKey;
+  }
+
+  if (aiOutcome === 'fallback_provider') {
+    return UI_MESSAGES.aiFallbackProviderUnsupported;
+  }
+
+  if (aiOutcome === 'fallback_daily_limit_reached') {
+    return UI_MESSAGES.aiFallbackDailyLimitReached;
+  }
+
+  return UI_MESSAGES.aiFallbackRequestFailed;
+}
+
 export function usePopupController() {
   const [state, dispatch] = useReducer(popupReducer, initialState);
 
-  // Toast helper
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
     dispatch({ type: 'SHOW_TOAST', payload: { message, type } });
     setTimeout(() => {
@@ -263,51 +242,19 @@ export function usePopupController() {
     }, 3000);
   }, []);
 
-  // Load initial settings
+  const refreshSettings = useCallback(async () => {
+    const settings = await Storage.getSettings();
+    dispatch({ type: 'SETTINGS_UPDATED', payload: { settings } });
+    return settings;
+  }, []);
+
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        let settings = await Storage.getSettings();
+        const settings = await Storage.getSettings();
         dispatch({ type: 'SETTINGS_LOADED', payload: { settings } });
-
-        const userId = await getUserId();
-        if (userId) {
-          // Store user ID in settings if it's not already there
-          if (!settings.user?.id) {
-            await Storage.updateSettings({ user: { id: userId } });
-            const updatedSettings = await Storage.getSettings();
-            settings = updatedSettings;
-            dispatch({ type: 'SETTINGS_UPDATED', payload: { settings } });
-          }
-
-          const entitlement = resolveEntitlements(settings);
-          if (entitlement.shouldFetchRemoteCredits) {
-            try {
-              const creditStatus = await MonetizationClient.checkCredits(userId);
-              const credits: CreditsState = {
-                remaining: creditStatus.balance,
-                total: settings.credits?.total || 150, // sensible default total if not present
-                lastReset: settings.credits?.lastReset || new Date().toISOString(),
-              };
-              // Dispatch credits update so reducer can recalculate isPro
-              dispatch({ type: 'CREDITS_UPDATED', payload: { credits } });
-            } catch (creditErr) {
-              console.warn('Failed to fetch credits:', creditErr);
-              // Do not block startup on credit fetch failure; show a non-blocking toast
-              showToast(UI_MESSAGES.failedToLoadSettings, 'info');
-            }
-          } else {
-            dispatch({ type: 'CREDITS_UPDATED', payload: { credits: entitlement.credits } });
-          }
-
-          const cohort = await ExperimentationClient.getCohort(userId);
-          dispatch({ type: 'COHORT_UPDATED', payload: { cohort } });
-        } else {
-          const entitlement = resolveEntitlements(settings);
-          dispatch({ type: 'CREDITS_UPDATED', payload: { credits: entitlement.credits } });
-        }
       } catch (error) {
-        console.error('Failed to load settings or extras:', error);
+        console.error('Failed to load settings:', error);
         showToast(UI_MESSAGES.failedToLoadSettings, 'error');
       }
     };
@@ -315,85 +262,73 @@ export function usePopupController() {
     loadInitialData();
   }, [showToast]);
 
-  // Surface stored critical messages when popup opens (when popup wasn't present to receive broadcasts)
   useEffect(() => {
     const consumeFailedBroadcasts = async () => {
       try {
         const res = await browser.storage.session.get(['failed_broadcasts']);
         const failed: any[] = (res && (res as any).failed_broadcasts) || [];
-        if (Array.isArray(failed) && failed.length > 0) {
-          for (const msg of failed) {
-            try {
-              switch (msg.type) {
-                case 'PROCESSING_COMPLETE':
-                  dispatch({
-                    type: 'PROCESSING_COMPLETE',
-                    payload: msg.payload,
-                  });
-                  {
-                    const pipeline = (msg?.payload as any)?.stats?.pipelineUsed;
-                    const successMessage =
-                      pipeline === 'intelligent-bypass'
-                        ? UI_MESSAGES.intelligentBypassSuccess
-                        : UI_MESSAGES.contentProcessed;
 
-                    const aiOutcome = (msg?.payload as any)?.aiOutcome;
-                    const isFallback = typeof aiOutcome === 'string' && aiOutcome.startsWith('fallback_');
+        if (!Array.isArray(failed) || failed.length === 0) {
+          return;
+        }
 
-                    if (isFallback) {
-                      const fallbackMessage =
-                        aiOutcome === 'fallback_missing_key'
-                          ? UI_MESSAGES.aiFallbackMissingKey
-                          : aiOutcome === 'fallback_provider'
-                            ? UI_MESSAGES.aiFallbackProviderUnsupported
-                            : UI_MESSAGES.aiFallbackRequestFailed;
-                      showToast(fallbackMessage, 'warning');
-                    } else {
-                      showToast(successMessage, 'success');
-                    }
-                  }
-                  break;
-                case 'EXPORT_COMPLETE':
-                  showToast(UI_MESSAGES.contentExported, 'success');
-                  break;
-                case 'PROCESSING_ERROR':
-                  if (msg?.payload?.fallbackUsed) {
-                    // Expected degradation path: AI attempt failed and pipeline continues in offline mode.
-                    break;
-                  }
-                  dispatch({
-                    type: 'PROCESSING_ERROR',
-                    payload: { error: msg?.payload?.error || 'Unknown error' },
-                  });
-                  showToast(
-                    UI_MESSAGES.processingFailed(msg?.payload?.error || 'Unknown error'),
-                    'error'
-                  );
-                  break;
-                default:
-                  break;
-              }
-            } catch (innerErr) {
-              console.warn('Failed to consume stored message:', innerErr);
-            }
-          }
+        for (const msg of failed) {
           try {
-            await browser.storage.session.remove(['failed_broadcasts']);
-          } catch (clearErr) {
-            console.warn('Failed to clear stored broadcasts:', clearErr);
+            switch (msg.type) {
+              case 'PROCESSING_COMPLETE': {
+                dispatch({ type: 'PROCESSING_COMPLETE', payload: msg.payload });
+                const aiOutcome = msg?.payload?.aiOutcome as AIAttemptOutcome | undefined;
+                const isFallback = typeof aiOutcome === 'string' && aiOutcome.startsWith('fallback_');
+
+                if (isFallback) {
+                  showToast(resolveFallbackToastMessage(aiOutcome), 'warning');
+                } else {
+                  const pipeline = msg?.payload?.stats?.pipelineUsed;
+                  const successMessage =
+                    pipeline === 'intelligent-bypass'
+                      ? UI_MESSAGES.intelligentBypassSuccess
+                      : UI_MESSAGES.contentProcessed;
+                  showToast(successMessage, 'success');
+                }
+
+                await refreshSettings();
+                break;
+              }
+              case 'EXPORT_COMPLETE':
+                showToast(UI_MESSAGES.contentExported, 'success');
+                break;
+              case 'PROCESSING_ERROR':
+                if (msg?.payload?.fallbackUsed) {
+                  break;
+                }
+                dispatch({
+                  type: 'PROCESSING_ERROR',
+                  payload: { error: msg?.payload?.error || 'Unknown error' },
+                });
+                showToast(
+                  UI_MESSAGES.processingFailed(msg?.payload?.error || 'Unknown error'),
+                  'error'
+                );
+                break;
+              default:
+                break;
+            }
+          } catch (innerErr) {
+            console.warn('Failed to consume stored message:', innerErr);
           }
         }
+
+        await browser.storage.session.remove(['failed_broadcasts']);
       } catch (err) {
         console.warn('Failed to load pending broadcasts:', err);
       }
     };
+
     consumeFailedBroadcasts();
-  }, [showToast]);
-  // Message listener for background script communication
+  }, [refreshSettings, showToast]);
+
   useEffect(() => {
     const messageListener = (message: any) => {
-      console.log('Popup received message:', message.type);
-
       switch (message.type) {
         case 'PROCESSING_PROGRESS':
           dispatch({
@@ -411,32 +346,29 @@ export function usePopupController() {
             type: 'PROCESSING_COMPLETE',
             payload: message.payload,
           });
-          // Show a dynamic completion message; AI fallbacks should be visible to users.
-          const pipeline = (message?.payload as any)?.stats?.pipelineUsed;
-          const successMessage = pipeline === 'intelligent-bypass'
-            ? UI_MESSAGES.intelligentBypassSuccess
-            : UI_MESSAGES.contentProcessed;
 
-          const aiOutcome = (message?.payload as any)?.aiOutcome;
+          const aiOutcome = message?.payload?.aiOutcome as AIAttemptOutcome | undefined;
           const isFallback = typeof aiOutcome === 'string' && aiOutcome.startsWith('fallback_');
 
           if (isFallback) {
-            const fallbackMessage =
-              aiOutcome === 'fallback_missing_key'
-                ? UI_MESSAGES.aiFallbackMissingKey
-                : aiOutcome === 'fallback_provider'
-                  ? UI_MESSAGES.aiFallbackProviderUnsupported
-                  : UI_MESSAGES.aiFallbackRequestFailed;
-            showToast(fallbackMessage, 'warning');
+            showToast(resolveFallbackToastMessage(aiOutcome), 'warning');
           } else {
+            const pipeline = message?.payload?.stats?.pipelineUsed;
+            const successMessage =
+              pipeline === 'intelligent-bypass'
+                ? UI_MESSAGES.intelligentBypassSuccess
+                : UI_MESSAGES.contentProcessed;
             showToast(successMessage, 'success');
           }
+
+          refreshSettings().catch((err) => {
+            console.warn('Failed to refresh settings after PROCESSING_COMPLETE:', err);
+          });
           break;
         }
 
         case 'PROCESSING_ERROR':
           if (message?.payload?.fallbackUsed) {
-            // Expected degradation path: AI attempt failed and pipeline continues in offline mode.
             break;
           }
           dispatch({
@@ -448,15 +380,12 @@ export function usePopupController() {
 
         case 'EXPORT_COMPLETE':
           showToast(UI_MESSAGES.contentExported, 'success');
-          // Don't auto-close - let user see export options and decide when to close
           break;
 
         case 'COPY_COMPLETE':
           if (message.payload.success) {
             showToast(UI_MESSAGES.copiedToClipboard, 'success');
-            // Don't auto-close - let user see export options and decide when to close
           } else {
-            // Popup-side fallback: attempt to write to clipboard directly from the popup
             (async () => {
               try {
                 const data = state.exportData?.markdown || '';
@@ -477,55 +406,60 @@ export function usePopupController() {
         case 'EXPORT_ERROR':
           showToast(UI_MESSAGES.failedToExport, 'error');
           break;
+
+        default:
+          break;
       }
     };
 
     browser.runtime.onMessage.addListener(messageListener);
     return () => browser.runtime.onMessage.removeListener(messageListener);
-  }, [showToast, state.exportData?.markdown]);
+  }, [refreshSettings, showToast, state.exportData?.markdown]);
 
-  // Handler functions
-  const handleModeToggle = useCallback(async () => {
+  const handleModeToggle = useCallback(async (targetMode?: Settings['mode']) => {
     const settings = await Storage.getSettings();
-    const flags = settings.flags || { aiModeEnabled: false, byokEnabled: true, trialEnabled: false, developerMode: false };
+    const entitlements = resolveEntitlements(settings);
 
-    const newMode = state.mode === 'offline' ? 'ai' : 'offline';
+    const newMode = targetMode || (state.mode === 'offline' ? 'ai' : 'offline');
 
-    // Only block transitions into AI mode when AI is disabled.
-    // Users should always be able to switch back to offline mode.
-    if (newMode === 'ai' && !flags.aiModeEnabled && !flags.developerMode) {
-      showToast('AI mode is disabled in settings.', 'info');
-      return;
-    }
+    if (newMode === 'ai') {
+      if (!entitlements.flags.aiModeEnabled && !entitlements.flags.developerMode) {
+        showToast('AI mode is disabled in settings.', 'info');
+        return;
+      }
 
-    // Gate AI mode behind Pro/BYOK/Trial for Phase 2, unless in developer mode
-    if (newMode === 'ai' && !flags.developerMode && !state.isPro && state.trial?.hasExhausted) {
-      dispatch({ type: 'SHOW_UPGRADE' });
-      return;
+      if (!entitlements.canUseAIMode) {
+        if (entitlements.aiLockReason === 'daily_limit_reached') {
+          showToast(UI_MESSAGES.dailyLimitReachedInline, 'warning');
+        } else if (entitlements.aiLockReason === 'missing_api_key') {
+          showToast(UI_MESSAGES.aiModeRequiresApiKey, 'info');
+        } else {
+          showToast('AI mode is currently unavailable.', 'warning');
+        }
+        return;
+      }
     }
 
     try {
       await Storage.updateSettings({ mode: newMode });
       dispatch({ type: 'MODE_CHANGED', payload: { mode: newMode } });
-      // Don't show toast for mode changes - it's annoying
-      // showToast(UI_MESSAGES.switchedToMode(newMode), 'success');
+      await refreshSettings();
     } catch (error) {
       console.error('Failed to update mode:', error);
       showToast(UI_MESSAGES.failedToUpdateMode, 'error');
     }
-  }, [state.mode, state.isPro, state.trial, showToast]);
+  }, [refreshSettings, showToast, state.mode]);
 
   const onSettingsChange = useCallback(async (partial: Partial<Settings>) => {
     try {
       await Storage.updateSettings(partial);
-      const updated = await Storage.getSettings();
-      dispatch({ type: 'SETTINGS_UPDATED', payload: { settings: updated } });
+      await refreshSettings();
       showToast(UI_MESSAGES.settingsSaved, 'success');
     } catch (error) {
       console.error('Failed to save settings:', error);
       showToast(UI_MESSAGES.failedToSaveSettings, 'error');
     }
-  }, [showToast]);
+  }, [refreshSettings, showToast]);
 
   const onApiKeyChange = useCallback((value: string) => {
     dispatch({ type: 'SET_APIKEY_INPUT', payload: { value } });
@@ -535,20 +469,14 @@ export function usePopupController() {
     try {
       const key = state.apiKeyInput.trim();
       await Storage.setApiKey(key);
-      const updated = await Storage.getSettings();
-
-      // Clear the input field after successful save
       dispatch({ type: 'SET_APIKEY_INPUT', payload: { value: '' } });
-
-      // Update settings which will recalculate isPro and hasApiKey
-      dispatch({ type: 'SETTINGS_UPDATED', payload: { settings: updated } });
-
+      await refreshSettings();
       showToast(UI_MESSAGES.apiKeySaved, 'success');
     } catch (error) {
       console.error('Failed to save API key:', error);
       showToast(UI_MESSAGES.failedToSaveApiKey, 'error');
     }
-  }, [state.apiKeyInput, showToast]);
+  }, [refreshSettings, showToast, state.apiKeyInput]);
 
   const onApiKeyTest = useCallback(async () => {
     try {
@@ -559,14 +487,13 @@ export function usePopupController() {
         return;
       }
 
-      // Mock validation
       if (key.trim() !== '') {
         showToast(UI_MESSAGES.byokConnectionOk, 'success');
       } else {
         showToast(UI_MESSAGES.byokTestFailedGeneric('Invalid API Key'), 'error');
       }
     } catch (error) {
-      const msg = (error instanceof Error ? error.message : String(error));
+      const msg = error instanceof Error ? error.message : String(error);
       console.error('BYOK test failed:', msg);
       showToast(UI_MESSAGES.byokTestFailedGeneric(msg.slice(0, 120)), 'error');
     }
@@ -575,14 +502,11 @@ export function usePopupController() {
   const handleCapture = useCallback(async () => {
     try {
       dispatch({ type: 'CAPTURE_START' });
-
-      // Immediate feedback while background orchestrates real capture
       dispatch({
         type: 'PROCESSING_PROGRESS',
         payload: { status: 'processing', message: 'Capturing content...', progress: 10 },
       });
 
-      // Ask background to perform real capture on the active tab
       const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
       const tabId = activeTab?.id;
       if (!tabId) {
@@ -593,8 +517,6 @@ export function usePopupController() {
         type: 'CAPTURE_REQUEST',
         payload: { tabId },
       });
-      // Further progress and completion will arrive via runtime messages
-
     } catch (error) {
       console.error('Capture failed:', error);
       dispatch({
@@ -646,27 +568,20 @@ export function usePopupController() {
     }
 
     try {
-      const content = format === 'md' ? state.exportData.markdown : JSON.stringify(state.exportData.json, null, 2);
+      const content = format === 'md'
+        ? state.exportData.markdown
+        : JSON.stringify(state.exportData.json, null, 2);
       const filename = `promptready-export.${format}`;
-
-      console.log(`handleExport called with format: ${format}, action: ${action}`);
 
       await browser.runtime.sendMessage({
         type: 'EXPORT_REQUEST',
         payload: { content, filename, format, action },
       });
-
-      console.log('Export request sent successfully to background');
-
     } catch (error) {
       console.error('Export failed:', error);
       showToast(UI_MESSAGES.failedToExport, 'error');
     }
-  }, [state.exportData, showToast]);
-
-  const handleUpgradeClose = useCallback(() => {
-    dispatch({ type: 'HIDE_UPGRADE' });
-  }, []);
+  }, [showToast, state.exportData]);
 
   const handleSetSettingsView = useCallback((view: 'main' | 'byokChoice' | 'byokConfig') => {
     dispatch({ type: 'SET_SETTINGS_VIEW', payload: { view } });
@@ -676,40 +591,29 @@ export function usePopupController() {
     dispatch({ type: 'SET_BYOK_PROVIDER', payload: { provider } });
   }, []);
 
-  // Computed properties
   const isProcessing =
     state.processing.status === 'capturing' ||
     state.processing.status === 'cleaning' ||
     state.processing.status === 'structuring' ||
     state.processing.status === 'exporting' ||
     state.processing.status === 'processing';
+
   const hasContent = !!state.exportData?.markdown;
 
   return {
-    // State
     state,
-
-    // Computed properties
     isProcessing,
     hasContent,
-
-    // Handlers
     handleModeToggle,
     handleCapture,
     handleCopy,
     handleExport,
-    handleUpgradeClose,
-
-    // Settings/BYOK handlers
     onSettingsChange,
     onApiKeyChange,
     onApiKeySave,
     onApiKeyTest,
     handleSetSettingsView,
-    handleSetByokProvider, // <-- Add this
-
-    // Utilities
+    handleSetByokProvider,
     showToast,
   };
 }
-

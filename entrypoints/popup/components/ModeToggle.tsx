@@ -1,6 +1,5 @@
 import React from 'react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { Storage } from '@/lib/storage';
 import { authService } from '@/lib/auth-service';
 import type { Settings } from '@/lib/types';
 import { WifiOff, Sparkles } from 'lucide-react';
@@ -9,44 +8,53 @@ interface ModeToggleProps {
   mode: Settings['mode'];
   onChange: (mode: Settings['mode']) => void;
   onUpgradePrompt: () => void;
-  isPro?: boolean;
 }
 
 export function ModeToggle({ mode, onChange, onUpgradePrompt }: ModeToggleProps) {
   const [authState, setAuthState] = React.useState<any>(null);
-  
-  React.useEffect(() => {
-    authService.getAuthState().then(setAuthState);
+
+  const refreshAuthState = React.useCallback(() => {
+    authService.getAuthState().then(setAuthState).catch(() => {
+      setAuthState(null);
+    });
   }, []);
-  
+
+  React.useEffect(() => {
+    refreshAuthState();
+  }, [refreshAuthState, mode]);
+
   const aiDisabled = authState ? !authState.canUseAIMode : false;
-  const aiTooltip = authState && !authState.canUseAIMode 
-    ? (authState.planType === 'free' 
-       ? 'AI Mode requires credits or API key' 
-       : 'AI Mode is temporarily unavailable')
+  const aiTooltip = authState && !authState.canUseAIMode
+    ? authState.aiLockReason === 'missing_api_key'
+      ? 'Add an OpenRouter API key to use AI mode.'
+      : authState.aiLockReason === 'daily_limit_reached'
+        ? 'Daily free AI limit reached. Enter unlock code or go to checkout.'
+        : 'AI mode is temporarily unavailable.'
     : undefined;
 
   const handleValueChange = (newMode: Settings['mode']) => {
-    if (!newMode) return; // Do nothing if the same item is clicked again to deselect
+    if (!newMode) {
+      return;
+    }
 
     if (newMode === 'ai' && aiDisabled) {
       onUpgradePrompt();
       return;
     }
 
-    Storage.updateSettings({ mode: newMode });
     onChange(newMode);
+    refreshAuthState();
   };
 
   const aiStatusText = authState
     ? authState.isDeveloperMode
       ? 'Developer mode enabled'
-      : authState.hasApiKey
-        ? 'BYOK connected'
-        : authState.canUseAIMode
-          ? `${authState.remainingCredits} credits available`
-          : 'Upgrade required for AI mode'
-    : 'Checking access…';
+      : authState.isUnlocked || authState.hasUnlimitedAccess
+        ? 'Unlimited AI unlocked'
+        : authState.hasApiKey
+          ? `${authState.remainingFreeByokStartsToday} free AI starts left today`
+          : 'Add OpenRouter API key to enable AI mode'
+    : 'Checking AI access…';
 
   return (
     <div className="space-y-2">

@@ -12,7 +12,6 @@ interface ProcessingProfile {
   readabilityPreset: string;
   turndownPreset: string;
   category: 'general' | 'technical' | 'academic' | 'social';
-  isPro?: boolean;
 }
 
 interface ProcessingProfilesProps {
@@ -37,7 +36,6 @@ const PROCESSING_PROFILES: ProcessingProfile[] = [
     readabilityPreset: 'technical-documentation',
     turndownPreset: 'github-flavored',
     category: 'technical',
-    isPro: true,
   },
   {
     id: 'academic',
@@ -46,7 +44,6 @@ const PROCESSING_PROFILES: ProcessingProfile[] = [
     readabilityPreset: 'academic-papers',
     turndownPreset: 'academic',
     category: 'academic',
-    isPro: true,
   },
   {
     id: 'social',
@@ -63,7 +60,6 @@ const PROCESSING_PROFILES: ProcessingProfile[] = [
     readabilityPreset: 'standard',
     turndownPreset: 'obsidian',
     category: 'general',
-    isPro: true,
   },
   {
     id: 'notion',
@@ -72,7 +68,6 @@ const PROCESSING_PROFILES: ProcessingProfile[] = [
     readabilityPreset: 'standard',
     turndownPreset: 'notion',
     category: 'general',
-    isPro: true,
   },
 ];
 
@@ -124,11 +119,6 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
         <div className="flex items-center space-x-2">
           <Zap className="w-5 h-5 text-brand-primary" />
           <h4 className="font-semibold text-foreground">Processing Profiles</h4>
-          {!settings.isPro && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-amber-950 uppercase tracking-wider">
-              Pro
-            </span>
-          )}
         </div>
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
@@ -147,7 +137,7 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
               selectedProfile === profile.id
                 ? 'border-brand-primary bg-brand-surface shadow-sm'
                 : 'border-border hover:border-brand-border bg-card text-card-foreground hover:bg-accent'
-            } ${profile.isPro && !settings.isPro ? 'opacity-60 grayscale-[0.5]' : ''}`}
+            }`}
             onClick={() => handleProfileChange(profile.id)}
           >
             <div className="flex items-start gap-3">

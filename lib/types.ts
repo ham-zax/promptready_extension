@@ -10,20 +10,28 @@ import type { ExtractionMode, ExtractionTuning } from '../core/domain/extraction
 export interface Settings {
   mode: 'offline' | 'ai';
   theme?: 'system' | 'light' | 'dark';
+  settingsSchemaVersion?: number;
   templates: {
     bundles: PromptBundle[];
   };
   byok: {
     provider: 'openrouter';
     apiBase: string;
-    apiKey: string; // Will be encrypted at rest
+    apiKey: string; // Local-only storage (no server-side persistence)
     model?: string; // Optional for backward compatibility
-    selectedByokModel?: string; // New field for selected model
+    selectedByokModel?: string; // Preferred selected model id
+    customPrompt?: string; // Optional user preference prompt (guardrailed)
   };
+  byokUnlock?: ByokUnlockState;
+  byokUsage?: ByokUsageState;
   privacy: {
     telemetryEnabled: boolean;
   };
-  isPro?: boolean; // Local flag for Pro features - being phased out
+  // Legacy fields retained only for purge-on-read compatibility.
+  isPro?: boolean;
+  credits?: CreditsState;
+  trial?: TrialState;
+  user?: UserState;
   // Optional: choose markdown renderer
   renderer?: 'structurer' | 'turndown';
   // Enable/disable Readability for general mode
@@ -43,9 +51,6 @@ export interface Settings {
     };
   };
   flags?: FeatureFlags;
-  credits?: CreditsState;
-  user?: UserState;
-  trial?: TrialState;
   ui?: {
     theme: 'light' | 'dark' | 'auto';
     animations: boolean;
@@ -89,7 +94,24 @@ export interface FeatureFlags {
   developerMode?: boolean;  // Hidden developer mode for bypassing restrictions
 }
 
-// Phase 2 state (optional on client; populated when backend is enabled)
+export interface ByokUnlockState {
+  isUnlocked: boolean;
+  unlockCodeLast4: string | null;
+  unlockedAt: string | null; // ISO 8601
+  unlockSchemeVersion: number;
+}
+
+export interface ByokUsageState {
+  dayKey: string; // Local date key: YYYY-MM-DD
+  successfulAiCount: number;
+  inflightRuns: Record<string, {
+    startedAt: number;
+    dayKey: string;
+  }>;
+  countedSuccessIds: string[]; // per-day ring buffer (dedupe)
+}
+
+// Legacy credits state retained for read-time purge compatibility.
 export interface CreditsState {
   remaining: number;
   total: number;
@@ -177,6 +199,22 @@ export interface FilterRule {
 // Messaging Contracts (Architecture Section 6)
 // =============================================================================
 
+export type AIAttemptOutcome =
+  | 'not_attempted'
+  | 'success'
+  | 'fallback_provider'
+  | 'fallback_missing_key'
+  | 'fallback_request_failed'
+  | 'fallback_daily_limit_reached'
+  | 'fallback_cancelled';
+
+export type AIFallbackCode =
+  | 'ai_fallback:provider_not_supported'
+  | 'ai_fallback:missing_openrouter_key'
+  | 'ai_fallback:request_failed'
+  | 'ai_fallback:daily_limit_reached'
+  | 'ai_fallback:cancelled';
+
 export type MessageType =
   | 'CAPTURE_SELECTION'    // UI → Content Script
   | 'CAPTURE_SELECTION_ONLY' // UI → Content Script (no fallback)
@@ -225,8 +263,9 @@ export type ProcessingCompleteMessage = Message<'PROCESSING_COMPLETE', {
   qualityReport?: Record<string, unknown>;
   aiAttempted?: boolean;
   aiProvider?: 'openrouter' | null;
-  aiOutcome?: 'not_attempted' | 'success' | 'fallback_provider' | 'fallback_missing_key' | 'fallback_request_failed';
-  fallbackCode?: 'ai_fallback:provider_not_supported' | 'ai_fallback:missing_openrouter_key' | 'ai_fallback:request_failed';
+  aiOutcome?: AIAttemptOutcome;
+  fallbackCode?: AIFallbackCode;
+  runId?: string;
 }>;
 
 export type ProcessingFallbackMessage = Message<'PROCESSING_FALLBACK', {

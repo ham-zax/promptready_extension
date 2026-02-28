@@ -59,8 +59,8 @@ describe('applyRuntimePolicyOverrides', () => {
 
     expect(result.mode).toBe('offline');
     expect(result.flags?.developerMode).toBe(true);
-    expect(result.isPro).toBe(true);
-    expect((result.credits?.remaining || 0) >= 999999).toBe(true);
+    expect(result.byokUnlock?.isUnlocked).toBe(false);
+    expect(result.byokUsage?.dayKey).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it('is a no-op when no runtime dev overrides are enabled', () => {

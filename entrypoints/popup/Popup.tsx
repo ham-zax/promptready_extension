@@ -1,28 +1,37 @@
-// Refactored popup UI with focused hooks and simplified authentication
-// Implements modern state management with proper separation of concerns
+// Refactored popup UI with focused hooks and BYOK freemium messaging.
 
 import React, { useState, useEffect } from 'react';
 import { usePopupController } from './hooks/usePopupController';
 import { useByokManager } from './hooks/useByokManager';
-import { useProManager } from './hooks/useProManager';
 import { useToastManager } from './hooks/useToastManager';
 import { UnifiedSettings } from './components/UnifiedSettings';
 import { ToastContainer } from './components/ToastContainer';
 import type { Settings } from '@/lib/types';
-import { ProBadge } from './components/ProBadge';
 import { ModeToggle } from './components/ModeToggle';
 import { PrimaryButton } from './components/PrimaryButton';
-import { ProUpgradePrompt } from './components/ProUpgradePrompt';
 import { Storage } from '@/lib/storage';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { browser } from 'wxt/browser';
-import { LayoutTemplate, Settings as SettingsIcon, ClipboardCopy, Download, FileJson, Code2, Globe, CheckCircle2, AlertTriangle, X } from 'lucide-react';
+import {
+  LayoutTemplate,
+  Settings as SettingsIcon,
+  ClipboardCopy,
+  Download,
+  FileJson,
+  Code2,
+  Globe,
+  CheckCircle2,
+  AlertTriangle,
+  KeyRound,
+  CreditCard,
+  X,
+} from 'lucide-react';
 
-// Developer mode activation state
+const CHECKOUT_URL = 'https://example.com/promptready-checkout';
+
 let devKeySequence = '';
-const DEV_MODE_SEQUENCE = 'devmode'; // Type 'devmode' to activate
+const DEV_MODE_SEQUENCE = 'devmode';
 
-// Main popup component with refactored architecture
 export default function RefactoredPopup() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStage, setProcessingStage] = useState('');
@@ -33,7 +42,6 @@ export default function RefactoredPopup() {
   const [lastAiOutcome, setLastAiOutcome] = useState<string>('not_attempted');
 
   useEffect(() => {
-    // Listen for processing progress
     const handleProgress = (message: any) => {
       if (message.type === 'PROCESSING_PROGRESS') {
         const stage = typeof message?.payload?.stage === 'string' ? message.payload.stage : 'processing';
@@ -50,7 +58,7 @@ export default function RefactoredPopup() {
         const stage = typeof message?.payload?.stage === 'string' ? message.payload.stage : 'ai-processing';
         const error = typeof message?.payload?.error === 'string' ? message.payload.error : 'AI request failed';
         setAiFallbackInfo({ stage, error });
-        setProcessingStage('AI failed — switching to offline processing…');
+        setProcessingStage('AI unavailable — switching to offline processing…');
         setIsProcessing(true);
         setProcessingComplete(false);
         setAutoCloseCountdown(null);
@@ -78,11 +86,10 @@ export default function RefactoredPopup() {
           aiResponseReceived
             ? 'AI response received'
             : aiFailed
-              ? 'AI failed — offline output ready'
+              ? 'AI unavailable — offline output ready'
               : 'Content ready'
         );
 
-        // Check user preference for auto-close (AI mode stays open for explicit confirmation).
         const checkAutoClose = async () => {
           const settings = await Storage.getSettings();
           const keepOpen = settings?.ui?.keepPopupOpen ?? true;
@@ -93,7 +100,7 @@ export default function RefactoredPopup() {
             setAutoCloseCountdown(Math.floor(delay / 1000));
 
             const countdownInterval = setInterval(() => {
-              setAutoCloseCountdown(prev => {
+              setAutoCloseCountdown((prev) => {
                 if (prev === null || prev <= 1) {
                   clearInterval(countdownInterval);
                   window.close();
@@ -106,7 +113,6 @@ export default function RefactoredPopup() {
           }
 
           setAutoCloseCountdown(null);
-          console.log('[Popup] Keeping popup open after processing');
         };
 
         checkAutoClose();
@@ -115,7 +121,6 @@ export default function RefactoredPopup() {
 
       if (message.type === 'PROCESSING_ERROR') {
         if (message?.payload?.fallbackUsed) {
-          // Expected degradation path: AI attempt failed and pipeline continues in offline mode.
           return;
         }
         setIsProcessing(false);
@@ -128,12 +133,13 @@ export default function RefactoredPopup() {
     browser.runtime.onMessage.addListener(handleProgress);
     return () => browser.runtime.onMessage.removeListener(handleProgress);
   }, []);
+
   useEffect(() => {
     const handleBeforeUnload = (event: Event) => {
       const e = event as unknown as { preventDefault: () => void; returnValue?: string };
       if (isProcessing) {
         e.preventDefault();
-        e.returnValue = ''; // Standard way to show "are you sure" dialog
+        e.returnValue = '';
         return 'Processing in progress...';
       }
     };
@@ -142,7 +148,6 @@ export default function RefactoredPopup() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isProcessing]);
 
-  // Legacy controller for basic functionality
   const {
     state,
     hasContent,
@@ -151,18 +156,13 @@ export default function RefactoredPopup() {
     handleCapture,
     handleCopy,
     handleExport,
-    handleUpgradeClose,
     onSettingsChange,
   } = usePopupController();
 
-  // New focused hooks
   const byokManager = useByokManager();
-  const proManager = useProManager();
   const toastManager = useToastManager();
   const { showSuccess, showError, showInfo, showWarning } = toastManager;
 
-  // Bridge legacy controller toasts into the new toast manager so copy/export
-  // completion notifications are actually visible in the refactored popup UI.
   useEffect(() => {
     if (!state.toast) return;
 
@@ -186,79 +186,60 @@ export default function RefactoredPopup() {
 
   const [showSettings, setShowSettings] = useState(false);
 
-  // Apply theme to document
   useEffect(() => {
     if (state.settings?.ui?.theme) {
       const theme = state.settings.ui.theme;
-      // Keep brand look consistent with promptready.app by default.
-      // Dark mode only applies when explicitly selected.
       const isDark = theme === 'dark';
-        
+
       if (isDark) {
         document.documentElement.classList.add('dark');
       } else {
         document.documentElement.classList.remove('dark');
       }
     } else {
-      // Fallback to light brand theme
       document.documentElement.classList.remove('dark');
     }
   }, [state.settings?.ui?.theme]);
 
-  // Developer mode activation via keyboard sequence
   useEffect(() => {
+    const toggleDeveloperMode = async () => {
+      try {
+        const settings = await Storage.getSettings();
+        const currentDevMode = settings?.flags?.developerMode || false;
+
+        const newFlags = {
+          aiModeEnabled: settings?.flags?.aiModeEnabled ?? true,
+          byokEnabled: settings?.flags?.byokEnabled ?? true,
+          trialEnabled: settings?.flags?.trialEnabled ?? false,
+          developerMode: !currentDevMode,
+        };
+
+        await Storage.updateSettings({ flags: newFlags });
+      } catch (error) {
+        console.error('Failed to toggle developer mode:', error);
+      }
+    };
+
     const handleKeyPress = (event: KeyboardEvent) => {
-      // Only process keys when not focused on input elements
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         return;
       }
 
       devKeySequence += event.key.toLowerCase();
-      
-      // Check if sequence matches
+
       if (devKeySequence.includes(DEV_MODE_SEQUENCE)) {
         toggleDeveloperMode();
-        devKeySequence = ''; // Reset sequence
+        devKeySequence = '';
       }
-      
-      // Keep sequence length manageable
+
       if (devKeySequence.length > 20) {
         devKeySequence = devKeySequence.slice(-10);
       }
     };
-  const toggleDeveloperMode = async () => {
-    try {
-      const settings = await Storage.getSettings();
-      const currentDevMode = settings?.flags?.developerMode || false;
 
-      // Build a complete FeatureFlags object to satisfy required booleans
-      const newFlags = {
-        aiModeEnabled: settings?.flags?.aiModeEnabled ?? true,
-        byokEnabled: settings?.flags?.byokEnabled ?? true,
-        trialEnabled: settings?.flags?.trialEnabled ?? false,
-        developerMode: !currentDevMode,
-      };
-
-      await Storage.updateSettings({ flags: newFlags });
-
-      // Show toast/log notification
-      if (!currentDevMode) {
-        console.log('🔓 Developer mode activated - AI mode unrestricted');
-      } else {
-        console.log('🔒 Developer mode deactivated');
-      }
-    } catch (error) {
-      console.error('Failed to toggle developer mode:', error);
-    }
-  };
-
-  document.addEventListener('keypress', handleKeyPress);
-  return () => document.removeEventListener('keypress', handleKeyPress);
-}, []);
-
-  const handleShowSettings = () => {
-    setShowSettings(true);
-  };
+    document.addEventListener('keypress', handleKeyPress);
+    return () => document.removeEventListener('keypress', handleKeyPress);
+  }, []);
 
   const processingActive = isProcessing || controllerIsProcessing;
 
@@ -279,25 +260,32 @@ export default function RefactoredPopup() {
     }
   };
 
+  const openCheckout = async () => {
+    try {
+      await browser.tabs.create({ url: CHECKOUT_URL });
+    } catch (error) {
+      console.error('Failed to open checkout page:', error);
+    }
+  };
+
   const animationsEnabled = state.settings?.ui?.animations ?? true;
   const revealClass = animationsEnabled ? 'animate-in fade-in slide-in-from-bottom-2 duration-300' : '';
-  const modeStatusLabel =
-    state.mode === 'offline'
-      ? 'Offline mode'
-      : state.settings?.flags?.developerMode
+
+  const modeStatusLabel = state.mode === 'offline'
+    ? 'Offline mode'
+    : state.settings?.flags?.developerMode
       ? 'AI mode • Developer'
-      : byokManager.hasApiKey
-      ? 'AI mode • BYOK'
-      : proManager.isInTrial
-      ? 'AI mode • Trial'
-      : 'AI mode';
-  const creditStatusLabel = state.settings?.flags?.developerMode
-    ? 'Unlimited credits'
-    : byokManager.hasApiKey
-    ? 'Using personal API key'
-    : typeof state.credits?.remaining === 'number'
-    ? `${Math.max(0, state.credits.remaining)} credits left`
-    : 'Checking credits…';
+      : state.isUnlocked
+        ? 'AI mode • Unlocked unlimited'
+        : 'AI mode • BYOK freemium';
+
+  const aiUsageLabel = state.settings?.flags?.developerMode
+    ? 'Unlimited AI uses'
+    : state.isUnlocked
+      ? 'Unlimited AI unlocked'
+      : state.hasApiKey
+        ? `${Math.max(0, state.remainingFreeByokStartsToday)} free AI starts left today`
+        : 'Add OpenRouter API key to use AI mode';
 
   const formatPipelineStage = (stage: string): string => {
     switch (stage) {
@@ -323,9 +311,13 @@ export default function RefactoredPopup() {
     return value.length > max ? `${value.slice(0, max - 1)}…` : value;
   };
 
+  const shouldShowAiLockCard =
+    state.mode === 'ai' &&
+    !state.canUseAIMode &&
+    !state.settings?.flags?.developerMode;
+
   return (
     <div className="relative w-96 max-h-[600px] bg-background text-foreground antialiased flex flex-col overflow-hidden">
-      {/* Header */}
       <div className="bg-background/95 backdrop-blur-sm text-foreground p-4 shadow-sm border-b border-border z-20 relative shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -334,7 +326,6 @@ export default function RefactoredPopup() {
               <h1 className="text-lg font-medium tracking-tight">PromptReady</h1>
               <p className="text-[11px] text-muted-foreground">Clean, structure, and cite web content for perfect prompts</p>
             </div>
-            {state.isPro && <ProBadge />}
             {state.settings?.flags?.developerMode && (
               <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-yellow-500 text-black rounded font-bold uppercase tracking-wider">DEV</span>
             )}
@@ -353,29 +344,25 @@ export default function RefactoredPopup() {
             {modeStatusLabel}
           </span>
           <span className="inline-flex items-center rounded-full border border-brand-border bg-brand-surface px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">
-            {creditStatusLabel}
+            {aiUsageLabel}
           </span>
         </div>
 
-        {/* Status + Mode Toggle */}
         <div className="mt-4">
           <ModeToggle
             mode={state.mode}
             onChange={(m: Settings['mode']) => {
-              onSettingsChange({ mode: m });
+              handleModeToggle(m);
               setShowSettings(false);
             }}
             onUpgradePrompt={() => {
-              handleModeToggle();
-              setShowSettings(false);
+              setShowSettings(true);
             }}
           />
         </div>
       </div>
 
-      {/* Scrollable Container for Settings and Content */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col">
-        {/* Unified Settings Panel - Now scrolls underneath header */}
         <div
           className={`grid transition-[grid-template-rows,border-color] duration-300 ease-in-out shrink-0 ${
             showSettings ? 'grid-rows-[1fr] border-b border-brand-border' : 'grid-rows-[0fr] border-transparent border-b-0'
@@ -387,7 +374,6 @@ export default function RefactoredPopup() {
                 isExpanded={showSettings}
                 settings={state.settings as Settings}
                 onSettingsChange={onSettingsChange}
-                isPro={state.isPro}
                 hasApiKey={byokManager.hasApiKey}
               />
             ) : (
@@ -396,20 +382,11 @@ export default function RefactoredPopup() {
           </div>
         </div>
 
-        {/* Main Content */}
         <div className="p-4 flex-1 flex flex-col gap-3">
           <section className={`rounded-2xl border border-border bg-card p-3 shadow-sm ${revealClass}`}>
             <PrimaryButton
               onClick={handleCaptureWithUiLock}
-              disabled={
-                processingActive ||
-                (
-                  state.mode === 'ai' &&
-                  state.credits?.remaining === 0 &&
-                  !state.settings?.flags?.developerMode &&
-                  !byokManager.hasApiKey
-                )
-              }
+              disabled={processingActive || (state.mode === 'ai' && !state.canUseAIMode)}
               isProcessing={processingActive}
               processingText={processingStage || state.processing.message || 'Processing...'}
             >
@@ -422,14 +399,13 @@ export default function RefactoredPopup() {
               </p>
             )}
 
-            {/* Processing Progress */}
             {processingActive && state.processing.progress && (
               <div className="mt-3">
                 <div className="bg-muted rounded-full h-1.5 overflow-hidden border border-border">
                   <div
                     className="bg-brand-primary h-full rounded-full transition-all duration-300 ease-out"
                     style={{ width: `${state.processing.progress}%` }}
-                  ></div>
+                  />
                 </div>
                 <p className="text-xs text-muted-foreground mt-2 text-center font-medium animate-pulse">
                   {state.processing.message || processingStage}
@@ -438,21 +414,46 @@ export default function RefactoredPopup() {
             )}
           </section>
 
-          {/* Upgrade Prompt View */}
-          {state.mode === 'ai' && state.credits?.remaining === 0 && !state.settings?.flags?.developerMode && !byokManager.hasApiKey && (
+          {shouldShowAiLockCard && (
             <div className={`p-4 text-center bg-card rounded-2xl border border-brand-border ${revealClass}`}>
-              <p className="text-sm font-semibold text-foreground">You&apos;re out of free credits</p>
-              <p className="text-xs text-muted-foreground mb-3 mt-1">Add your API key to keep using AI mode.</p>
-              <button
-                onClick={handleShowSettings}
-                className="w-full py-2.5 px-4 bg-background text-brand-primary border border-brand-primary rounded-full hover:bg-brand-surface active:scale-[0.98] transition-all duration-200 ease-out text-sm font-semibold shadow-sm"
-              >
-                Configure API Key
-              </button>
+              {state.aiLockReason === 'missing_api_key' ? (
+                <>
+                  <p className="text-sm font-semibold text-foreground">AI mode needs your OpenRouter API key</p>
+                  <p className="text-xs text-muted-foreground mb-3 mt-1">Offline mode stays free and always available.</p>
+                  <button
+                    onClick={() => setShowSettings(true)}
+                    className="w-full py-2.5 px-4 bg-background text-brand-primary border border-brand-primary rounded-full hover:bg-brand-surface active:scale-[0.98] transition-all duration-200 ease-out text-sm font-semibold shadow-sm"
+                  >
+                    Configure API Key
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-foreground">Daily free AI limit reached</p>
+                  <p className="text-xs text-muted-foreground mb-3 mt-1">
+                    Use Offline mode for free, or unlock unlimited BYOK usage.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setShowSettings(true)}
+                      className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 bg-background text-brand-primary border border-brand-primary rounded-full hover:bg-brand-surface active:scale-[0.98] transition-all duration-200 ease-out text-sm font-semibold shadow-sm"
+                    >
+                      <KeyRound className="w-4 h-4" />
+                      Enter unlock
+                    </button>
+                    <button
+                      onClick={openCheckout}
+                      className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 bg-brand-primary text-brand-primary-foreground border border-[#c90000] rounded-full hover:bg-[#d20000] active:scale-[0.98] transition-all duration-200 ease-out text-sm font-semibold shadow-sm"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      Checkout
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
-          {/* Export Options */}
           {hasContent && (
             <div className={`space-y-3 rounded-2xl border border-border bg-card p-3 shadow-sm ${revealClass}`}>
               <div>
@@ -462,29 +463,36 @@ export default function RefactoredPopup() {
                   const outcome = state.exportData.aiOutcome || 'not_attempted';
                   const isSuccess = outcome === 'success';
                   const isMissingKey = outcome === 'fallback_missing_key';
+                  const isDailyLimit = outcome === 'fallback_daily_limit_reached';
                   const isRequestFailed = outcome === 'fallback_request_failed';
 
                   const toneClass = isSuccess
                     ? 'border-emerald-600/30 bg-emerald-600/10 text-emerald-700'
                     : isMissingKey
                       ? 'border-sky-600/30 bg-sky-600/10 text-sky-700'
-                      : isRequestFailed
-                        ? 'border-rose-600/30 bg-rose-600/10 text-rose-700'
-                        : 'border-amber-600/30 bg-amber-600/10 text-amber-800';
+                      : isDailyLimit
+                        ? 'border-amber-600/30 bg-amber-600/10 text-amber-800'
+                        : isRequestFailed
+                          ? 'border-rose-600/30 bg-rose-600/10 text-rose-700'
+                          : 'border-amber-600/30 bg-amber-600/10 text-amber-800';
 
                   const title = isSuccess
                     ? 'AI processed successfully'
                     : isMissingKey
                       ? 'AI not configured (offline output generated)'
-                      : 'AI failed (offline output generated)';
+                      : isDailyLimit
+                        ? 'Daily limit reached (offline output generated)'
+                        : 'AI failed (offline output generated)';
 
                   const detail = isSuccess
                     ? 'OpenRouter response received.'
                     : isMissingKey
                       ? 'Add an OpenRouter API key in Settings to enable AI processing.'
-                      : aiFallbackInfo
-                        ? `Failed at ${formatPipelineStage(aiFallbackInfo.stage)}: ${truncateMessage(aiFallbackInfo.error)}`
-                        : 'AI request failed and the extension used the offline pipeline instead.';
+                      : isDailyLimit
+                        ? 'Enter unlock code or checkout to continue unlimited AI mode.'
+                        : aiFallbackInfo
+                          ? `Failed at ${formatPipelineStage(aiFallbackInfo.stage)}: ${truncateMessage(aiFallbackInfo.error)}`
+                          : 'AI request failed and the extension used the offline pipeline instead.';
 
                   return (
                     <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${toneClass}`}>
@@ -503,58 +511,54 @@ export default function RefactoredPopup() {
                   );
                 })()}
 
-              <div className="grid grid-cols-2 gap-2">
-                {/* Copy Markdown (Card) */}
-                <button
-                  onClick={() => handleCopy(state.exportData!.markdown)}
-                  className="group w-full rounded-xl border border-border bg-background text-card-foreground hover:bg-brand-surface hover:border-brand-primary/30 active:scale-[0.98] shadow-sm p-3 text-left transition-all duration-200 ease-out"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="p-2 bg-brand-surface rounded-lg group-hover:bg-brand-primary group-hover:text-white transition-colors">
-                      <ClipboardCopy className="w-4 h-4 text-brand-primary group-hover:text-white transition-colors" />
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => handleCopy(state.exportData!.markdown)}
+                    className="group w-full rounded-xl border border-border bg-background text-card-foreground hover:bg-brand-surface hover:border-brand-primary/30 active:scale-[0.98] shadow-sm p-3 text-left transition-all duration-200 ease-out"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="p-2 bg-brand-surface rounded-lg group-hover:bg-brand-primary group-hover:text-white transition-colors">
+                        <ClipboardCopy className="w-4 h-4 text-brand-primary group-hover:text-white transition-colors" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-semibold text-foreground">Copy MD</span>
+                        <span className="text-[10px] text-muted-foreground">To clipboard</span>
+                      </div>
                     </div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-semibold text-foreground">Copy MD</span>
-                      <span className="text-[10px] text-muted-foreground">To clipboard</span>
-                    </div>
-                  </div>
-                </button>
+                  </button>
 
-                {/* Save Markdown (Card) */}
+                  <button
+                    onClick={() => handleExport('md')}
+                    className="group w-full rounded-xl border border-border bg-background text-card-foreground hover:bg-brand-surface hover:border-brand-primary/30 active:scale-[0.98] shadow-sm p-3 text-left transition-all duration-200 ease-out"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="p-2 bg-brand-surface rounded-lg group-hover:bg-brand-primary group-hover:text-white transition-colors">
+                        <Download className="w-4 h-4 text-brand-primary group-hover:text-white transition-colors" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-semibold text-foreground">Save MD</span>
+                        <span className="text-[10px] text-muted-foreground">Download file</span>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
                 <button
-                  onClick={() => handleExport('md')}
-                  className="group w-full rounded-xl border border-border bg-background text-card-foreground hover:bg-brand-surface hover:border-brand-primary/30 active:scale-[0.98] shadow-sm p-3 text-left transition-all duration-200 ease-out"
+                  onClick={() => handleCopy(JSON.stringify(state.exportData!.json, null, 2))}
+                  className="group w-full mt-2 rounded-xl border border-border bg-background text-card-foreground hover:bg-brand-surface hover:border-brand-primary/30 active:scale-[0.98] shadow-sm p-3 text-left transition-all duration-200 ease-out"
                 >
                   <div className="flex items-center space-x-3">
                     <div className="p-2 bg-brand-surface rounded-lg group-hover:bg-brand-primary group-hover:text-white transition-colors">
-                      <Download className="w-4 h-4 text-brand-primary group-hover:text-white transition-colors" />
+                      <FileJson className="w-4 h-4 text-brand-primary group-hover:text-white transition-colors" />
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-semibold text-foreground">Save MD</span>
-                      <span className="text-[10px] text-muted-foreground">Download file</span>
+                      <span className="text-sm font-semibold text-foreground">Copy JSON</span>
+                      <span className="text-[10px] text-muted-foreground">Structured data for automation</span>
                     </div>
                   </div>
                 </button>
               </div>
 
-              {/* Copy JSON (Full-width Card) */}
-              <button
-                onClick={() => handleCopy(JSON.stringify(state.exportData!.json, null, 2))}
-                className="group w-full mt-2 rounded-xl border border-border bg-background text-card-foreground hover:bg-brand-surface hover:border-brand-primary/30 active:scale-[0.98] shadow-sm p-3 text-left transition-all duration-200 ease-out"
-              >
-                <div className="flex items-center space-x-3">
-                  <div className="p-2 bg-brand-surface rounded-lg group-hover:bg-brand-primary group-hover:text-white transition-colors">
-                    <FileJson className="w-4 h-4 text-brand-primary group-hover:text-white transition-colors" />
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-semibold text-foreground">Copy JSON</span>
-                    <span className="text-[10px] text-muted-foreground">Structured data for automation</span>
-                  </div>
-                </div>
-              </button>
-            </div>
-
-              {/* Quality Report */}
               {state.exportData?.qualityReport && (
                 <div className="border-t border-border pt-3">
                   <div className="flex items-center justify-between bg-muted rounded-lg p-2.5 border border-border">
@@ -565,8 +569,8 @@ export default function RefactoredPopup() {
                           state.exportData.qualityReport.overallScore >= 80
                             ? 'bg-green-100 text-green-700'
                             : state.exportData.qualityReport.overallScore >= 60
-                            ? 'bg-yellow-100 text-yellow-700'
-                            : 'bg-red-100 text-red-700'
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-red-100 text-red-700'
                         }`}
                       >
                         {state.exportData.qualityReport.overallScore}/100
@@ -576,7 +580,6 @@ export default function RefactoredPopup() {
                 </div>
               )}
 
-              {/* Developer Info */}
               {state.settings?.flags?.developerMode && state.exportData && (
                 <div className="border-t border-border pt-3">
                   <h4 className="text-xs font-medium text-foreground mb-1">Developer Info</h4>
@@ -590,7 +593,6 @@ export default function RefactoredPopup() {
                 </div>
               )}
 
-              {/* Developer Export Options */}
               {state.settings?.flags?.developerMode && hasContent && (
                 <div className="border-t border-border pt-3">
                   <h4 className="text-xs font-medium text-foreground mb-2">Developer Exports</h4>
@@ -634,33 +636,39 @@ export default function RefactoredPopup() {
         </div>
       </div>
 
-      {/* Processing complete notification */}
       {processingComplete && (() => {
         const outcome = lastAiOutcome || 'not_attempted';
         const isFallback = state.mode === 'ai' && outcome.startsWith('fallback_');
         const isMissingKey = outcome === 'fallback_missing_key';
+        const isDailyLimit = outcome === 'fallback_daily_limit_reached';
         const isRequestFailed = outcome === 'fallback_request_failed';
 
         const iconWrapClass = isFallback
           ? isMissingKey
             ? 'bg-sky-50 border-sky-200'
-            : isRequestFailed
-              ? 'bg-rose-50 border-rose-200'
-              : 'bg-amber-50 border-amber-200'
+            : isDailyLimit
+              ? 'bg-amber-50 border-amber-200'
+              : isRequestFailed
+                ? 'bg-rose-50 border-rose-200'
+                : 'bg-amber-50 border-amber-200'
           : 'bg-emerald-50 border-emerald-200';
 
         const iconClass = isFallback
           ? isMissingKey
             ? 'text-sky-700'
-            : isRequestFailed
-              ? 'text-rose-700'
-              : 'text-amber-700'
+            : isDailyLimit
+              ? 'text-amber-700'
+              : isRequestFailed
+                ? 'text-rose-700'
+                : 'text-amber-700'
           : 'text-emerald-600';
 
         const title = isFallback
           ? isMissingKey
             ? 'Offline output ready (AI not configured)'
-            : 'Offline output ready (AI failed)'
+            : isDailyLimit
+              ? 'Offline output ready (daily limit reached)'
+              : 'Offline output ready (AI failed)'
           : 'Content ready';
 
         const detail =
@@ -701,21 +709,11 @@ export default function RefactoredPopup() {
         );
       })()}
 
-      {/* Toast Notifications */}
       <ToastContainer
         toasts={toastManager.toasts}
         onHide={toastManager.hideToast}
       />
 
-      {/* Upgrade Modal */}
-      <ProUpgradePrompt
-        isVisible={state.showUpgrade}
-        onClose={handleUpgradeClose}
-        onUpgradeComplete={() => {
-          toastManager.showSuccess('Trial activated successfully!');
-          handleUpgradeClose();
-        }}
-      />
       {processingActive && (
         <LoadingOverlay
           status={state.processing.status}

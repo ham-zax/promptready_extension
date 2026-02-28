@@ -17,11 +17,28 @@ const STORAGE_KEYS = {
   TELEMETRY: 'promptready_telemetry',
 } as const;
 
+const LEGACY_MONETIZATION_KEYS = [
+  'isPro',
+  'credits',
+  'trial',
+] as const;
+
 // =============================================================================
 // Default Settings
 // =============================================================================
 
 const runtimeProfile = getRuntimeProfile();
+
+const SETTINGS_SCHEMA_VERSION = 2;
+const UNLOCK_SCHEME_VERSION = 1;
+
+function toLocalDayKey(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const DEFAULT_CAPTURE_POLICY: CapturePolicy = {
   settleTimeoutMs: 600,
   quietWindowMs: 150,
@@ -60,6 +77,24 @@ function normalizeCapturePolicy(policy: unknown): CapturePolicy {
   };
 }
 
+function defaultByokUnlockState(): NonNullable<Settings['byokUnlock']> {
+  return {
+    isUnlocked: false,
+    unlockCodeLast4: null,
+    unlockedAt: null,
+    unlockSchemeVersion: UNLOCK_SCHEME_VERSION,
+  };
+}
+
+function defaultByokUsageState(dayKey: string = toLocalDayKey()): NonNullable<Settings['byokUsage']> {
+  return {
+    dayKey,
+    successfulAiCount: 0,
+    inflightRuns: {},
+    countedSuccessIds: [],
+  };
+}
+
 function normalizeByokSettings(byok: unknown): Settings['byok'] {
   const source = (byok && typeof byok === 'object') ? (byok as Partial<Settings['byok']>) : {};
   const providerNormalization = normalizeByokProvider(source.provider);
@@ -68,16 +103,123 @@ function normalizeByokSettings(byok: unknown): Settings['byok'] {
     source.model ||
     DEFAULT_SETTINGS.byok.selectedByokModel;
 
+  const customPrompt = typeof source.customPrompt === 'string' ? source.customPrompt : '';
+
   return {
     ...DEFAULT_SETTINGS.byok,
     ...source,
     provider: providerNormalization.canonicalProvider,
     model: source.model || selectedByokModel,
     selectedByokModel,
+    customPrompt,
+  };
+}
+
+function normalizeByokUnlockState(unlock: unknown): NonNullable<Settings['byokUnlock']> {
+  const source = (unlock && typeof unlock === 'object') ? (unlock as Partial<NonNullable<Settings['byokUnlock']>>) : {};
+  const isUnlocked = Boolean(source.isUnlocked);
+  const unlockCodeLast4 =
+    typeof source.unlockCodeLast4 === 'string' && source.unlockCodeLast4.trim().length > 0
+      ? source.unlockCodeLast4.trim().slice(-4)
+      : null;
+  const unlockedAt =
+    typeof source.unlockedAt === 'string' && source.unlockedAt.trim().length > 0
+      ? source.unlockedAt
+      : null;
+  const unlockSchemeVersion =
+    typeof source.unlockSchemeVersion === 'number' && Number.isFinite(source.unlockSchemeVersion)
+      ? Math.max(1, Math.trunc(source.unlockSchemeVersion))
+      : UNLOCK_SCHEME_VERSION;
+
+  if (!isUnlocked) {
+    return {
+      ...defaultByokUnlockState(),
+      unlockSchemeVersion,
+    };
+  }
+
+  return {
+    isUnlocked,
+    unlockCodeLast4,
+    unlockedAt,
+    unlockSchemeVersion,
+  };
+}
+
+const COUNTED_SUCCESS_RING_SIZE = 20;
+const STALE_INFLIGHT_TIMEOUT_MS = 10 * 60 * 1000;
+
+function normalizeByokUsageState(usage: unknown, now: Date = new Date()): NonNullable<Settings['byokUsage']> {
+  const currentDayKey = toLocalDayKey(now);
+  const source = (usage && typeof usage === 'object') ? (usage as Partial<NonNullable<Settings['byokUsage']>>) : {};
+
+  const sourceDayKey = typeof source.dayKey === 'string' && source.dayKey.trim().length > 0
+    ? source.dayKey
+    : currentDayKey;
+
+  // Day bucket normalization MUST happen before gate checks. When day changes,
+  // all per-day counters/ring buffers reset deterministically.
+  if (sourceDayKey !== currentDayKey) {
+    return defaultByokUsageState(currentDayKey);
+  }
+
+  const successfulAiCount =
+    typeof source.successfulAiCount === 'number' && Number.isFinite(source.successfulAiCount)
+      ? Math.max(0, Math.trunc(source.successfulAiCount))
+      : 0;
+
+  const nowMs = now.getTime();
+  const inflightRunsRaw = (source.inflightRuns && typeof source.inflightRuns === 'object')
+    ? source.inflightRuns
+    : {};
+  const inflightRuns: NonNullable<Settings['byokUsage']>['inflightRuns'] = {};
+
+  for (const [runId, raw] of Object.entries(inflightRunsRaw)) {
+    if (!runId || !runId.trim()) continue;
+
+    let startedAt: number | null = null;
+    let runDayKey = currentDayKey;
+
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      // Backward compatibility for transient legacy shape: runId -> startedAt
+      startedAt = Math.trunc(raw);
+    } else if (raw && typeof raw === 'object') {
+      const entry = raw as { startedAt?: unknown; dayKey?: unknown };
+      if (typeof entry.startedAt === 'number' && Number.isFinite(entry.startedAt)) {
+        startedAt = Math.trunc(entry.startedAt);
+      }
+      if (typeof entry.dayKey === 'string' && entry.dayKey.trim()) {
+        runDayKey = entry.dayKey;
+      }
+    }
+
+    if (startedAt === null || startedAt <= 0) continue;
+    if (runDayKey !== currentDayKey) continue;
+    if (nowMs - startedAt > STALE_INFLIGHT_TIMEOUT_MS) continue;
+
+    inflightRuns[runId] = {
+      startedAt,
+      dayKey: runDayKey,
+    };
+  }
+
+  const countedSuccessIds = Array.isArray(source.countedSuccessIds)
+    ? source.countedSuccessIds
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim())
+      .slice(-COUNTED_SUCCESS_RING_SIZE)
+    : [];
+
+  return {
+    dayKey: currentDayKey,
+    successfulAiCount,
+    inflightRuns,
+    countedSuccessIds,
   };
 }
 
 const DEFAULT_SETTINGS: Settings = {
+  settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
   mode: 'offline',
   theme: 'system',
   templates: {
@@ -89,23 +231,14 @@ const DEFAULT_SETTINGS: Settings = {
     apiKey: '', // No demo key by default; users can add BYOK
     model: 'arcee-ai/trinity-large-preview:free',
     selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+    customPrompt: '',
   },
+  byokUnlock: defaultByokUnlockState(),
+  byokUsage: defaultByokUsageState(),
   privacy: {
     telemetryEnabled: false,
   },
-  isPro: runtimeProfile.openAccessEnabled || runtimeProfile.premiumBypassEnabled,
-  credits: {
-    remaining: runtimeProfile.openAccessEnabled || runtimeProfile.premiumBypassEnabled ? 999999 : 10,
-    total: runtimeProfile.openAccessEnabled || runtimeProfile.premiumBypassEnabled ? 999999 : 10,
-    lastReset: new Date().toISOString(),
-  },
-  user: {
-    id: '', // Anonymous ID will be generated
-  },
-  trial: {
-    hasExhausted: false,
-    showUpgradePrompt: false,
-  },
+  // Legacy fields intentionally omitted from defaults (purge-on-read model).
   renderer: 'turndown',
   useReadability: true,
   processing: {
@@ -146,13 +279,11 @@ export function applyRuntimePolicyOverrides(
   }
 
   const flags = settings.flags || defaultSettings.flags!;
-  const credits = settings.credits || defaultSettings.credits!;
 
   return {
     ...settings,
     // Preserve explicit user choice; open-access should unlock modes, not force a mode.
     mode: settings.mode || defaultSettings.mode,
-    isPro: profile.openAccessEnabled || profile.premiumBypassEnabled ? true : settings.isPro,
     flags: {
       ...flags,
       aiModeEnabled: true,
@@ -160,13 +291,8 @@ export function applyRuntimePolicyOverrides(
       trialEnabled: true,
       developerMode: profile.enforceDeveloperMode ? true : Boolean(flags.developerMode),
     },
-    credits: profile.openAccessEnabled || profile.premiumBypassEnabled
-      ? {
-        ...credits,
-        remaining: Math.max(credits.remaining || 0, 999999),
-        total: Math.max(credits.total || 0, 999999),
-      }
-      : credits,
+    byokUnlock: settings.byokUnlock || defaultByokUnlockState(),
+    byokUsage: settings.byokUsage || defaultByokUsageState(),
   };
 }
 
@@ -196,21 +322,41 @@ export class Storage {
       const storedRaw = result[STORAGE_KEYS.SETTINGS];
 
       if (!storedRaw || typeof storedRaw !== 'object') {
-        const newSettings = { ...DEFAULT_SETTINGS };
-        if (!newSettings.user) {
-          newSettings.user = { id: '' };
-        }
-        newSettings.user.id = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`; // Generate anonymous ID
+        const newSettings: Settings = {
+          ...DEFAULT_SETTINGS,
+          settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
+          user: {
+            id: `anon_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
+          },
+          byokUnlock: defaultByokUnlockState(),
+          byokUsage: defaultByokUsageState(),
+        };
+
+        await browser.storage.local.set({
+          [STORAGE_KEYS.SETTINGS]: newSettings,
+        });
+
         return this.applyRuntimeOverrides(newSettings);
       }
 
-      const stored = storedRaw as Partial<Settings>;
+      const storedObject = storedRaw as Record<string, unknown>;
+      const stored = storedObject as Partial<Settings>;
+      const rawSchemaVersion =
+        typeof stored.settingsSchemaVersion === 'number' && Number.isFinite(stored.settingsSchemaVersion)
+          ? Math.trunc(stored.settingsSchemaVersion)
+          : 0;
+      const requiresSchemaUpgrade = rawSchemaVersion < SETTINGS_SCHEMA_VERSION;
 
       // Migrate legacy mode values
       const rawMode = (stored as any).mode;
       const migratedMode: Settings['mode'] = rawMode === 'ai' ? 'ai' : 'offline';
 
-      const settings = { ...DEFAULT_SETTINGS, ...stored, mode: migratedMode };
+      const settings: Settings = {
+        ...DEFAULT_SETTINGS,
+        ...stored,
+        mode: migratedMode,
+        settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
+      };
 
       settings.processing = {
         ...DEFAULT_SETTINGS.processing,
@@ -243,8 +389,31 @@ export class Storage {
         (beforeByok?.selectedByokModel || beforeByok?.model || DEFAULT_SETTINGS.byok.selectedByokModel) !==
         settings.byok.selectedByokModel;
 
-      // Save migrated settings if mode/byok/user fields were changed
-      if (rawMode !== migratedMode || providerMigrated || selectedModelMigrated || userIdMissing) {
+      const normalizedByokUnlock = normalizeByokUnlockState(stored.byokUnlock);
+      const normalizedByokUsage = normalizeByokUsageState(stored.byokUsage);
+      settings.byokUnlock = normalizedByokUnlock;
+      settings.byokUsage = normalizedByokUsage;
+
+      // Purge legacy monetization fields from settings (purge-on-read policy)
+      const hadLegacyMonetizationFields = LEGACY_MONETIZATION_KEYS.some((key) => key in storedObject);
+      for (const key of LEGACY_MONETIZATION_KEYS) {
+        delete (settings as unknown as Record<string, unknown>)[key];
+      }
+
+      const byokUnlockChanged = JSON.stringify(stored.byokUnlock || {}) !== JSON.stringify(normalizedByokUnlock);
+      const byokUsageChanged = JSON.stringify(stored.byokUsage || {}) !== JSON.stringify(normalizedByokUsage);
+
+      // Save migrated/sanitized settings when schema or normalization changes are detected.
+      if (
+        requiresSchemaUpgrade ||
+        rawMode !== migratedMode ||
+        providerMigrated ||
+        selectedModelMigrated ||
+        userIdMissing ||
+        hadLegacyMonetizationFields ||
+        byokUnlockChanged ||
+        byokUsageChanged
+      ) {
         await browser.storage.local.set({
           [STORAGE_KEYS.SETTINGS]: settings,
         });
@@ -267,31 +436,40 @@ export class Storage {
 
       const currentSettings = await this.getSettings();
       // Deep-merge for nested objects we manage (byok, privacy, templates)
-      const { byok, privacy, templates, credits, user, trial, processing, ...rest } = (updates || {}) as any;
+      const { byok, byokUnlock, byokUsage, privacy, templates, user, processing, ...rest } = (updates || {}) as any;
       const nextByok = normalizeByokSettings({
         ...currentSettings.byok,
         ...(byok || {}),
       });
+      const nextByokUnlock = normalizeByokUnlockState({
+        ...(currentSettings.byokUnlock || defaultByokUnlockState()),
+        ...(byokUnlock || {}),
+      });
+      const nextByokUsage = normalizeByokUsageState({
+        ...(currentSettings.byokUsage || defaultByokUsageState()),
+        ...(byokUsage || {}),
+      });
+
       const newSettings: Settings = {
         ...currentSettings,
         ...rest,
+        settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
         byok: nextByok,
+        byokUnlock: nextByokUnlock,
+        byokUsage: nextByokUsage,
         privacy: {
           ...currentSettings.privacy,
           ...(privacy || {})
-        }, templates: {
+        },
+        templates: {
           ...currentSettings.templates,
           ...(templates || {})
-        }, credits: {
-          ...currentSettings.credits,
-          ...(credits || {})
-        }, user: {
+        },
+        user: {
           ...currentSettings.user,
           ...(user || {})
-        }, trial: {
-          ...currentSettings.trial,
-          ...(trial || {})
-        }, processing: {
+        },
+        processing: {
           ...currentSettings.processing,
           ...(processing || {}),
           profile: (processing && processing.profile) || currentSettings.processing!.profile,
@@ -306,12 +484,15 @@ export class Storage {
             ...((processing && processing.customOptions) || {}),
           },
         },
-      } as Settings;
-      await browser.storage.local.set(
-        {
-          [STORAGE_KEYS.SETTINGS]: newSettings,
-        }
-      );
+      };
+
+      for (const key of LEGACY_MONETIZATION_KEYS) {
+        delete (newSettings as unknown as Record<string, unknown>)[key];
+      }
+
+      await browser.storage.local.set({
+        [STORAGE_KEYS.SETTINGS]: newSettings,
+      });
     } catch (error) {
       console.error('Failed to update settings:', error);
       throw error;
@@ -331,14 +512,21 @@ export class Storage {
         selectedByokModel:
           current.byok?.selectedByokModel || current.byok?.model || DEFAULT_SETTINGS.byok.selectedByokModel,
       } as Settings['byok'];
-      const profile = getRuntimeProfile();
-      // A user with a BYOK key is considered "Pro". In development, keep profile open access on.
-      const trial = { ...(current.trial || {}), hasExhausted: false, showUpgradePrompt: false };
-      await browser.storage.local.set(
-        {
-          [STORAGE_KEYS.SETTINGS]: { ...current, byok, trial, isPro: Boolean(apiKey) || profile.openAccessEnabled || profile.premiumBypassEnabled },
-        }
-      );
+      const nextSettings: Settings = {
+        ...current,
+        settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
+        byok,
+        byokUnlock: current.byokUnlock || defaultByokUnlockState(),
+        byokUsage: normalizeByokUsageState(current.byokUsage),
+      };
+
+      for (const key of LEGACY_MONETIZATION_KEYS) {
+        delete (nextSettings as unknown as Record<string, unknown>)[key];
+      }
+
+      await browser.storage.local.set({
+        [STORAGE_KEYS.SETTINGS]: nextSettings,
+      });
       // Cleanup any legacy encrypted key artifacts
       await browser.storage.local.remove([STORAGE_KEYS.ENCRYPTED_KEYS]);
       await browser.storage.session.remove(['passphrase']);
@@ -368,11 +556,21 @@ export class Storage {
         selectedByokModel:
           current.byok?.selectedByokModel || current.byok?.model || DEFAULT_SETTINGS.byok.selectedByokModel,
       } as Settings['byok'];
-      await browser.storage.local.set(
-        {
-          [STORAGE_KEYS.SETTINGS]: { ...current, byok },
-        }
-      );
+      const nextSettings: Settings = {
+        ...current,
+        settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
+        byok,
+        byokUnlock: current.byokUnlock || defaultByokUnlockState(),
+        byokUsage: normalizeByokUsageState(current.byokUsage),
+      };
+
+      for (const key of LEGACY_MONETIZATION_KEYS) {
+        delete (nextSettings as unknown as Record<string, unknown>)[key];
+      }
+
+      await browser.storage.local.set({
+        [STORAGE_KEYS.SETTINGS]: nextSettings,
+      });
       // Also remove any legacy encrypted state
       await browser.storage.local.remove([STORAGE_KEYS.ENCRYPTED_KEYS]);
       await browser.storage.session.remove(['passphrase']);
