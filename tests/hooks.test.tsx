@@ -2,7 +2,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useByokManager } from '@/entrypoints/popup/hooks/useByokManager';
-import { useProManager } from '@/entrypoints/popup/hooks/useProManager';
 import { useErrorHandler } from '@/entrypoints/popup/hooks/useErrorHandler';
 import { useToastManager } from '@/entrypoints/popup/hooks/useToastManager';
 import { Storage } from '@/lib/storage';
@@ -13,13 +12,6 @@ vi.mock('@/lib/storage', () => ({
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
     clearApiKey: vi.fn(),
-  },
-}));
-
-vi.mock('@/pro/monetization-client', () => ({
-  MonetizationClient: {
-    startTrial: vi.fn().mockResolvedValue({ success: true }),
-    createSubscription: vi.fn().mockResolvedValue({ success: true }),
   },
 }));
 
@@ -121,74 +113,6 @@ describe('useByokManager', () => {
         selectedByokModel: 'arcee-ai/trinity-large-preview:free',
       },
     });
-  });
-});
-
-describe('useProManager', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('should initialize with default values', () => {
-    const { result } = renderHook(() => useProManager());
-
-    expect(result.current.isPro).toBe(false);
-    expect(result.current.isInTrial).toBe(false);
-    expect(result.current.daysRemaining).toBe(0);
-    expect(result.current.showUpgradePrompt).toBe(false);
-  });
-
-  it('should load Pro status from storage', async () => {
-    const mockSettings = {
-      isPro: true,
-      trial: {
-        startedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
-        expiresAt: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days left
-      },
-    };
-
-    (Storage.getSettings as any).mockResolvedValue(mockSettings);
-
-    const { result } = renderHook(() => useProManager());
-
-    await waitFor(() => {
-      expect(result.current.isPro).toBe(true);
-      expect(result.current.isInTrial).toBe(true);
-      expect(result.current.daysRemaining).toBe(4);
-    });
-  });
-
-  it('should start trial successfully', async () => {
-    const { result } = renderHook(() => useProManager());
-
-    await act(async () => {
-      await result.current.startTrial('test@example.com');
-    });
-
-    expect(Storage.updateSettings).toHaveBeenCalledWith({
-      isPro: true,
-      trial: {
-        hasExhausted: false,
-        showUpgradePrompt: false,
-        startedAt: expect.any(String),
-        expiresAt: expect.any(String),
-      },
-      user: { id: expect.any(String), email: 'test@example.com' },
-    });
-
-    expect(result.current.isPro).toBe(true);
-    expect(result.current.isInTrial).toBe(true);
-    expect(result.current.daysRemaining).toBe(7);
-  });
-
-  it('should reject invalid email for trial', async () => {
-    const { result } = renderHook(() => useProManager());
-
-    await expect(
-      act(async () => {
-        await result.current.startTrial('invalid-email');
-      })
-    ).rejects.toThrow('Valid email address required');
   });
 });
 

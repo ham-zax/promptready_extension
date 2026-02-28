@@ -80,7 +80,6 @@ export default [
         // Types
         ProcessingProgressMessage: 'readonly',
         ProcessingErrorMessage: 'readonly',
-        MonetizationClient: 'readonly',
       },
     },
     plugins: {
