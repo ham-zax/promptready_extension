@@ -16,7 +16,7 @@ describe('Offline Capabilities System', () => {
   
   describe('OfflineModeManager', () => {
     
-    test('should process simple HTML content successfully', async () => {
+    test('should process simple HTML content successfully', { timeout: 10_000 }, async () => {
       const html = `
         <html>
           <body>

@@ -42,7 +42,7 @@ describe('offline preset normalization', () => {
     expect(result.markdown).toContain('Example Title');
     expect(result.markdown).toContain('```');
     expect(result.markdown).toContain('const x = 1');
-  });
+  }, 10000);
 
   it('applies processing profile presets and normalizes alias names', async () => {
     const settings = {

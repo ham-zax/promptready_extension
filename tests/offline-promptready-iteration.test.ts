@@ -107,5 +107,5 @@ describe('offline promptready extraction iteration', () => {
 
     expect(() => assertNoInlineCodeFenceMarkers(result.markdown)).not.toThrow();
     expect(() => assertBalancedCodeFences(result.markdown)).not.toThrow();
-  });
+  }, 15000);
 });

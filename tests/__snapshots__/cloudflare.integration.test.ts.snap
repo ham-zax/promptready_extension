@@ -5,11 +5,25 @@ exports[`Cloudflare integration snapshot > produces stable markdown snapshot 1`]
 > Captured: <timestamp>
 > Hash: <hash>
 
+# Untitled
 
-# What happened?
+## What happened?
 
-You've requested a page on a website (api-production.usecodex.com) that is on the [Cloudflare](https://www.cloudflare.com/5xx-error-landing/) network. Cloudflare is currently unable to resolve your requested domain (api-production.usecodex.com).
+You've requested a page on a website (api-producti on.usecodex.com) that is on the [Cloudflare](https://ww w.cloudflare.com/5xx-error-landing/) network. Cloudflare is currently unable to resolve your requested domain (api-producti on.usecodex.com).
 
-Thank you for your feedback!
-"
+Please see https://develope rs.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1016/ for more details.
+
+## What can I do?
+
+**If you are a visitor of this website:**
+
+Please try again in a few minutes.
+
+**If you are the owner of this website:**
+
+Check your DNS settings. If you are using a CNAME origin record, make sure it is valid and resolvable. [Additional troubleshooting information here.](https://suppo rt.cloudflare.com/hc/en-us/articles/234979888-Error-1016-Origin-DNS-error)
+
+Was this page helpful? Yes No
+
+Cloudflare Ray ID: **96f7f214fadd85de** • Your IP: Click to reveal • Performance & security by [Cloudflare](https://ww w.cloudflare.com/5xx-error-landing)"
 `;

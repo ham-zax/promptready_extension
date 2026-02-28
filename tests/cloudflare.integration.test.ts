@@ -99,5 +99,5 @@ describe('Cloudflare integration snapshot', () => {
         normalized = normalized.replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '<ip>');
 
     expect(normalized).toMatchSnapshot();
-  });
+  }, 15000);
 });

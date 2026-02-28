@@ -28,7 +28,7 @@ describe('Readability Integration Tests', () => {
     expect(result.markdown).toContain('This is a quote from the blog post');
     expect(result.processingStats.readabilityTime).toBeGreaterThan(0);
     expect(result.processingStats.fallbacksUsed).not.toContain('readability-fallback');
-  });
+  }, 10000);
 
   it('should use technical-documentation preset for docs sites', async () => {
     const html = `

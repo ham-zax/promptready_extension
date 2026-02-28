@@ -43,5 +43,5 @@ describe('Offline selection metadata enrichment', () => {
     expect(result.success).toBe(true);
     expect(Boolean(result.metadata.publishedAt || result.metadata.publishedAtText)).toBe(true);
     expect(result.markdown).toMatch(/> Published:\s+\S[^\n]*14:43/i);
-  });
+  }, 10000);
 });

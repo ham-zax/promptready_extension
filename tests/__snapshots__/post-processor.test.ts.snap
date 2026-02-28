@@ -1,8 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`MarkdownPostProcessor > adds TOC when enabled 1`] = `
-"
-# Title
+"# Title
 
 ## Table of Contents
 

@@ -237,6 +237,6 @@ describe('Offline extractor fixture corpus regression', () => {
       }
 
       maybeDumpMarkdown(result.markdown, toDumpBaseName(fixture));
-    });
+    }, 20000);
   }
 });

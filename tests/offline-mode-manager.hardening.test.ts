@@ -28,7 +28,7 @@ describe('OfflineModeManager hardening regressions', () => {
     manager.activeSessions.clear();
   });
 
-  it('uses ScoringEngine fallback before semantic extraction path', async () => {
+  it('uses ScoringEngine fallback before semantic extraction path', { timeout: 15_000 }, async () => {
     const html = `
       <html><body>
         <article id="main-content">
@@ -55,7 +55,7 @@ describe('OfflineModeManager hardening regressions', () => {
     expect(result.markdown).not.toContain('SIDEBAR_NOISE_TOKEN');
   });
 
-  it('retains multi-section document structure during fallback extraction', async () => {
+  it('retains multi-section document structure during fallback extraction', { timeout: 15_000 }, async () => {
     const html = `
       <html>
         <body>

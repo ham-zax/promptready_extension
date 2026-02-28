@@ -271,7 +271,7 @@ export class MarkdownPostProcessor {
         continue;
       }
 
-      const headingMatch = trimmed.match(/^(#{1,6})\s+(\S[^\n]*)$/);
+      const headingMatch = trimmed.match(/^(#{1,6})\s*(\S[^\n]*)$/);
       if (!headingMatch || i + 1 >= lines.length) {
         merged.push(raw);
         continue;
@@ -295,7 +295,7 @@ export class MarkdownPostProcessor {
       const shouldMerge =
         nextTrimmed.length > 0 &&
         nextTrimmed.length <= 48 &&
-        !/^#{1,6}\s/.test(nextTrimmed) &&
+        !/^#{1,6}\s*\S/.test(nextTrimmed) &&
         !/^```/.test(nextTrimmed) &&
         !/^(>|-|\*|\d+\.)\s/.test(nextTrimmed) &&
         ((/[,:\u2014\u2013-]$/.test(headingText) && !/[.!?]$/.test(headingText)) ||
@@ -317,6 +317,7 @@ export class MarkdownPostProcessor {
     inFence = false;
     let seenH1 = false;
     let lockH1Demotion = false;
+    let previousHeadingLevel = 0;
 
     for (let i = 0; i < merged.length; i++) {
       let raw = merged[i] ?? '';
@@ -332,7 +333,7 @@ export class MarkdownPostProcessor {
         continue;
       }
 
-      const match = trimmed.match(/^(#{1,6})\s+(\S[^\n]*)$/);
+      const match = trimmed.match(/^(#{1,6})\s*(\S[^\n]*)$/);
       if (!match) {
         output.push(raw);
         continue;
@@ -345,15 +346,21 @@ export class MarkdownPostProcessor {
         continue;
       }
 
-      if (!seenH1 && level === 1) {
-        seenH1 = true;
+      if (level === 1) {
+        if (!seenH1) {
+          seenH1 = true;
+        } else if (!lockH1Demotion) {
+          // Many landing pages emit multiple H1s before any real sectioning.
+          // Demote only duplicate early H1s, never the first H1.
+          level = 2;
+          changes += 1;
+        }
       } else if (seenH1 && level >= 2) {
         lockH1Demotion = true;
       }
 
-      // Many landing pages emit multiple H1s before any real sectioning. Demote those early H1s.
-      if (level === 1 && seenH1 && !lockH1Demotion) {
-        level = 2;
+      if (previousHeadingLevel > 0 && level > previousHeadingLevel + 1) {
+        level = previousHeadingLevel + 1;
         changes += 1;
       }
 
@@ -366,6 +373,7 @@ export class MarkdownPostProcessor {
       }
 
       output.push(normalizedHeading);
+      previousHeadingLevel = level;
 
       // Ensure blank line after heading if next line is non-empty content.
       const nextLine = (merged[i + 1] ?? '').trim();
@@ -377,7 +385,7 @@ export class MarkdownPostProcessor {
 
     const processed = output.join('\n');
     if (changes > 0) {
-      improvements.push('Normalized heading structure');
+      improvements.push('Fixed heading hierarchy');
     }
     return { markdown: processed, improvements, changes };
   }
@@ -782,7 +790,7 @@ export class MarkdownPostProcessor {
     let changes = 0;
 
     // Extract headings
-    const headings = markdown.match(/^(#{1,6})\s(.+)$/gm);
+    const headings = markdown.match(/^(#{1,6})\s*\S.*$/gm);
     
     if (!headings || headings.length < 2) {
       return { markdown, improvements, changes };
@@ -792,7 +800,7 @@ export class MarkdownPostProcessor {
     let toc = '\n## Table of Contents\n\n';
     headings.forEach(heading => {
       const level = heading.match(/^(#{1,6})/)?.[1].length || 1;
-      const text = heading.replace(/^#{1,6}\s/, '');
+      const text = heading.replace(/^#{1,6}\s*/, '');
       const anchor = text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
       const indent = '  '.repeat(Math.max(0, level - 2));
       toc += `${indent}- [${text}](#${anchor})\n`;
@@ -801,7 +809,7 @@ export class MarkdownPostProcessor {
     toc += '\n';
 
     // Insert TOC after first heading
-    const firstHeadingIndex = markdown.search(/^#{1,6}\s/m);
+    const firstHeadingIndex = markdown.search(/^#{1,6}\s*\S/m);
     if (firstHeadingIndex !== -1) {
       const nextLineIndex = markdown.indexOf('\n', firstHeadingIndex);
       if (nextLineIndex !== -1) {
