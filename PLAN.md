@@ -6,7 +6,7 @@
   2. **BYOK mode** supports freemium allowance (**5 successful AI uses/day**, resets by **local calendar day**) and then **unlimited** usage after a **one-time external payment** (~$2–$3).
   3. BYOK includes a **custom prompt option**.
   4. Unlock flow is **Option B**: user enters an unlock code (from purchase receipt).
-  5. Checkout URL is not ready yet, so UI uses a **placeholder checkout URL** for now.
+  5. Checkout URL is available and points to **https://promptready.app/**.
 - Codebase findings:
   - Trial/credits model is still wired in runtime/UI (`usePopupController`, `Popup.tsx`, `ProUpgradePrompt`, `useProManager`, `MonetizationClient`).
   - `SimplifiedByokSetup` currently sets `isPro: true` immediately when key is saved (no payment gate).
@@ -25,7 +25,7 @@
 - Unlock implementation (current phase):
   - Add an unlock code entry UI.
   - Validate code locally using a placeholder verifier (deterministic local check) and persist unlocked state.
-  - Provide placeholder checkout link in UI (`https://example.com/promptready-checkout` until real URL exists).
+  - Use production checkout link in UI (`https://promptready.app/`).
 - Keep enforcement centralized and deterministic:
   - **Primary access SSOT** in `resolveEntitlements`.
   - **Hard runtime guard** in `processAIMode` (fallback to offline with stable warning code when daily limit reached).
@@ -144,7 +144,7 @@
   - [ ] on limit reached, show actions: `Enter unlock code` and `Go to checkout` + confirm offline fallback still works
 - [x] Update dev options page semantics (`entrypoints/options/*`) to remove trial/pro wording and keep deterministic dev bypass toggles aligned with new unlock model.
 - [x] Add checkout + unlock UX in settings:
-  - [ ] checkout CTA using placeholder URL (`https://example.com/promptready-checkout`)
+  - [x] checkout CTA using production URL (`https://promptready.app/`)
   - [ ] unlock code input + validate/apply action
 - [x] Enforce free-limit fallback in `processAIMode` with a stable warning/fallback code (new code for daily limit reached).
 - [x] Implement counter updates in background completion flow:

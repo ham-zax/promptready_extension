@@ -9,7 +9,7 @@ import {
 } from '@/lib/unlock-code';
 import { CheckCircle2, CreditCard, KeyRound, LockOpen, ShieldCheck } from 'lucide-react';
 
-const CHECKOUT_URL = 'https://example.com/promptready-checkout';
+const CHECKOUT_URL = 'https://promptready.app/';
 
 interface ProStatusSettingsProps {
   settings: Settings;

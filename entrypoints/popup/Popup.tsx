@@ -27,7 +27,7 @@ import {
   X,
 } from 'lucide-react';
 
-const CHECKOUT_URL = 'https://example.com/promptready-checkout';
+const CHECKOUT_URL = 'https://promptready.app/';
 
 let devKeySequence = '';
 const DEV_MODE_SEQUENCE = 'devmode';
