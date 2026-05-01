@@ -32,9 +32,6 @@ export interface BYOKResponse {
 
 export class BYOKClient {
   private static readonly TIMEOUT_MS = 30000; // 30 seconds
-  private static readonly OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
-  private static readonly OPENROUTER_REFERER = 'https://promptready.app/';
-  private static readonly OPENROUTER_TITLE = 'PromptReady Extension';
 
   /**
    * Make a BYOK request with consent and safeguards
@@ -55,38 +52,37 @@ export class BYOKClient {
   private static async callOpenAICompatibleAPI(
     request: BYOKRequest,
     settings: BYOKSettings,
-    _options: BYOKOptions = {}
+    options: BYOKOptions = {}
   ): Promise<BYOKResponse> {
     const normalizedApiKey = (settings.apiKey || '').trim();
     if (!normalizedApiKey) {
-      throw new Error('OpenRouter API key is required');
+      throw new Error('BYOK API key is required');
+    }
+
+    if (!options.proxyUrl) {
+      throw new Error('proxyUrl is required for BYOK requests');
     }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT_MS);
 
     try {
-      // OpenRouter-only BYOK workflow (single canonical provider path).
-      const response = await fetch(this.OPENROUTER_CHAT_COMPLETIONS_URL, {
+      // Proxy path only: POST directly to proxy URL with proxy payload shape.
+      // The worker normalizes the response to { content, usage }.
+      const response = await fetch(options.proxyUrl, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${normalizedApiKey}`,
-          'HTTP-Referer': this.OPENROUTER_REFERER,
-          'X-Title': this.OPENROUTER_TITLE,
-          'X-OpenRouter-Title': this.OPENROUTER_TITLE,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: settings.model,
+          prompt: request.prompt,
           temperature: request.temperature ?? 0,
-          max_tokens: request.maxTokens ?? 4000,
-          stream: false,
-          messages: [
-            {
-              role: 'user',
-              content: request.prompt,
-            },
-          ],
+          maxTokens: request.maxTokens ?? 4000,
+          settings: {
+            apiBase: settings.apiBase,
+            apiKey: normalizedApiKey,
+            model: settings.model,
+          },
         }),
         signal: controller.signal,
       });
@@ -95,29 +91,30 @@ export class BYOKClient {
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(`OpenRouter request failed: ${response.status} ${text.slice(0, 300)}`);
+        throw new Error(`BYOK request failed: ${response.status} ${text.slice(0, 300)}`);
       }
 
       const payload = await response.json() as any;
-      const content = payload?.choices?.[0]?.message?.content;
+
+      // Proxy returns normalized { content, usage }.
+      const content = payload?.content;
       if (typeof content !== 'string' || !content.trim()) {
-        throw new Error('OpenRouter returned empty content');
+        throw new Error('BYOK returned empty content');
       }
 
-      return {
-        content,
-        usage: payload?.usage
-          ? {
-            promptTokens: payload.usage.prompt_tokens ?? 0,
-            completionTokens: payload.usage.completion_tokens ?? 0,
-            totalTokens: payload.usage.total_tokens ?? 0,
+      const usage = payload?.usage
+        ? {
+            promptTokens: payload.usage.promptTokens ?? 0,
+            completionTokens: payload.usage.completionTokens ?? 0,
+            totalTokens: payload.usage.totalTokens ?? 0,
           }
-          : undefined,
-      };
+        : undefined;
+
+      return { content, usage };
     } catch (error) {
       clearTimeout(timeoutId);
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error('OpenRouter request timed out');
+        throw new Error('BYOK request timed out');
       }
       throw error;
     }

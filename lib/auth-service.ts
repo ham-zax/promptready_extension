@@ -95,9 +95,9 @@ export class AuthService {
     const lockReason = authState.aiLockReason;
     const aiTooltip = !authState.canUseAIMode
       ? lockReason === 'missing_api_key'
-        ? 'Add an OpenRouter API key to use AI mode.'
+        ? 'Add a BYOK API key to use AI mode.'
         : lockReason === 'daily_limit_reached'
-          ? 'Free daily AI limit reached. Enter an unlock code or go to checkout.'
+          ? 'Free daily AI limit reached. Enter an unlock code to continue.'
           : 'AI mode is unavailable right now.'
       : undefined;
 

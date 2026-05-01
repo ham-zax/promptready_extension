@@ -2,21 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BYOKClient } from '@/pro/byok-client';
 
-describe('BYOKClient OpenRouter workflow', () => {
+describe('BYOKClient', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
-  it('calls OpenRouter chat completions endpoint with attribution headers', async () => {
+  it('calls proxy URL directly with proxy payload when proxyUrl is provided', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(JSON.stringify({
-        choices: [{ message: { content: 'ok-openrouter' } }],
-        usage: {
-          prompt_tokens: 11,
-          completion_tokens: 7,
-          total_tokens: 18,
-        },
+        content: 'ok-proxy',
+        usage: { promptTokens: 5, completionTokens: 3, totalTokens: 8 },
       }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -29,20 +25,39 @@ describe('BYOKClient OpenRouter workflow', () => {
         apiBase: 'https://openrouter.ai/api/v1',
         apiKey: 'sk-or-v1-test-key',
         model: 'arcee-ai/trinity-large-preview:free',
-      }
+      },
+      { proxyUrl: 'https://promptready.app/api/proxy' }
     );
 
-    expect(result.content).toBe('ok-openrouter');
-    expect(result.usage?.totalTokens).toBe(18);
+    expect(result.content).toBe('ok-proxy');
+    expect(result.usage?.totalTokens).toBe(8);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy.mock.calls[0]?.[0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+    // Must call proxy URL exactly, no /chat/completions appended.
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe('https://promptready.app/api/proxy');
     const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit;
-    expect((requestInit.headers as Record<string, string>).Authorization).toBe('Bearer sk-or-v1-test-key');
-    expect((requestInit.headers as Record<string, string>)['HTTP-Referer']).toBe('https://promptready.app/');
-    expect((requestInit.headers as Record<string, string>)['X-Title']).toBe('PromptReady Extension');
+    const body = JSON.parse(requestInit.body as string);
+    // Proxy payload shape.
+    expect(body.prompt).toBe('hello');
+    expect(body.settings).toBeDefined();
+    expect(body.settings.apiBase).toBe('https://openrouter.ai/api/v1');
+    expect(body.settings.apiKey).toBe('sk-or-v1-test-key');
+    expect(body.settings.model).toBe('arcee-ai/trinity-large-preview:free');
+  });
+
+  it('throws when proxyUrl is not provided', async () => {
+    await expect(BYOKClient.makeRequest(
+      { prompt: 'hello', maxTokens: 10, temperature: 0 },
+      {
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-or-v1-test-key',
+        model: 'arcee-ai/trinity-large-preview:free',
+      }
+      // no proxyUrl
+    )).rejects.toThrow('proxyUrl is required for BYOK requests');
   });
 
   it('fails closed when API key is missing', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
     await expect(BYOKClient.makeRequest(
       { prompt: 'hello', maxTokens: 10, temperature: 0.2 },
       {
@@ -50,6 +65,30 @@ describe('BYOKClient OpenRouter workflow', () => {
         apiKey: '',
         model: 'arcee-ai/trinity-large-preview:free',
       },
-    )).rejects.toThrow('OpenRouter API key is required');
+      { proxyUrl: 'https://promptready.app/api/proxy' }
+    )).rejects.toThrow('BYOK API key is required');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when proxyUrl is set but upstream apiBase is missing', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        error: 'settings.apiBase is required',
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    await expect(BYOKClient.makeRequest(
+      { prompt: 'hello', maxTokens: 10, temperature: 0 },
+      {
+        apiBase: '',
+        apiKey: 'sk-or-v1-test-key',
+        model: 'arcee-ai/trinity-large-preview:free',
+      },
+      { proxyUrl: 'https://promptready.app/api/proxy' }
+    )).rejects.toThrow();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

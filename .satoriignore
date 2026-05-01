@@ -1,0 +1,43 @@
+# Keep indexing focused on source and avoid low-signal artifacts.
+
+# Dependency and build outputs
+node_modules/
+.output/
+output/
+.wxt/
+.wrangler/
+coverage/
+dist/
+build/
+logs/
+*.log
+stats.html
+stats-*.json
+
+# Local tool/editor state
+.git/
+.github/
+.vscode/
+.idea/
+.serena/
+.taskmaster/
+.ant-colony/
+.cursor/
+.cline*
+.gemini
+.trae
+.windsurf
+.kilocodemodes
+.DS_Store
+
+# Temporary and archived content
+tmp/
+archive/
+
+# Large low-signal test artifacts
+tests/fixtures/
+tests/__snapshots__/
+
+# Secrets/local env files
+.env
+.env.*

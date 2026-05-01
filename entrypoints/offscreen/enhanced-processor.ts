@@ -411,8 +411,8 @@ export class EnhancedOffscreenProcessor {
 
       this.sendProgress(
         runtimeProfile.isDevelopment
-          ? 'Using OpenRouter BYOK in development...'
-          : 'Using your OpenRouter key for AI processing...',
+          ? 'Using BYOK in development...'
+          : 'Using your BYOK key for AI processing...',
       40,
       'byok-processing');
 
@@ -429,10 +429,11 @@ export class EnhancedOffscreenProcessor {
       const byokResult = await BYOKClient.makeRequest(
         { prompt: byokPrompt, maxTokens: 4000, temperature: 0.7 },
         {
-          apiBase: 'https://openrouter.ai/api/v1',
+          apiBase: settings.byok?.apiBase || 'https://openrouter.ai/api/v1',
           apiKey: apiKey.trim(),
           model,
-        }
+        },
+        { proxyUrl: runtimeProfile.byokProxyUrl }
       );
 
       const processedMarkdown = byokResult.content;

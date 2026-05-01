@@ -283,9 +283,9 @@ export default function RefactoredPopup() {
     ? 'Unlimited AI uses'
     : state.isUnlocked
       ? 'Unlimited AI unlocked'
-      : state.hasApiKey
-        ? `${Math.max(0, state.remainingFreeByokStartsToday)} free AI starts left today`
-        : 'Add OpenRouter API key to use AI mode';
+        : state.hasApiKey
+          ? `${Math.max(0, state.remainingFreeByokStartsToday)} free AI starts left today`
+          : 'Add BYOK API key to use AI mode';
 
   const formatPipelineStage = (stage: string): string => {
     switch (stage) {
@@ -294,7 +294,7 @@ export default function RefactoredPopup() {
       case 'preprocessing':
         return 'Cleaning and preparing content';
       case 'ai-processing':
-        return 'Sending request to OpenRouter';
+        return 'Sending AI request';
       case 'byok-processing':
         return 'Waiting for AI response';
       case 'postprocessing':
@@ -418,7 +418,7 @@ export default function RefactoredPopup() {
             <div className={`p-4 text-center bg-card rounded-2xl border border-brand-border ${revealClass}`}>
               {state.aiLockReason === 'missing_api_key' ? (
                 <>
-                  <p className="text-sm font-semibold text-foreground">AI mode needs your OpenRouter API key</p>
+                  <p className="text-sm font-semibold text-foreground">AI mode needs your BYOK API key</p>
                   <p className="text-xs text-muted-foreground mb-3 mt-1">Offline mode stays free and always available.</p>
                   <button
                     onClick={() => setShowSettings(true)}
@@ -485,11 +485,11 @@ export default function RefactoredPopup() {
                         : 'AI failed (offline output generated)';
 
                   const detail = isSuccess
-                    ? 'OpenRouter response received.'
+                    ? 'BYOK response received.'
                     : isMissingKey
-                      ? 'Add an OpenRouter API key in Settings to enable AI processing.'
+                      ? 'Add a BYOK API key in Settings to enable AI processing.'
                       : isDailyLimit
-                        ? 'Enter unlock code or checkout to continue unlimited AI mode.'
+                        ? 'Enter unlock code to continue unlimited AI mode.'
                         : aiFallbackInfo
                           ? `Failed at ${formatPipelineStage(aiFallbackInfo.stage)}: ${truncateMessage(aiFallbackInfo.error)}`
                           : 'AI request failed and the extension used the offline pipeline instead.';
