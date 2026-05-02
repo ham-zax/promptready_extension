@@ -454,8 +454,7 @@ export class EnhancedOffscreenProcessor {
           apiBase: settings.byok?.apiBase || 'https://openrouter.ai/api/v1',
           apiKey: apiKey.trim(),
           model,
-        },
-        { proxyUrl: runtimeProfile.byokProxyUrl }
+        }
       );
 
       const processedMarkdown = byokResult.content;

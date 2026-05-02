@@ -148,8 +148,8 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
     expect(byokSpy).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({ model: 'openai/gpt-5.2' }),
-      expect.any(Object),
     );
+    expect(byokSpy.mock.calls[0]?.[2]).toBeUndefined();
   });
 
   it('returns deterministic fallback trace when OpenRouter request fails', async () => {

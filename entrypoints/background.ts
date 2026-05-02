@@ -1032,13 +1032,13 @@ export class EnhancedContentProcessor {
 
       // Send to enhanced offscreen processor with direct response. MV3 can
       // report an existing offscreen document before its listener is ready, so
-      // retry once when no response shape comes back.
-      let response = await browser.runtime.sendMessage(offscreenProcessMessage);
+      // retry once when no response shape comes back (including rejections).
+      let response = await this.sendOffscreenProcessMessage(offscreenProcessMessage);
       if (!isOffscreenProcessResponse(response)) {
         console.warn('[Background] Offscreen processor returned no direct response; retrying once.');
         await this.ensureOffscreenDocument();
         await this.waitForOffscreenRetryDelay();
-        response = await browser.runtime.sendMessage(offscreenProcessMessage);
+        response = await this.sendOffscreenProcessMessage(offscreenProcessMessage);
       }
 
       // Handle the direct response
@@ -1633,6 +1633,17 @@ export class EnhancedContentProcessor {
     } finally {
       // Clear the promise once creation is complete (success or failure)
       this.offscreenCreationPromise = null;
+    }
+  }
+
+  private async sendOffscreenProcessMessage(
+    message: Record<string, unknown>,
+  ): Promise<unknown> {
+    try {
+      return await browser.runtime.sendMessage(message);
+    } catch (error) {
+      console.warn('[Background] sendMessage to offscreen processor rejected:', error);
+      return undefined;
     }
   }
 

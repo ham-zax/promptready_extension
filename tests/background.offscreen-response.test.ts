@@ -104,6 +104,33 @@ describe('background offscreen processing response handling', () => {
     expect(processor.broadcastError).not.toHaveBeenCalled();
   });
 
+  it('retries once when the first sendMessage rejects and succeeds on retry', async () => {
+    const processor = await createProcessor();
+    const processingPayload = {
+      exportMd: 'AI markdown',
+      exportJson: { content: { markdown: 'AI markdown' }, metadata: {} },
+      metadata: {},
+      stats: {},
+      warnings: [],
+      originalHtml: '<main>Captured</main>',
+      aiAttempted: true,
+      aiProvider: 'openrouter',
+      aiOutcome: 'success',
+      runId: 'run_test',
+    };
+
+    browserMock.runtime.sendMessage
+      .mockRejectedValueOnce(new Error('Could not establish connection. Receiving end does not exist.'))
+      .mockResolvedValueOnce({ success: true, data: processingPayload });
+
+    await runCapture(processor);
+
+    expect(browserMock.runtime.sendMessage).toHaveBeenCalledTimes(2);
+    expect(processor.ensureOffscreenDocument).toHaveBeenCalledTimes(2);
+    expect(processor.handleProcessingComplete).toHaveBeenCalledWith({ payload: processingPayload });
+    expect(processor.broadcastError).not.toHaveBeenCalled();
+  });
+
   it('surfaces a stable orchestration error when the offscreen processor never responds', async () => {
     const processor = await createProcessor();
     browserMock.runtime.sendMessage.mockResolvedValue(undefined);
