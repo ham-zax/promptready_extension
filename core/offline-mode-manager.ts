@@ -2703,6 +2703,9 @@ export class OfflineModeManager {
     const processing = actualSettings?.processing;
     if (processing && typeof processing === 'object') {
       const resolvedProcessing = resolveProcessingConfig(processing as any);
+      const isDefaultProcessing =
+        resolvedProcessing.contentStrategy === 'auto' &&
+        resolvedProcessing.outputFormat === 'clean-markdown';
 
       const normalizedReadability = this.normalizeReadabilityPreset(resolvedProcessing.readabilityPreset);
       if (normalizedReadability) {
@@ -2711,7 +2714,9 @@ export class OfflineModeManager {
 
       baseConfig.extractionTuning = normalizeExtractionTuning((processing as any).extractionTuning);
 
-      baseConfig.turndownPreset = this.normalizeTurndownPreset(resolvedProcessing.turndownPreset);
+      if (!isDefaultProcessing) {
+        baseConfig.turndownPreset = this.normalizeTurndownPreset(resolvedProcessing.turndownPreset);
+      }
     }
 
     return this.mergeConfig(baseConfig);

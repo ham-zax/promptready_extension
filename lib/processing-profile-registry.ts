@@ -178,6 +178,10 @@ export function normalizeProcessingSettings<T extends ProcessingSettingsInput>(p
     turndownPreset = 'github';
   }
 
+  if (contentStrategy === 'academic' && outputFormat === 'clean-markdown') {
+    turndownPreset = 'academic';
+  }
+
   return {
     profile,
     contentStrategy,

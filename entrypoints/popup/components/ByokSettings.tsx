@@ -91,6 +91,9 @@ export function ByokSettings({
               <label htmlFor="model-select" className="block text-sm font-medium text-foreground">
                 Model
               </label>
+              <p className="text-xs text-muted-foreground">
+                Model costs are billed through your OpenRouter account.
+              </p>
               <ModelSelect
                 value={settings.byok.selectedByokModel || settings.byok.model || ''}
                 onChange={(v: string) => onSettingsChange({ byok: { ...settings.byok, model: v, selectedByokModel: v } })}

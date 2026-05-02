@@ -163,4 +163,58 @@ describe('storage monetization normalization', () => {
       }),
     });
   });
+
+  it('preserves existing processing choices when updating a partial processing object', async () => {
+    await browser.storage.local.set({
+      [SETTINGS_KEY]: {
+        settingsSchemaVersion: 2,
+        mode: 'offline',
+        byok: {
+          provider: 'openrouter',
+          apiBase: 'https://openrouter.ai/api/v1',
+          apiKey: '',
+          selectedByokModel: '',
+        },
+        privacy: { telemetryEnabled: false },
+        processing: {
+          profile: 'technical',
+          contentStrategy: 'technical',
+          outputFormat: 'github',
+          readabilityPreset: 'technical-documentation',
+          turndownPreset: 'github',
+          customOptions: {
+            preserveCodeBlocks: true,
+            includeImages: true,
+            preserveTables: true,
+            preserveLinks: true,
+          },
+        },
+      },
+    });
+
+    await Storage.updateSettings({
+      processing: {
+        customOptions: {
+          includeImages: false,
+        },
+      },
+    } as any);
+
+    const persistedResult = await browser.storage.local.get([SETTINGS_KEY]) as Record<string, any>;
+    const persisted = persistedResult[SETTINGS_KEY];
+
+    expect(persisted.processing).toMatchObject({
+      profile: 'technical',
+      contentStrategy: 'technical',
+      outputFormat: 'github',
+      readabilityPreset: 'technical-documentation',
+      turndownPreset: 'github',
+      customOptions: {
+        preserveCodeBlocks: true,
+        includeImages: false,
+        preserveTables: true,
+        preserveLinks: true,
+      },
+    });
+  });
 });

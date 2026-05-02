@@ -92,6 +92,7 @@ describe('ByokSettings', () => {
 
     expect(screen.getByText('API Key (OpenRouter)')).toBeTruthy();
     expect(screen.getByText('Model')).toBeTruthy();
+    expect(screen.getByText(/Model costs are billed through your OpenRouter account/i)).toBeTruthy();
     expect(onSettingsChange).not.toHaveBeenCalled();
   });
 

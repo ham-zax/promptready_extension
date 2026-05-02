@@ -73,4 +73,45 @@ describe('offline preset normalization', () => {
     expect(config.readabilityPreset).toBe('technical-documentation');
     expect(config.turndownPreset).toBe('github');
   });
+
+  it('does not let default processing clobber URL-specific turndown rules', async () => {
+    const config = await OfflineModeManager.getOptimalConfig('https://github.com/openai/openai-node', {
+      processing: {
+        contentStrategy: 'auto',
+        outputFormat: 'clean-markdown',
+      },
+    });
+
+    expect(config.readabilityPreset).toBe('technical-documentation');
+    expect(config.turndownPreset).toBe('github');
+  });
+
+  it('applies article, academic, and thread strategies through optimal config', async () => {
+    await expect(
+      OfflineModeManager.getOptimalConfig('https://example.com/article', {
+        processing: { contentStrategy: 'article', outputFormat: 'clean-markdown' },
+      }),
+    ).resolves.toMatchObject({
+      readabilityPreset: 'blog-article',
+      turndownPreset: 'standard',
+    });
+
+    await expect(
+      OfflineModeManager.getOptimalConfig('https://example.com/paper', {
+        processing: { contentStrategy: 'academic', outputFormat: 'clean-markdown' },
+      }),
+    ).resolves.toMatchObject({
+      readabilityPreset: 'academic-paper',
+      turndownPreset: 'academic',
+    });
+
+    await expect(
+      OfflineModeManager.getOptimalConfig('https://example.com/thread', {
+        processing: { contentStrategy: 'thread', outputFormat: 'clean-markdown' },
+      }),
+    ).resolves.toMatchObject({
+      readabilityPreset: 'forum-discussion',
+      turndownPreset: 'standard',
+    });
+  });
 });

@@ -57,4 +57,14 @@ describe('processing profile registry', () => {
     expect(resolved.readabilityPreset).toBe('forum-discussion');
     expect(resolved.turndownPreset).toBe('standard');
   });
+
+  it('routes academic clean markdown through the academic turndown preset', () => {
+    const resolved = resolveProcessingConfig({
+      contentStrategy: 'academic',
+      outputFormat: 'clean-markdown',
+    });
+
+    expect(resolved.readabilityPreset).toBe('academic-paper');
+    expect(resolved.turndownPreset).toBe('academic');
+  });
 });

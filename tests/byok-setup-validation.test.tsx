@@ -166,6 +166,7 @@ describe('SimplifiedByokSetup — stale validation save prevention', () => {
     );
 
     expect(screen.getByText('Model')).toBeTruthy();
+    expect(screen.getByText(/Model costs are billed through your OpenRouter account/i)).toBeTruthy();
     expect(screen.getByTestId('mock-model-select')).toHaveAttribute('data-free-only', 'undefined');
 
     fireEvent.click(screen.getByTestId('mock-model-select'));

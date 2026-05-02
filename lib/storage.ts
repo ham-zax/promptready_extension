@@ -462,7 +462,15 @@ export class Storage {
         ...(byokUsage || {}),
       });
 
-      const normalizedProcessing = normalizeProcessingSettings(processing || currentSettings.processing);
+      const mergedProcessing = {
+        ...(currentSettings.processing || {}),
+        ...(processing || {}),
+        customOptions: {
+          ...(currentSettings.processing?.customOptions || DEFAULT_SETTINGS.processing!.customOptions),
+          ...((processing && processing.customOptions) || {}),
+        },
+      };
+      const normalizedProcessing = normalizeProcessingSettings(mergedProcessing);
       const newSettings: Settings = {
         ...currentSettings,
         ...rest,
@@ -483,15 +491,11 @@ export class Storage {
           ...(user || {})
         },
         processing: {
-          ...currentSettings.processing,
-          ...(processing || {}),
+          ...mergedProcessing,
           ...normalizedProcessing,
           extractionTuning: normalizeExtractionTuning((processing || {}).extractionTuning ?? currentSettings.processing?.extractionTuning),
           capturePolicy: normalizeCapturePolicy((processing || {}).capturePolicy ?? currentSettings.processing?.capturePolicy),
-          customOptions: {
-            ...(currentSettings.processing?.customOptions || DEFAULT_SETTINGS.processing!.customOptions),
-            ...((processing && processing.customOptions) || {}),
-          },
+          customOptions: mergedProcessing.customOptions,
         },
       };
 

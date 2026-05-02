@@ -205,6 +205,9 @@ export function SimplifiedByokSetup({
           <label className="block text-xs font-medium text-gray-700 mb-1.5">
             Model
           </label>
+          <p className="text-[11px] text-gray-500 mb-2">
+            Model costs are billed through your OpenRouter account.
+          </p>
           <ModelSelect
             value={selectedModel}
             onChange={setSelectedModel}
