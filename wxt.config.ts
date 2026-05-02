@@ -24,8 +24,7 @@ export default defineConfig({
       "scripting",
       "downloads",
       "clipboardWrite",
-      "offscreen",
-      "identity"
+      "offscreen"
     ],
     commands: {
       "capture-selection": {
