@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Settings } from '@/lib/types';
 import { Storage } from '@/lib/storage';
 import { validateApiKey } from '@/lib/api-validation';
@@ -33,12 +33,24 @@ const PROVIDERS: Record<Provider, ProviderInfo> = {
 export function SimplifiedByokSetup({ settings, onComplete, onCancel }: SimplifiedByokSetupProps) {
   const provider: Provider = 'openrouter';
   const [apiKey, setApiKey] = useState(settings.byok?.apiKey || '');
+  const latestApiKeyRef = useRef(settings.byok?.apiKey || '');
   const [apiBase] = useState('https://openrouter.ai/api/v1');
   const [isValidating, setIsValidating] = useState(false);
   const [validationStatus, setValidationStatus] = useState<{
     isValid: boolean;
     message: string;
   } | null>(null);
+
+  // Track which key value was validated so we can detect edits after validation.
+  const [validatedKey, setValidatedKey] = useState<string | null>(null);
+
+  const handleKeyChange = useCallback((value: string) => {
+    latestApiKeyRef.current = value;
+    setApiKey(value);
+    // Clear stale validation whenever the user edits the key.
+    setValidationStatus(null);
+    setValidatedKey(null);
+  }, []);
 
   const handleValidate = async (): Promise<boolean> => {
     const nextKey = apiKey.trim();
@@ -57,13 +69,23 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
         apiBase,
       });
 
+      if (latestApiKeyRef.current.trim() !== nextKey) {
+        return false;
+      }
+
       setValidationStatus(result);
+      setValidatedKey(nextKey);
       return result.isValid;
     } catch {
+      if (latestApiKeyRef.current.trim() !== nextKey) {
+        return false;
+      }
+
       setValidationStatus({
         isValid: false,
-        message: 'Validation failed. Please check your API key and connection.',
+        message: 'Validation failed. Please check the key format.',
       });
+      setValidatedKey(null);
       return false;
     } finally {
       setIsValidating(false);
@@ -71,7 +93,10 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
   };
 
   const handleSave = async () => {
-    const isValid = validationStatus?.isValid || await handleValidate();
+    // Always re-validate if the key has changed since last validation.
+    const currentKey = apiKey.trim();
+    const needsRevalidation = !validatedKey || validatedKey !== currentKey;
+    const isValid = needsRevalidation ? await handleValidate() : validationStatus?.isValid;
     if (!isValid) {
       return;
     }
@@ -140,7 +165,7 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
           <input
             type="password"
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            onChange={(e) => handleKeyChange(e.target.value)}
             placeholder={currentProvider.placeholder}
             className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition-all shadow-sm"
           />
@@ -189,7 +214,7 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
             disabled={!apiKey.trim() || isValidating}
             className="flex-1 py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all text-sm"
           >
-            {isValidating ? 'Validating...' : 'Test Connection'}
+            {isValidating ? 'Checking…' : 'Check Format'}
           </button>
         </div>
       </div>

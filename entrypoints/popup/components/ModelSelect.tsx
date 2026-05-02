@@ -34,7 +34,8 @@ export function ModelSelect({ value, onChange, apiBase }: ModelSelectProps) {
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [freeOnly, setFreeOnly] = useState(true);
+  // Model list is always from local fallback; the freeOnly toggle is locked.
+  const freeOnly = true;
 
   // Tests run in an environment where `browser` may be undefined or missing runtime APIs.
   // Guard all runtime/storage interactions so unit tests do not throw.
@@ -130,8 +131,8 @@ export function ModelSelect({ value, onChange, apiBase }: ModelSelectProps) {
   const placeholder = loading
     ? 'Loading…'
     : (options.length
-      ? (freeOnly ? 'Select free OpenRouter model' : 'Select OpenRouter model')
-      : 'No models (check API key/network)');
+      ? 'Select free OpenRouter model'
+      : 'No models available');
   const canUseManual = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return false;
@@ -204,25 +205,12 @@ export function ModelSelect({ value, onChange, apiBase }: ModelSelectProps) {
         >
           Refresh
         </button>
-        <button
-          onClick={() => setFreeOnly((prev) => !prev)}
-          className={cn(
-            'px-2 py-1 text-xs rounded border transition-colors',
-            freeOnly
-              ? 'bg-emerald-600/10 text-emerald-700 border-emerald-600/20 hover:bg-emerald-600/20'
-              : 'bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground',
-          )}
-        >
-          {freeOnly ? 'Free only' : 'All models'}
-        </button>
         {loading && <span className="text-xs text-muted-foreground">Fetching…</span>}
       </div>
       {options.length === 0 && !loading && (
         <div>
           <span className="text-xs text-destructive">
-            {freeOnly
-              ? 'No free models received. Check API key/network or switch to All models.'
-              : 'No models received. Save API key and refresh.'}
+            No models available. Try Refresh.
           </span>
         </div>
       )}
