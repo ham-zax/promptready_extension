@@ -1,11 +1,11 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { Settings } from '@/lib/types';
-import { Storage } from '@/lib/storage';
 import { validateApiKey } from '@/lib/api-validation';
 import { Globe, Bot } from 'lucide-react';
 
 interface SimplifiedByokSetupProps {
   settings: Settings;
+  onSettingsChange: (settings: Partial<Settings>) => void | Promise<void>;
   onComplete: () => void;
   onCancel: () => void;
 }
@@ -30,7 +30,12 @@ const PROVIDERS: Record<Provider, ProviderInfo> = {
   },
 };
 
-export function SimplifiedByokSetup({ settings, onComplete, onCancel }: SimplifiedByokSetupProps) {
+export function SimplifiedByokSetup({
+  settings,
+  onSettingsChange,
+  onComplete,
+  onCancel,
+}: SimplifiedByokSetupProps) {
   const provider: Provider = 'openrouter';
   const [apiKey, setApiKey] = useState(settings.byok?.apiKey || '');
   const latestApiKeyRef = useRef(settings.byok?.apiKey || '');
@@ -104,10 +109,10 @@ export function SimplifiedByokSetup({ settings, onComplete, onCancel }: Simplifi
     try {
       const selectedModel = settings.byok?.selectedByokModel || 'arcee-ai/trinity-large-preview:free';
 
-      await Storage.updateSettings({
+      await onSettingsChange({
         byok: {
           provider: 'openrouter',
-          apiKey: apiKey.trim(),
+          apiKey: currentKey,
           apiBase: 'https://openrouter.ai/api/v1',
           model: selectedModel,
           selectedByokModel: selectedModel,

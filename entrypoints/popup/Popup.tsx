@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePopupController } from './hooks/usePopupController';
-import { useByokManager } from './hooks/useByokManager';
 import { useToastManager } from './hooks/useToastManager';
 import { UnifiedSettings } from './components/UnifiedSettings';
 import { ToastContainer } from './components/ToastContainer';
@@ -159,7 +158,6 @@ export default function RefactoredPopup() {
     onSettingsChange,
   } = usePopupController();
 
-  const byokManager = useByokManager();
   const toastManager = useToastManager();
   const { showSuccess, showError, showInfo, showWarning } = toastManager;
 
@@ -375,7 +373,7 @@ export default function RefactoredPopup() {
                 isExpanded={showSettings}
                 settings={state.settings as Settings}
                 onSettingsChange={onSettingsChange}
-                hasApiKey={byokManager.hasApiKey}
+                hasApiKey={state.hasApiKey}
               />
             ) : (
               <div className="p-4 text-sm text-muted-foreground">Loading settings...</div>

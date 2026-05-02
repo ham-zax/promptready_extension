@@ -21,5 +21,22 @@ describe('TurndownConfigManager', () => {
     const md = await TurndownConfigManager.convert(sampleHtml + '\n\n\n', 'standard');
     expect(md).not.toMatch(/\n{3,}/);
   });
+
+  it('drops inline data images while preserving normal images', async () => {
+    const md = await TurndownConfigManager.convert(
+      `
+        <p>Meaningful paragraph.</p>
+        <img src="data:image/png;base64,AAAA" alt="w9I8fQSbfzPEQAAAABJRU5ErkJggg==" />
+        <img src="https://example.com/photo.png" alt="Diagram" />
+      `,
+      'standard'
+    );
+
+    expect(md).toContain('Meaningful paragraph.');
+    expect(md).toContain('![Diagram](https://example.com/photo.png)');
+    expect(md).not.toContain('data:image');
+    expect(md).not.toContain('base64');
+    expect(md).not.toContain('w9I8fQSbfzPEQAAAABJRU5ErkJggg==');
+  });
 });
 

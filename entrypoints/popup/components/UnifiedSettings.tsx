@@ -262,6 +262,7 @@ export function UnifiedSettings({
       </button>
       <SimplifiedByokSetup
         settings={effectiveSettings}
+        onSettingsChange={onSettingsChange}
         onComplete={handleByokComplete}
         onCancel={() => setCurrentView('main')}
       />

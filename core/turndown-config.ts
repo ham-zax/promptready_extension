@@ -55,6 +55,10 @@ export interface PostProcessor {
 
 export class TurndownConfigManager {
   private static turndownServiceCtor: TurndownServiceConstructor | null = null;
+
+  private static isInlineDataImage(src: string): boolean {
+    return /^\s*data:image\//i.test(src);
+  }
   
   /**
    * Convert HTML to Markdown using the chosen preset.
@@ -139,9 +143,9 @@ export class TurndownConfigManager {
             const src = node.getAttribute('src') || '';
             const alt = node.getAttribute('alt') || '';
             const title = node.getAttribute('title');
-            
-            if (!src) return '';
-            
+
+            if (!src || TurndownConfigManager.isInlineDataImage(src)) return '';
+
             let markdown = `![${alt}](${src}`;
             if (title) {
               markdown += ` "${title}"`;
@@ -214,9 +218,9 @@ export class TurndownConfigManager {
           replacement: (content: string, node: any) => {
             const src = node.getAttribute('src') || '';
             const alt = node.getAttribute('alt') || '';
-            
-            if (!src) return '';
-            
+
+            if (!src || TurndownConfigManager.isInlineDataImage(src)) return '';
+
             // Use Obsidian's image syntax
             return `![[${src}|${alt}]]`;
           },
@@ -418,6 +422,25 @@ export class TurndownConfigManager {
         filter: rule.filter,
         replacement: rule.replacement,
       });
+    });
+
+    turndown.addRule('dropInlineDataImages', {
+      filter: (node: Node) => {
+        const element = node as Element;
+        if (node.nodeName === 'IMG') {
+          return TurndownConfigManager.isInlineDataImage(element.getAttribute('src') || '');
+        }
+        if (node.nodeName === 'PICTURE') {
+          const image = element.querySelector('img');
+          const source = element.querySelector('source');
+          return (
+            TurndownConfigManager.isInlineDataImage(image?.getAttribute('src') || '') ||
+            TurndownConfigManager.isInlineDataImage(source?.getAttribute('srcset') || '')
+          );
+        }
+        return false;
+      },
+      replacement: () => '',
     });
 
     return turndown;

@@ -64,6 +64,8 @@ export function canonicalizeDeliveredMarkdown(
   };
 
   let result = normalizeUnicodeWhitespace(markdown || '');
+  // Strip ==highlights== as they are non-standard and can cause rendering issues
+  result = result.replace(/==([^=\n]+)==/g, '$1');
   result = stripLeadingCitationBlock(result);
   result = sanitizeRiskyMarkdown(result, warnings);
   result = stripResidualUiNoiseLines(result, warnings);
@@ -92,10 +94,11 @@ function normalizeUnicodeWhitespace(value: string): string {
   if (!value) {
     return '';
   }
-  const joinerPattern = /((?:\p{L}|\p{N}))(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u180E)+(?=(?:\p{L}|\p{N}))/gu;
   return value
-    .replace(joinerPattern, '$1 ')
+    // Remove zero-width characters completely rather than replacing them with a space
+    // to prevent breaking URLs that contain them (e.g., 'ww w.reddit.com')
     .replace(/(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u180E)/g, '')
+    // Normalize other space-like characters to standard space
     .replace(/[\u00A0\u2000-\u200A\u2028\u2029]/g, ' ');
 }
 

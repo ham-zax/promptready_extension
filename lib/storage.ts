@@ -104,11 +104,17 @@ function normalizeByokSettings(byok: unknown): Settings['byok'] {
     DEFAULT_SETTINGS.byok.selectedByokModel;
 
   const customPrompt = typeof source.customPrompt === 'string' ? source.customPrompt : '';
+  const apiKey = typeof source.apiKey === 'string' ? source.apiKey.trim() : DEFAULT_SETTINGS.byok.apiKey;
+  const apiBase = typeof source.apiBase === 'string' && source.apiBase.trim()
+    ? source.apiBase.trim()
+    : DEFAULT_SETTINGS.byok.apiBase;
 
   return {
     ...DEFAULT_SETTINGS.byok,
     ...source,
     provider: providerNormalization.canonicalProvider,
+    apiKey,
+    apiBase,
     model: source.model || selectedByokModel,
     selectedByokModel,
     customPrompt,
@@ -510,7 +516,7 @@ export class Storage {
       const current = await this.getSettings();
       const byok = {
         ...current.byok,
-        apiKey: apiKey || '',
+        apiKey: apiKey.trim(),
         selectedByokModel:
           current.byok?.selectedByokModel || current.byok?.model || DEFAULT_SETTINGS.byok.selectedByokModel,
       } as Settings['byok'];

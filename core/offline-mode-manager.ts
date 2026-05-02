@@ -866,9 +866,9 @@ export class OfflineModeManager {
     if (!value) {
       return '';
     }
-    const joinerPattern = /((?:\p{L}|\p{N}))(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u180E)+(?=(?:\p{L}|\p{N}))/gu;
     return value
-      .replace(joinerPattern, '$1 ')
+      // Remove zero-width characters without inserting spaces; Google AI Mode
+      // can place them inside URLs, where spacing corrupts links.
       .replace(/(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u180E)/g, '')
       .replace(/[\u00A0\u2000-\u200A\u2028\u2029]/g, ' ');
   }
@@ -1222,13 +1222,24 @@ export class OfflineModeManager {
     }
   }
 
+  private static isInlineDataImageValue(value: string | null | undefined): boolean {
+    return /^\s*data:image\//i.test(value || '');
+  }
+
   private static removeVisualNoiseElements(root: HTMLElement): void {
     const vectorElements = Array.from(
-      root.querySelectorAll('svg, path, symbol, defs, clipPath, mask, canvas')
+      root.querySelectorAll('svg, path, symbol, defs, clipPath, mask, canvas, img, source')
     );
     for (const el of vectorElements) {
       if (!el.closest('pre, code')) {
-        el.remove();
+        const tagName = el.tagName.toLowerCase();
+        const isVectorElement = tagName !== 'img' && tagName !== 'source';
+        const isInlineDataImage =
+          this.isInlineDataImageValue(el.getAttribute('src')) ||
+          this.isInlineDataImageValue(el.getAttribute('srcset'));
+        if (isVectorElement || isInlineDataImage) {
+          el.remove();
+        }
       }
     }
   }
@@ -1958,14 +1969,17 @@ export class OfflineModeManager {
       return markdown;
     }
 
+    const beforeInlineMediaCleanup = markdown;
     let sanitized = markdown
       .replace(/\b(?:annoying\s+)?popup\s*ad\s*accept\s*all(?:\s+\d+)?[^\n]{0,180}?cookies?\s+to\s+continue\.?/gi, '')
       .replace(/\baccept\s*all(?:\s+\d+)?[^\n]{0,180}?(?:tracking\s+)?cookies?\s+to\s+continue\.?/gi, '')
       .replace(/\bwelcome to reddit,\s*the front page of the internet\.[\s\S]{0,120}?communities\./gi, '')
-      .replace(/!\[[^\]]*]\(data:image\/svg\+xml,[^)]+\)/gi, '')
+      .replace(/!\[[^\]]*]\(data:image\/[^\n)]*\)/gi, '')
+      .replace(/!\[\[data:image\/[^\n\]]+]]/gi, '')
       .replace(/^\s*-\s*\[(save|share)\]\(#\)\s*$/gim, '')
       .replace(/^\s*-\s*(hide|report)\s*$/gim, '')
       .replace(/!\[@[^\]]*]\(https?:\/\/avatars\.githubusercontent\.com\/[^)]+\)/gi, '');
+    const removedInlineMedia = sanitized !== beforeInlineMediaCleanup;
 
     const lines = sanitized.split('\n');
     const filtered: string[] = [];
@@ -2010,6 +2024,8 @@ export class OfflineModeManager {
             /welcome to reddit.*front page of the internet/.test(normalized) ||
             /^raw input$/.test(normalized) ||
             /^promptready output$/.test(normalized) ||
+            /^ai mode response is ready$/.test(normalized) ||
+            /^(ask about|show all|accessibility feedback|accessibility help|skip to main content)\.?$/.test(normalized) ||
             /contents\s*\\?\[hide\\?\]/.test(normalized) ||
             /^\(?top\)?$/.test(normalized) ||
             /from wikipedia,?\s*the free encyclopedia/.test(normalized) ||
@@ -2019,11 +2035,13 @@ export class OfflineModeManager {
           )
         );
       const isInlineDataUriNoise =
-        /data:image\/svg\+xml/.test(normalized) ||
+        /data:image\//.test(normalized) ||
         /svg"><g d="m [\d\s.lcz-]+/.test(normalized);
       const isCounterNoise =
         /^\d{1,6}$/.test(trimmed) ||
         /^\d{1,6}$/.test(bulletless) ||
+        /^\d{1,3}\s+sites?$/i.test(trimmed) ||
+        /^\d{1,3}\s+sites?$/i.test(bulletless) ||
         /^links from:?$/i.test(trimmed) ||
         /^links from:?$/i.test(bulletless) ||
         /^past (hour|24 hours|week|month|year|all time)$/i.test(trimmed) ||
@@ -2052,6 +2070,9 @@ export class OfflineModeManager {
         /^\[(sponsor|star)\]\(/i.test(trimmed) ||
         /^\]\(\/[^)]+\)\[?$/.test(trimmed) ||
         /^built by\s*\[?$/i.test(trimmed);
+      const isSourceChipLine =
+        /^[A-Za-z][A-Za-z0-9 .&:/'()/-]{1,70}\s+\+\d{1,3}$/.test(trimmed) ||
+        /^[A-Za-z][A-Za-z0-9 .&:/'()/-]{1,70}\s+\+\d{1,3}$/.test(bulletless);
 
       const shouldDrop = (
         isUiNoise ||
@@ -2064,14 +2085,15 @@ export class OfflineModeManager {
         isStandaloneMarker ||
         isPreferencePromoLine ||
         isAdvertisementMarker ||
-        isGithubChromeLine
+        isGithubChromeLine ||
+        isSourceChipLine
       );
       if (!shouldDrop) {
         filtered.push(line);
       }
     }
 
-    if (filtered.length !== lines.length) {
+    if (removedInlineMedia || filtered.length !== lines.length) {
       warnings.push('Removed residual UI-noise lines from markdown');
     }
     sanitized = filtered.join('\n');
@@ -2224,22 +2246,23 @@ export class OfflineModeManager {
         continue;
       }
 
-      const imageMatch = trimmed.match(/^!\[([^\]]*)]\(([^)\s]+)\)$/);
+      const imageMatch = trimmed.match(/^!\[([^\]]*)]\(([^)]+)\)$/);
       if (imageMatch) {
         const altText = this.normalizeInputText(imageMatch[1] || '');
-        const imageUrl = (imageMatch[2] || '').toLowerCase();
+        const imageUrl = (imageMatch[2] || '').trim().toLowerCase();
         const looksLikeHashedAlt =
-          /^[A-Za-z0-9_-]{10,}$/.test(altText) ||
-          (/^[A-Za-z0-9_-]{12,}$/.test(altText.replace(/\s+/g, '')) && !/\s/.test(altText));
+          /^[A-Za-z0-9_+=/\-]{10,}$/.test(altText) ||
+          (/^[A-Za-z0-9_+=/\-]{12,}$/.test(altText.replace(/\s+/g, '')) && !/\s/.test(altText));
         const genericAlt = /^(image|photo|picture|logo|icon|avatar)$/i.test(altText);
         const socialIconAlt = /^(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share)$/i.test(altText);
+        const inlineDataImage = this.isInlineDataImageValue(imageUrl);
         const decorativeHost =
           /framerusercontent\.com|avatars\.githubusercontent\.com|gravatar\.com/.test(imageUrl);
         const socialIconAsset =
           imageUrl.endsWith('.svg') &&
           /whatsapp|twitter|facebook|instagram|linkedin|telegram|share|icon/.test(imageUrl);
         const lowSignalAlt = !altText || looksLikeHashedAlt || genericAlt;
-        if (decorativeHost || socialIconAlt || socialIconAsset || lowSignalAlt) {
+        if (inlineDataImage || decorativeHost || socialIconAlt || socialIconAsset || lowSignalAlt) {
           removedCount++;
           continue;
         }
@@ -2451,11 +2474,12 @@ export class OfflineModeManager {
       next = next.replace(/([A-Za-z])((?:https?:\/\/|www\.)[^\s]+)/g, '$1 $2');
       // Fix common "word+subdomain" merges (e.g. "inputen.wikipedia.org") without splitting valid domains/URLs.
       // We require:
-      // - a >=2 char alpha prefix (prevents splitting inside "en.wikipedia.org" -> "e n.wikipedia.org")
+      // - a >=3 char alpha prefix (prevents splitting "www.example.com" -> "ww w.example.com")
+      // - a non-URL/non-domain boundary before the prefix
       // - a domain with at least two dots, starting with a short label (1-2 chars) like "en."/"m."
       next = next.replace(
-        /([A-Za-z]{2,}?)((?:[a-z0-9]{1,2}\.)+[A-Za-z0-9-]+\.[A-Za-z]{2,}(?:\/[^\s]*)?)/g,
-        '$1 $2'
+        /(^|[^A-Za-z0-9/.:-])([A-Za-z]{3,}?)((?:[a-z0-9]{1,2}\.)+[A-Za-z0-9-]+\.[A-Za-z]{2,}(?:\/[^\s]*)?)/g,
+        '$1$2 $3'
       );
       next = next.replace(/([A-Za-z])(\d+\\\.\s+)/g, '$1 $2');
       next = next.replace(/(\d+\\\.\s+\S[^\n]{1,119})(?=[^\S\r\n]+\d+\\\.\s+)/g, '$1\n');
@@ -4050,6 +4074,7 @@ export class OfflineModeManager {
     };
 
     let result = this.normalizeUnicodeWhitespace(markdown || '');
+    result = result.replace(/==([^=\n]+)==/g, '$1');
     result = this.stripLeadingCitationBlock(result);
     result = this.sanitizeRiskyMarkdown(result, warnings);
     result = this.stripResidualUiNoiseLines(result, warnings);

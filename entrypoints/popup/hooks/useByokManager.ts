@@ -54,13 +54,14 @@ export function useByokManager(): ByokState & ByokActions {
         const byokConfig = settings.byok;
 
         if (byokConfig) {
+          const apiKey = (byokConfig.apiKey || '').trim();
           setState(prev => ({
             ...prev,
             provider: 'openrouter',
-            apiKey: byokConfig.apiKey || '',
-            apiBase: byokConfig.apiBase || DEFAULT_PROVIDERS.openrouter.apiBase,
+            apiKey,
+            apiBase: byokConfig.apiBase?.trim() || DEFAULT_PROVIDERS.openrouter.apiBase,
             selectedModel: byokConfig.selectedByokModel || DEFAULT_PROVIDERS.openrouter.defaultModel,
-            hasApiKey: Boolean(byokConfig.apiKey),
+            hasApiKey: Boolean(apiKey),
           }));
         }
       } catch (error) {
@@ -85,19 +86,20 @@ export function useByokManager(): ByokState & ByokActions {
   }, []);
 
   const setApiKey = useCallback((apiKey: string) => {
+    const normalizedApiKey = apiKey.trim();
     setState(prev => ({
       ...prev,
-      apiKey,
-      hasApiKey: Boolean(apiKey),
+      apiKey: normalizedApiKey,
+      hasApiKey: Boolean(normalizedApiKey),
       isValid: false,
       validationMessage: '',
     }));
 
     // Debounced validation
-    if (apiKey) {
+    if (normalizedApiKey) {
       debouncedValidateApiKey({
         provider: state.provider,
-        apiKey,
+        apiKey: normalizedApiKey,
         apiBase: state.apiBase,
       }).then(result => {
         setState(prev => ({
@@ -126,7 +128,10 @@ export function useByokManager(): ByokState & ByokActions {
   }, []);
 
   const validateConfiguration = useCallback(async () => {
-    if (!state.apiKey) {
+    const apiKey = state.apiKey.trim();
+    const apiBase = state.apiBase.trim();
+
+    if (!apiKey) {
       setState(prev => ({
         ...prev,
         isValid: false,
@@ -143,8 +148,8 @@ export function useByokManager(): ByokState & ByokActions {
     try {
       const result = await validateApiKey({
         provider: state.provider,
-        apiKey: state.apiKey,
-        apiBase: state.apiBase,
+        apiKey,
+        apiBase,
       });
 
       setState(prev => ({
@@ -175,8 +180,8 @@ export function useByokManager(): ByokState & ByokActions {
       await Storage.updateSettings({
         byok: {
           provider: state.provider,
-          apiKey: state.apiKey,
-          apiBase: state.apiBase,
+          apiKey: state.apiKey.trim(),
+          apiBase: state.apiBase.trim(),
           model: state.selectedModel,
           selectedByokModel: state.selectedModel,
         },

@@ -26,15 +26,39 @@ describe('API Validation Service', () => {
       expect(result.message).toBe('Please enter an API key');
     });
 
-    it('should validate OpenRouter key format', async () => {
+    it('should accept non-empty OpenRouter tokens without pinning a prefix', async () => {
       const result = await validateApiKey({
         provider: 'openrouter',
-        apiKey: 'invalid-key-format',
+        apiKey: 'or-new-format-token',
+        apiBase: 'https://openrouter.ai/api/v1',
+      });
+
+      expect(result.isValid).toBe(true);
+      expect(result.message).toBe('Key format looks valid. It will be verified on first AI request.');
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('trims pasted API keys before local validation', async () => {
+      const result = await validateApiKey({
+        provider: 'openrouter',
+        apiKey: '  sk-or-v1-valid-key\n',
+        apiBase: 'https://openrouter.ai/api/v1',
+      });
+
+      expect(result.isValid).toBe(true);
+      expect(result.message).toBe('Key format looks valid. It will be verified on first AI request.');
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('rejects values that contain whitespace inside the token', async () => {
+      const result = await validateApiKey({
+        provider: 'openrouter',
+        apiKey: 'Bearer sk-or-v1-valid-key',
         apiBase: 'https://openrouter.ai/api/v1',
       });
 
       expect(result.isValid).toBe(false);
-      expect(result.message).toBe('OpenRouter keys should start with "sk-or-v1-"');
+      expect(result.message).toBe('Paste the API key only, without spaces or the Bearer prefix.');
     });
 
     it('rejects invalid OpenRouter API base URL', async () => {

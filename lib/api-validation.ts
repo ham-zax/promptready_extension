@@ -20,6 +20,8 @@ export interface ValidationResult {
 // Main validation function
 export async function validateApiKey(request: ValidationRequest): Promise<ValidationResult> {
   const { provider, apiKey, apiBase } = request;
+  const normalizedApiKey = apiKey?.trim() || '';
+  const normalizedApiBase = apiBase?.trim() || '';
 
   if (provider !== 'openrouter') {
     return {
@@ -28,22 +30,21 @@ export async function validateApiKey(request: ValidationRequest): Promise<Valida
     };
   }
 
-  if (!apiKey || apiKey.trim().length === 0) {
+  if (!normalizedApiKey) {
     return {
       isValid: false,
       message: 'Please enter an API key',
     };
   }
 
-  // Basic key format validation
-  if (!apiKey.startsWith('sk-or-v1-')) {
+  if (/\s/.test(normalizedApiKey)) {
     return {
       isValid: false,
-      message: 'OpenRouter keys should start with "sk-or-v1-"',
+      message: 'Paste the API key only, without spaces or the Bearer prefix.',
     };
   }
 
-  if (!apiBase || !isValidUrl(apiBase)) {
+  if (!normalizedApiBase || !isValidUrl(normalizedApiBase)) {
     return {
       isValid: false,
       message: 'Please enter a valid OpenRouter API base URL',

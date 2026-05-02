@@ -114,6 +114,28 @@ describe('useByokManager', () => {
       },
     });
   });
+
+  it('trims API keys before saving BYOK configuration', async () => {
+    const { result } = renderHook(() => useByokManager());
+
+    act(() => {
+      result.current.setApiKey('  sk-or-v1-valid123\n');
+    });
+
+    await act(async () => {
+      await result.current.saveConfiguration();
+    });
+
+    expect(Storage.updateSettings).toHaveBeenCalledWith({
+      byok: {
+        provider: 'openrouter',
+        apiKey: 'sk-or-v1-valid123',
+        apiBase: 'https://openrouter.ai/api/v1',
+        model: 'arcee-ai/trinity-large-preview:free',
+        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+      },
+    });
+  });
 });
 
 describe('useErrorHandler', () => {

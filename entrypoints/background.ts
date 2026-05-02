@@ -416,6 +416,7 @@ export class EnhancedContentProcessor {
     };
 
     let result = this.normalizeUnicodeWhitespace(markdown || '');
+    result = result.replace(/==([^=\n]+)==/g, '$1');
     result = this.stripLeadingCitationBlock(result);
     result = this.sanitizeRiskyMarkdown(result, warnings);
     result = this.stripResidualUiNoiseLines(result, warnings);
@@ -442,9 +443,9 @@ export class EnhancedContentProcessor {
     if (!value) {
       return '';
     }
-    const joinerPattern = /((?:\p{L}|\p{N}))(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u180E)+(?=(?:\p{L}|\p{N}))/gu;
     return value
-      .replace(joinerPattern, '$1 ')
+      // Remove zero-width characters without inserting spaces; Google AI Mode
+      // can place them inside URLs, where spacing corrupts links.
       .replace(/(?:\u200B|\u200C|\u200D|\u2060|\uFEFF|\u180E)/g, '')
       .replace(/[\u00A0\u2000-\u200A\u2028\u2029]/g, ' ');
   }

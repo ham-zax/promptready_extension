@@ -427,6 +427,118 @@ Reliable extraction summary remains here.
     expect(canonical).not.toContain('[](/AbdullahY36)');
   });
 
+  it('strips Google AI Mode inline data images and residual chrome', () => {
+    const warnings: string[] = [];
+    const noisy = `# Search Results gold will be their crowns
+
+"Gold will be their crowns, gold their shrouds" is a prophecy from A Song of Ice and Fire.
+
+![w9I8fQSbfzPEQAAAABJRU5ErkJggg==](data:image/png;base64,AAAA)
+
+Reddit +3
+5 sites
+Show all
+AI Mode response is ready
+Ask about
+
+\`\`\`
+![APTMQ2DtFtC1wAAAABJRU5ErkJggg==](data:image/jpeg;base64,BBBB)
+\`\`\`
+
+Key Interpretations:
+
+- The prophecy says her children will wear crowns and die young.
+`;
+
+    const canonical = OfflineModeManager.canonicalizeDeliveredMarkdown(
+      noisy,
+      {
+        title: 'gold will be their crowns gold their shrouds meaning - Google Search',
+        url: 'https://www.google.com/search?q=gold+will+be+their+crowns',
+        capturedAt: '2026-05-02T01:24:26.368Z',
+        selectionHash: 'google-ai-mode-hash',
+      },
+      warnings
+    );
+
+    expect(canonical).toContain('A Song of Ice and Fire');
+    expect(canonical).toContain('Key Interpretations:');
+    expect(canonical).toContain('The prophecy says her children will wear crowns and die young.');
+    expect(canonical).not.toContain('data:image');
+    expect(canonical).not.toContain('base64');
+    expect(canonical).not.toContain('w9I8fQSbfzPEQAAAABJRU5ErkJggg==');
+    expect(canonical).not.toContain('APTMQ2DtFtC1wAAAABJRU5ErkJggg==');
+    expect(canonical).not.toContain('Reddit +3');
+    expect(canonical).not.toContain('5 sites');
+    expect(canonical).not.toContain('Show all');
+    expect(canonical).not.toContain('AI Mode response is ready');
+    expect(canonical).not.toContain('Ask about');
+  });
+
+  it('normalizes Google AI Mode zero-width URL joins and highlight markers', () => {
+    const canonical = OfflineModeManager.canonicalizeDeliveredMarkdown(
+      `# Search Results
+
+Read the source at [Reddit](https://ww\u200Bw.reddit.com/r/pureasoiaf/comments/1djfzf2/).
+
+The answer says ==her three children will all be royalty== before they die young.
+`,
+      {
+        title: 'gold will be their crowns gold their shrouds meaning - Google Search',
+        url: 'https://www.google.com/search?q=gold+will+be+their+crowns',
+        capturedAt: '2026-05-02T01:24:26.368Z',
+        selectionHash: 'google-ai-mode-zero-width-hash',
+      },
+      []
+    );
+
+    expect(canonical).toContain('https://www.reddit.com/r/pureasoiaf/comments/1djfzf2/');
+    expect(canonical).toContain('her three children will all be royalty');
+    expect(canonical).not.toContain('https://ww w.reddit.com');
+    expect(canonical).not.toContain('==her three children');
+  });
+
+  it('keeps Google AI Mode extraction text while dropping embedded data thumbnails', { timeout: 15_000 }, async () => {
+    const html = `
+      <html>
+        <body>
+          <main>
+            <h1>Search Results gold will be their crowns</h1>
+            <p>"Gold will be their crowns, gold their shrouds" is a prophecy from A Song of Ice and Fire.</p>
+            <img alt="w9I8fQSbfzPEQAAAABJRU5ErkJggg==" src="data:image/png;base64,AAAA" />
+            <p>Reddit +3</p>
+            <p>5 sites</p>
+            <button>Show all</button>
+            <p>Key Interpretations:</p>
+            <ul>
+              <li>The prophecy says her children will wear crowns and die young.</li>
+              <li>The gold also points to Lannister hair.</li>
+            </ul>
+            <p>AI Mode response is ready</p>
+            <p>Ask about</p>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const result = await OfflineModeManager.processContent(
+      html,
+      'https://www.google.com/search?q=gold+will+be+their+crowns',
+      'gold will be their crowns gold their shrouds meaning - Google Search',
+      baseConfig
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.markdown).toContain('A Song of Ice and Fire');
+    expect(result.markdown).toContain('The prophecy says her children will wear crowns and die young.');
+    expect(result.markdown).not.toContain('data:image');
+    expect(result.markdown).not.toContain('base64');
+    expect(result.markdown).not.toContain('w9I8fQSbfzPEQAAAABJRU5ErkJggg==');
+    expect(result.markdown).not.toContain('Show all');
+    expect(result.markdown).not.toContain('AI Mode response is ready');
+    expect(result.markdown).not.toContain('Ask about');
+  });
+
   it('strips leading breadcrumb chrome and social embeds before the primary heading', () => {
     const warnings: string[] = [];
     const noisyPrelude = `- [News](https://timesofindia.indiatimes.com/)

@@ -43,10 +43,12 @@ describe('SimplifiedByokSetup — stale validation save prevention', () => {
   it('does not save an invalid key if the user edits the input after a valid check', async () => {
     const onComplete = vi.fn();
     const onCancel = vi.fn();
+    const onSettingsChange = vi.fn().mockResolvedValue(undefined);
 
     render(
       <SimplifiedByokSetup
         settings={baseSettings}
+        onSettingsChange={onSettingsChange}
         onComplete={onComplete}
         onCancel={onCancel}
       />,
@@ -66,8 +68,8 @@ describe('SimplifiedByokSetup — stale validation save prevention', () => {
       expect(screen.getByText(/Key format looks valid/i)).toBeTruthy();
     });
 
-    // Step 2: Edit the key to something invalid (missing prefix).
-    fireEvent.change(input, { target: { value: 'bad-key' } });
+    // Step 2: Edit the key to something invalid (pasted Bearer header).
+    fireEvent.change(input, { target: { value: 'Bearer bad-key' } });
 
     // Validation status should be cleared immediately.
     expect(screen.queryByText(/Key format looks valid/i)).toBeNull();
@@ -76,20 +78,23 @@ describe('SimplifiedByokSetup — stale validation save prevention', () => {
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
-      expect(screen.getByText(/should start with "sk-or-v1-"/i)).toBeTruthy();
+      expect(screen.getByText(/without spaces or the Bearer prefix/i)).toBeTruthy();
     });
 
     // Storage must NOT have been called with the invalid key.
     expect(Storage.updateSettings).not.toHaveBeenCalled();
+    expect(onSettingsChange).not.toHaveBeenCalled();
     expect(onComplete).not.toHaveBeenCalled();
   });
 
   it('saves the key when validation is fresh and key has not changed', async () => {
     const onComplete = vi.fn();
+    const onSettingsChange = vi.fn().mockResolvedValue(undefined);
 
     render(
       <SimplifiedByokSetup
         settings={baseSettings}
+        onSettingsChange={onSettingsChange}
         onComplete={onComplete}
         onCancel={vi.fn()}
       />,
@@ -99,7 +104,7 @@ describe('SimplifiedByokSetup — stale validation save prevention', () => {
     const saveBtn = screen.getByRole('button', { name: 'Save API Key' });
 
     // Enter valid key and validate.
-    fireEvent.change(input, { target: { value: 'sk-or-v1-my-real-key' } });
+    fireEvent.change(input, { target: { value: '  sk-or-v1-my-real-key\n' } });
     const checkBtn = screen.getByRole('button', { name: 'Check Format' });
     fireEvent.click(checkBtn);
 
@@ -111,19 +116,21 @@ describe('SimplifiedByokSetup — stale validation save prevention', () => {
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
-      expect(Storage.updateSettings).toHaveBeenCalledTimes(1);
+      expect(onSettingsChange).toHaveBeenCalledTimes(1);
       expect(onComplete).toHaveBeenCalledTimes(1);
     });
 
     // Verify the saved key is the validated one.
-    const savedCall = (Storage.updateSettings as any).mock.calls[0][0];
+    const savedCall = onSettingsChange.mock.calls[0][0];
     expect(savedCall.byok.apiKey).toBe('sk-or-v1-my-real-key');
+    expect(Storage.updateSettings).not.toHaveBeenCalled();
   });
 
   it('clears validation status on every keystroke', async () => {
     render(
       <SimplifiedByokSetup
         settings={baseSettings}
+        onSettingsChange={vi.fn()}
         onComplete={vi.fn()}
         onCancel={vi.fn()}
       />,
@@ -156,6 +163,7 @@ describe('SimplifiedByokSetup — stale validation save prevention', () => {
     render(
       <SimplifiedByokSetup
         settings={baseSettings}
+        onSettingsChange={vi.fn()}
         onComplete={vi.fn()}
         onCancel={vi.fn()}
       />,
@@ -165,7 +173,7 @@ describe('SimplifiedByokSetup — stale validation save prevention', () => {
     fireEvent.change(input, { target: { value: 'sk-or-v1-slow-key' } });
     fireEvent.click(screen.getByRole('button', { name: 'Check Format' }));
 
-    fireEvent.change(input, { target: { value: 'bad-key' } });
+    fireEvent.change(input, { target: { value: 'Bearer bad-key' } });
 
     await act(async () => {
       resolveValidation({
