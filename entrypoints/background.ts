@@ -18,7 +18,6 @@ import { ContentQualityValidator } from '../core/content-quality-validator.js';
 import { SessionMetricsStore } from '../core/metrics-session-store.js';
 import {
   fallbackOpenRouterFreeModelOptions,
-  selectOpenRouterModelOptions,
 } from '../lib/openrouter-models.js';
 
 export default defineBackground(() => {
@@ -867,47 +866,6 @@ export class EnhancedContentProcessor {
     });
   }
 
-  private async getOpenRouterApiKey(): Promise<string> {
-    try {
-      const settings = await Storage.getSettings();
-      return (settings?.byok?.apiKey || '').trim();
-    } catch {
-      return '';
-    }
-  }
-
-  private async requestOpenRouterModels(apiBase: string, apiKey: string): Promise<unknown> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.OPENROUTER_MODELS_TIMEOUT_MS);
-
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://promptready.app/',
-        'X-Title': 'PromptReady Extension',
-        'X-OpenRouter-Title': 'PromptReady Extension',
-      };
-      if (apiKey) {
-        headers.Authorization = `Bearer ${apiKey}`;
-      }
-
-      const response = await fetch(`${apiBase}/models`, {
-        method: 'GET',
-        headers,
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`OpenRouter models request failed: ${response.status} ${text.slice(0, 200)}`);
-      }
-
-      return await response.json();
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
   private async publishModelResults(models: OpenRouterModelItem[], freeOnly: boolean): Promise<void> {
     await this.broadcastMessage({
       type: 'MODELS_RESULT',
@@ -926,7 +884,6 @@ export class EnhancedContentProcessor {
       return;
     }
 
-    const apiBase = this.normalizeApiBase(payload?.apiBase);
     const freeOnly = payload?.freeOnly !== false;
     const forceRefresh = payload?.forceRefresh === true;
     const cacheKey = freeOnly ? 'openrouter_models_free' : 'openrouter_models_all';
@@ -939,42 +896,24 @@ export class EnhancedContentProcessor {
       }
     }
 
-    try {
-      const apiKey = await this.getOpenRouterApiKey();
-      const rawPayload = await this.requestOpenRouterModels(apiBase, apiKey);
-      const selected = selectOpenRouterModelOptions(rawPayload, { freeOnly }).map((model) => ({
-        id: model.id,
-        name: model.name,
-        isFree: model.isFree,
-        contextLength: model.contextLength,
-      }));
+    // Use fallback model list (no direct fetch to OpenRouter)
+    const fallback = fallbackOpenRouterFreeModelOptions().map((model) => ({
+      id: model.id,
+      name: model.name,
+      isFree: model.isFree,
+      contextLength: model.contextLength,
+    }));
 
-      await this.writeCachedOpenRouterModels(cacheKey, selected);
-      await this.publishModelResults(selected, freeOnly);
-    } catch (error) {
-      const messageText = error instanceof Error ? error.message : 'Unknown models fetch error';
-      console.warn('[Background] Failed to fetch OpenRouter models:', messageText);
-
-      const fallback = freeOnly
-        ? fallbackOpenRouterFreeModelOptions().map((model) => ({
-          id: model.id,
-          name: model.name,
-          isFree: model.isFree,
-          contextLength: model.contextLength,
-        }))
-        : [];
-
-      if (fallback.length > 0) {
-        await this.writeCachedOpenRouterModels(cacheKey, fallback);
-        await this.publishModelResults(fallback, freeOnly);
-        return;
-      }
-
-      await this.broadcastMessage({
-        type: 'ERROR',
-        payload: { message: 'Failed to load OpenRouter models. Please try Refresh.' },
-      });
+    if (fallback.length > 0) {
+      await this.writeCachedOpenRouterModels(cacheKey, fallback);
+      await this.publishModelResults(fallback, freeOnly);
+      return;
     }
+
+    await this.broadcastMessage({
+      type: 'ERROR',
+      payload: { message: 'Failed to load OpenRouter models. Please try Refresh.' },
+    });
   }
 
   /**
