@@ -55,6 +55,41 @@ describe('OfflineModeManager hardening regressions', () => {
     expect(result.markdown).not.toContain('SIDEBAR_NOISE_TOKEN');
   });
 
+  it('records extractor demotion and winning fallback diagnostics', { timeout: 15_000 }, async () => {
+    const html = `
+      <html><body>
+        <main>
+          <h1>Fallback Diagnostics</h1>
+          <p>${'The later fallback candidate preserves the useful body content. '.repeat(20)}</p>
+        </main>
+      </body></html>
+    `;
+    const extractSpy = vi
+      .spyOn(ReadabilityConfigManager, 'extractContent')
+      .mockImplementation(() => {
+        throw new Error('readability fixture failure');
+      });
+
+    try {
+      const result = await OfflineModeManager.processContent(
+        html,
+        'https://example.com/fallback-diagnostics',
+        'Fallback Diagnostics',
+        { ...baseConfig, readabilityPreset: 'blog-article' },
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.markdown).toContain('later fallback candidate preserves');
+      expect(result.processingStats.fallbacksUsed).toContain('readability-fallback');
+      expect(result.processingStats.strategiesAttempted).toEqual(
+        expect.arrayContaining(['readability', 'fallback-content-selection'])
+      );
+      expect(result.processingStats.strategyWinner).toBe('fallback-content-selection');
+    } finally {
+      extractSpy.mockRestore();
+    }
+  });
+
   it('retains multi-section document structure during fallback extraction', { timeout: 15_000 }, async () => {
     const html = `
       <html>

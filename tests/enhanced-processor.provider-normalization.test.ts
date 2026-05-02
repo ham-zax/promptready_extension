@@ -32,7 +32,7 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
       exportMd: markdown,
       exportJson: { version: '1.0', content: { markdown } },
       metadata: {},
-      stats: {},
+      stats: { fallbacksUsed: [] },
       warnings: [],
       originalHtml: '<p>offline</p>',
     };
@@ -110,7 +110,7 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
         exportMd: 'offline',
         exportJson: { version: '1.0' },
         metadata: {},
-        stats: {},
+        stats: { fallbacksUsed: [] },
         warnings: [],
         originalHtml: '<p>offline</p>',
         ...aiTrace,
@@ -138,6 +138,7 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
     expect(result.aiOutcome).toBe('fallback_missing_key');
     expect(result.fallbackCode).toBe('ai_fallback:missing_openrouter_key');
     expect(result.warnings).toContain('ai_fallback:missing_openrouter_key');
+    expect(result.stats.fallbacksUsed).toContain('ai_fallback:missing_openrouter_key');
   });
 
   it('prefers the explicit selected BYOK model over the legacy model field', async () => {
@@ -240,6 +241,7 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
     expect(result.aiOutcome).toBe('fallback_quality_gate_failed');
     expect(result.fallbackCode).toBe('ai_fallback:quality_gate_failed');
     expect(result.warnings).toContain('ai_fallback:quality_gate_failed');
+    expect(result.stats.fallbacksUsed).toContain('ai_fallback:quality_gate_failed');
     expect(result.warnings).toContain('ai_quality_gate:heading_loss');
     expect(result.warnings).toContain('ai_quality_gate:content_loss');
     expect(result.exportJson.processing.warnings).toContain('ai_quality_gate:heading_loss');
@@ -584,7 +586,7 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
         exportMd: 'offline',
         exportJson: { version: '1.0' },
         metadata: {},
-        stats: {},
+        stats: { fallbacksUsed: [] },
         warnings: [],
         originalHtml: '<p>offline</p>',
         ...aiTrace,
@@ -612,6 +614,7 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
     expect(result.aiOutcome).toBe('fallback_request_failed');
     expect(result.fallbackCode).toBe('ai_fallback:request_failed');
     expect(result.warnings).toContain('ai_fallback:request_failed');
+    expect(result.stats.fallbacksUsed).toContain('ai_fallback:request_failed');
     expect(result.exportJson.processing.warnings).toContain('ai_fallback:request_failed');
   });
 
@@ -676,7 +679,7 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
         exportMd: 'offline',
         exportJson: { version: '1.0' },
         metadata: {},
-        stats: {},
+        stats: { fallbacksUsed: [] },
         warnings: [],
         originalHtml: '<p>offline</p>',
         ...aiTrace,
@@ -710,5 +713,6 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
     expect(result.aiOutcome).toBe('fallback_daily_limit_reached');
     expect(result.fallbackCode).toBe('ai_fallback:daily_limit_reached');
     expect(result.runId).toBe('run_1');
+    expect(result.stats.fallbacksUsed).toContain('ai_fallback:daily_limit_reached');
   });
 });

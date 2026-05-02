@@ -542,6 +542,29 @@ export class EnhancedOffscreenProcessor {
     };
   }
 
+  private withFallbackStat<T extends ProcessingCompleteMessage['payload']>(
+    payload: T,
+    fallbackCode: AIFallbackCode,
+  ): T {
+    const stats = payload.stats && typeof payload.stats === 'object'
+      ? payload.stats
+      : {};
+    const existingFallbacks = Array.isArray((stats as any).fallbacksUsed)
+      ? (stats as any).fallbacksUsed.filter((item: unknown): item is string => typeof item === 'string')
+      : [];
+    const fallbacksUsed = existingFallbacks.includes(fallbackCode)
+      ? existingFallbacks
+      : [...existingFallbacks, fallbackCode];
+
+    return {
+      ...payload,
+      stats: {
+        ...(stats as Record<string, unknown>),
+        fallbacksUsed,
+      },
+    };
+  }
+
   private async processAIMode(
     html: string,
     url: string,
@@ -590,7 +613,7 @@ export class EnhancedOffscreenProcessor {
         );
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
         attachWarningsToExportJson(offlineResult.exportJson, offlineResult.warnings);
-        return offlineResult;
+        return this.withFallbackStat(offlineResult, warningCode);
       }
 
       if (!providerNormalization.isSupported || provider !== 'openrouter') {
@@ -613,7 +636,7 @@ export class EnhancedOffscreenProcessor {
         );
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
         attachWarningsToExportJson(offlineResult.exportJson, offlineResult.warnings);
-        return offlineResult;
+        return this.withFallbackStat(offlineResult, warningCode);
       }
 
       if (providerNormalization.wasLegacyAlias) {
@@ -640,7 +663,7 @@ export class EnhancedOffscreenProcessor {
         );
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
         attachWarningsToExportJson(offlineResult.exportJson, offlineResult.warnings);
-        return offlineResult;
+        return this.withFallbackStat(offlineResult, warningCode);
       }
 
       if (!model) {
@@ -663,7 +686,7 @@ export class EnhancedOffscreenProcessor {
         );
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
         attachWarningsToExportJson(offlineResult.exportJson, offlineResult.warnings);
-        return offlineResult;
+        return this.withFallbackStat(offlineResult, warningCode);
       }
 
       const capturedAt = new Date().toISOString();
@@ -771,7 +794,7 @@ export class EnhancedOffscreenProcessor {
         fallbackExportJson.content.markdown = preparedOfflineResult.exportMd;
         attachWarningsToExportJson(fallbackExportJson, fallbackWarnings);
 
-        return {
+        return this.withFallbackStat({
           ...preparedOfflineResult,
           exportJson: fallbackExportJson,
           warnings: fallbackWarnings,
@@ -780,7 +803,7 @@ export class EnhancedOffscreenProcessor {
           aiOutcome: 'fallback_quality_gate_failed',
           fallbackCode: warningCode,
           runId,
-        };
+        }, warningCode);
       }
 
       const exportJson = this.generateStructuredExport(postResult, url, title);
@@ -819,7 +842,7 @@ export class EnhancedOffscreenProcessor {
       if (preparedOfflineResult) {
         const fallbackWarnings = [...(preparedOfflineResult.warnings || []), warningCode];
         attachWarningsToExportJson(preparedOfflineResult.exportJson, fallbackWarnings);
-        return {
+        return this.withFallbackStat({
           ...preparedOfflineResult,
           warnings: fallbackWarnings,
           aiAttempted: true,
@@ -827,7 +850,7 @@ export class EnhancedOffscreenProcessor {
           aiOutcome,
           fallbackCode: warningCode,
           runId,
-        };
+        }, warningCode);
       }
 
       const offlineResult = await this.processOfflineMode(
@@ -846,7 +869,7 @@ export class EnhancedOffscreenProcessor {
       );
       offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
       attachWarningsToExportJson(offlineResult.exportJson, offlineResult.warnings);
-      return offlineResult;
+      return this.withFallbackStat(offlineResult, warningCode);
     }
   }
 

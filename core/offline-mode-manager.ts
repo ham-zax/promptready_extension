@@ -62,6 +62,8 @@ export interface OfflineProcessingResult {
     postProcessingTime: number;
     fallbacksUsed: string[];
     qualityScore: number;
+    strategiesAttempted?: string[];
+    strategyWinner?: string;
   };
   warnings: string[];
   errors: string[];
@@ -108,6 +110,18 @@ export class OfflineModeManager {
     reject: (reason?: unknown) => void;
     settled: boolean;
   }>();
+
+  private static recordFallback(fallbacksUsed: string[], fallbackCode: string): void {
+    if (!fallbacksUsed.includes(fallbackCode)) {
+      fallbacksUsed.push(fallbackCode);
+    }
+  }
+
+  private static recordStrategyAttempt(strategiesAttempted: string[], strategy: string): void {
+    if (!strategiesAttempted.includes(strategy)) {
+      strategiesAttempted.push(strategy);
+    }
+  }
 
   // Real-time metrics tracking
   private static activeSessions = new Map<string, {
@@ -338,6 +352,8 @@ export class OfflineModeManager {
     const warnings: string[] = [];
     const errors: string[] = [];
     let fallbacksUsed: string[] = [];
+    const strategiesAttempted: string[] = [];
+    let strategyWinner: string | undefined;
     let sessionId: string | null = null;
 
     try {
@@ -429,6 +445,7 @@ export class OfflineModeManager {
       let extractedContent: string;
 
 	      try {
+        this.recordStrategyAttempt(strategiesAttempted, 'readability');
 	        const requestedPreset = config.readabilityPreset;
 	        let readabilityConfig = requestedPreset
 	          ? ReadabilityConfigManager.getPresetConfig(requestedPreset)
@@ -449,6 +466,10 @@ export class OfflineModeManager {
             'readability_extraction',
             () => ReadabilityConfigManager.extractContent(doc, url, readabilityConfig)
           );
+          if (config.fallbacks.enableReadabilityFallback) {
+            this.recordStrategyAttempt(strategiesAttempted, 'fallback-content-selection');
+          }
+          const fallbackCountBeforeSelection = fallbacksUsed.length;
           extractedContent = extractionResult.content;
           extractedContent = await this.resolveReadabilityCandidate(
             extractionHtml,
@@ -457,6 +478,9 @@ export class OfflineModeManager {
             warnings,
             config
           );
+          strategyWinner = fallbacksUsed.length > fallbackCountBeforeSelection
+            ? 'fallback-content-selection'
+            : 'readability';
           console.log('[OfflineModeManager] Readability extraction successful');
 	        } else {
 	          throw new Error('No suitable Readability configuration found');
@@ -464,14 +488,16 @@ export class OfflineModeManager {
 	      } catch (error) {
         console.warn('[OfflineModeManager] Readability extraction failed:', error);
         if (config.fallbacks.enableReadabilityFallback) {
+          this.recordStrategyAttempt(strategiesAttempted, 'fallback-content-selection');
           const fallbackSelection = await this.fallbackContentExtractionSelection(extractionHtml, [], {
             tuning: config.extractionTuning,
           });
           extractedContent = fallbackSelection?.html || extractionHtml;
-          fallbacksUsed.push('readability-fallback');
+          this.recordFallback(fallbacksUsed, 'readability-fallback');
           if (fallbackSelection?.source) {
-            fallbacksUsed.push(`readability-fallback-source:${fallbackSelection.source}`);
+            this.recordFallback(fallbacksUsed, `readability-fallback-source:${fallbackSelection.source}`);
           }
+          strategyWinner = 'fallback-content-selection';
           warnings.push('Used fallback content extraction');
         } else {
           throw error;
@@ -494,7 +520,7 @@ export class OfflineModeManager {
         console.log('[OfflineModeManager] Skipping Turndown - content is already markdown');
         // Content is already markdown (provider stage), use extracted content as-is.
         markdown = extractedContent;
-        fallbacksUsed.push('pre-formatted-markdown');
+        this.recordFallback(fallbacksUsed, 'pre-formatted-markdown');
 	      } else {
 	        extractedContent = this.isolateIntentionalRawExamples(extractedContent, warnings);
 	        try {
@@ -513,7 +539,7 @@ export class OfflineModeManager {
           console.warn('[OfflineModeManager] Turndown conversion failed:', error);
           if (config.fallbacks.enableTurndownFallback) {
             markdown = await this.fallbackMarkdownConversion(extractedContent);
-            fallbacksUsed.push('turndown-fallback');
+            this.recordFallback(fallbacksUsed, 'turndown-fallback');
             warnings.push('Used fallback markdown conversion');
           } else {
             throw error;
@@ -631,6 +657,8 @@ export class OfflineModeManager {
           postProcessingTime,
           fallbacksUsed,
           qualityScore,
+          strategiesAttempted,
+          strategyWinner,
         },
         warnings,
         errors,
@@ -706,6 +734,8 @@ export class OfflineModeManager {
           postProcessingTime: 0,
           fallbacksUsed,
           qualityScore: 0,
+          strategiesAttempted,
+          strategyWinner,
         },
         warnings,
         errors,
@@ -764,6 +794,8 @@ export class OfflineModeManager {
           postProcessingTime: 0,
           fallbacksUsed,
           qualityScore: 0,
+          strategiesAttempted,
+          strategyWinner,
         },
         warnings,
         errors,
@@ -1674,10 +1706,10 @@ export class OfflineModeManager {
 
     if (coverageLow || shouldAdopt) {
       if (coverageLow) {
-        fallbacksUsed.push('readability-low-coverage-fallback');
+        this.recordFallback(fallbacksUsed, 'readability-low-coverage-fallback');
         warnings.push('Readability extraction coverage low; used fallback content extraction');
       } else {
-        fallbacksUsed.push('readability-ranked-fallback');
+        this.recordFallback(fallbacksUsed, 'readability-ranked-fallback');
         warnings.push('Selected higher-quality fallback candidate over readability output');
       }
       if (typeof process !== 'undefined' && (process as any)?.env?.OFFLINE_DEBUG_CANDIDATES === '1') {
