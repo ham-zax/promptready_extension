@@ -257,6 +257,7 @@ const DEFAULT_SETTINGS: Settings = {
   flags: {
     aiModeEnabled: true,   // AI mode can be enabled when credits/BYOK or DEV
     byokEnabled: true,
+    // Legacy only: preserved for settings migration compatibility; does NOT gate BYOK freemium.
     trialEnabled: true,
     developerMode: runtimeProfile.enforceDeveloperMode,
   },
@@ -288,6 +289,7 @@ export function applyRuntimePolicyOverrides(
       ...flags,
       aiModeEnabled: true,
       byokEnabled: true,
+      // Legacy only: carried forward for settings compatibility; no runtime effect on BYOK freemium.
       trialEnabled: true,
       developerMode: profile.enforceDeveloperMode ? true : Boolean(flags.developerMode),
     },

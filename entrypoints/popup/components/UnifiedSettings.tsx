@@ -85,6 +85,7 @@ export function UnifiedSettings({
     flags: {
       aiModeEnabled: true,
       byokEnabled: true,
+      // Legacy only: preserved for settings shape compatibility; does NOT affect BYOK freemium.
       trialEnabled: true,
     },
     processing: {

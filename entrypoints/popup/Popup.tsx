@@ -210,6 +210,7 @@ export default function RefactoredPopup() {
         const newFlags = {
           aiModeEnabled: settings?.flags?.aiModeEnabled ?? true,
           byokEnabled: settings?.flags?.byokEnabled ?? true,
+          // Legacy only: carried forward to avoid dropping legacy settings fields; no runtime effect.
           trialEnabled: settings?.flags?.trialEnabled ?? false,
           developerMode: !currentDevMode,
         };

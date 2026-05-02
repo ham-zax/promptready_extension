@@ -90,7 +90,9 @@ export interface CaptureDiagnostics {
 export interface FeatureFlags {
   aiModeEnabled: boolean;   // Gate AI mode availability
   byokEnabled: boolean;     // Gate BYOK settings usage
-  trialEnabled: boolean;    // Gate trial/credit experience
+  // @deprecated Legacy only: preserved for settings migration compatibility.
+  // Must NOT gate current BYOK freemium behavior.
+  trialEnabled: boolean;
   developerMode?: boolean;  // Hidden developer mode for bypassing restrictions
 }
 

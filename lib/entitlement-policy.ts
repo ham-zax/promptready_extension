@@ -7,6 +7,7 @@ export const BYOK_STALE_INFLIGHT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_FLAGS: FeatureFlags = {
   aiModeEnabled: true,
   byokEnabled: true,
+  // Legacy only: preserved for settings shape compatibility; does NOT affect BYOK freemium.
   trialEnabled: true,
   developerMode: false,
 };
