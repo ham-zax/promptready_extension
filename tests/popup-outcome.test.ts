@@ -41,6 +41,21 @@ describe('derivePopupOutcome', () => {
     expect(outcome.secondaryActions).toContain('open_settings');
   });
 
+  it('uses fidelity-check copy for quality-gate fallback with offline output', () => {
+    const outcome = requireOutcome({
+      mode: 'ai',
+      hasContent: true,
+      aiOutcome: 'fallback_quality_gate_failed',
+      aiFallbackError: 'AI quality gate failed: heading_order_loss',
+    });
+
+    expect(outcome.kind).toBe('ready_offline_degraded');
+    expect(outcome.title).toBe('Offline output ready');
+    expect(outcome.message).toBe('AI output failed fidelity checks. Offline capture still works.');
+    expect(outcome.secondaryActions).toEqual(['view_details']);
+    expect(outcome.details).toContain('heading_order_loss');
+  });
+
   it('uses config-needed only when AI is unavailable before output exists', () => {
     const outcome = requireOutcome({
       mode: 'ai',

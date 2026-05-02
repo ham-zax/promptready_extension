@@ -2,6 +2,7 @@ import byokProcessingPromptTemplate from './byok-processing-prompt.md?raw';
 
 export interface ByokPromptInput {
   html: string;
+  offlineMarkdownBaseline?: string;
   url: string;
   title: string;
   capturedAt?: string;
@@ -11,6 +12,8 @@ export interface ByokPromptInput {
 }
 
 const MAX_HTML_CHARS = 120_000;
+const MAX_OFFLINE_MARKDOWN_CHARS = 120_000;
+const MAX_TOTAL_SOURCE_CHARS = 140_000;
 const MAX_METADATA_HTML_CHARS = 20_000;
 const MAX_CUSTOM_PROMPT_CHARS = 1_000;
 
@@ -46,6 +49,10 @@ function trimPayloadForPrompt(
     return fallback;
   }
 
+  if (maxChars <= 0) {
+    return `<!-- ${truncationMarker}:${normalized.length} -->`;
+  }
+
   if (normalized.length <= maxChars) {
     return normalized;
   }
@@ -72,20 +79,35 @@ function normalizeCustomPromptPreference(customPrompt: string | undefined): stri
 }
 
 export function buildByokPrompt(input: ByokPromptInput): string {
+  const prunedHtml = pruneHtmlForPrompt(input.html);
+  const offlineMarkdownBaseline = (input.offlineMarkdownBaseline || '').trim();
+  const baselineBudget = offlineMarkdownBaseline
+    ? Math.min(MAX_OFFLINE_MARKDOWN_CHARS, MAX_TOTAL_SOURCE_CHARS)
+    : 0;
+  const baselineSourceChars = Math.min(offlineMarkdownBaseline.length, baselineBudget);
+  const htmlBudget = offlineMarkdownBaseline
+    ? Math.min(MAX_HTML_CHARS, Math.max(0, MAX_TOTAL_SOURCE_CHARS - baselineSourceChars))
+    : MAX_HTML_CHARS;
+
   const replacements: Record<string, string> = {
     SOURCE_TITLE: trimToNonEmpty(input.title, 'Untitled'),
     SOURCE_URL: trimToNonEmpty(input.url, 'about:blank'),
     CAPTURED_AT: trimToNonEmpty(input.capturedAt, new Date().toISOString()),
     SELECTION_HASH: trimToNonEmpty(input.selectionHash, 'n/a'),
     USER_CUSTOM_PROMPT: normalizeCustomPromptPreference(input.customPrompt),
+    OFFLINE_MARKDOWN_BASELINE: trimPayloadForPrompt(
+      offlineMarkdownBaseline,
+      baselineBudget,
+      'PROMPTREADY_OFFLINE_MARKDOWN_TRUNCATED',
+    ),
     METADATA_HTML: trimPayloadForPrompt(
       input.metadataHtml,
       MAX_METADATA_HTML_CHARS,
       'PROMPTREADY_METADATA_HTML_TRUNCATED',
     ),
     HTML_CONTENT: trimPayloadForPrompt(
-      pruneHtmlForPrompt(input.html),
-      MAX_HTML_CHARS,
+      prunedHtml,
+      htmlBudget,
       'PROMPTREADY_HTML_TRUNCATED',
     ),
   };

@@ -216,7 +216,7 @@ const initialState: PopupState = {
   byokProvider: 'openrouter',
 };
 
-function resolveFallbackToastMessage(aiOutcome?: AIAttemptOutcome): string {
+export function resolveFallbackToastMessage(aiOutcome?: AIAttemptOutcome): string {
   if (aiOutcome === 'fallback_missing_key') {
     return UI_MESSAGES.aiFallbackMissingKey;
   }
@@ -227,6 +227,10 @@ function resolveFallbackToastMessage(aiOutcome?: AIAttemptOutcome): string {
 
   if (aiOutcome === 'fallback_daily_limit_reached') {
     return UI_MESSAGES.aiFallbackDailyLimitReached;
+  }
+
+  if (aiOutcome === 'fallback_quality_gate_failed') {
+    return UI_MESSAGES.aiFallbackQualityGateFailed;
   }
 
   return UI_MESSAGES.aiFallbackRequestFailed;

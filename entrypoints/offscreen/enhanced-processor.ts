@@ -70,6 +70,222 @@ const DEFAULT_AI_TRACE: AIAttemptTrace = {
   aiOutcome: 'not_attempted',
 };
 
+type AiMarkdownQualityResult = {
+  accepted: boolean;
+  reasons: string[];
+};
+
+function countFenceMarkers(markdown: string): number {
+  return (markdown.match(/```/g) || []).length;
+}
+
+function extractHeadingTexts(markdown: string): string[] {
+  return markdown
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(line => {
+      const trimmed = line.trim();
+      let headingLevel = 0;
+      while (headingLevel < trimmed.length && headingLevel < 6 && trimmed[headingLevel] === '#') {
+        headingLevel++;
+      }
+      if (headingLevel === 0 || trimmed[headingLevel] !== ' ') {
+        return '';
+      }
+
+      return trimmed
+        .slice(headingLevel + 1)
+        .replace(/#+$/, '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+    })
+    .filter(Boolean);
+}
+
+function comparableMarkdownTextLength(markdown: string): number {
+  const withoutCiteBlock = markdown
+    .replace(/\r\n?/g, '\n')
+    .replace(/^> Source:[^\n]*(?:\n>.*)*\n{0,2}/, '');
+
+  return withoutCiteBlock
+    .replace(/```[\s\S]*?```/g, block => block.replace(/```[^\n]*\n?/g, ''))
+    .replace(/[#>*_`[\]()!-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .length;
+}
+
+function retainedHeadingOrderRatio(baselineHeadings: string[], aiHeadings: string[]): number {
+  if (baselineHeadings.length === 0) {
+    return 1;
+  }
+
+  let cursor = 0;
+  let ordered = 0;
+  for (const heading of baselineHeadings) {
+    const foundAt = aiHeadings.indexOf(heading, cursor);
+    if (foundAt !== -1) {
+      ordered++;
+      cursor = foundAt + 1;
+    }
+  }
+
+  return ordered / baselineHeadings.length;
+}
+
+function removeLeadingCitationBlock(markdown: string): string {
+  return markdown
+    .replace(/\r\n?/g, '\n')
+    .replace(/^> Source:[^\n]*(?:\n>.*)*\n{0,2}/, '');
+}
+
+function looksLikeCommandToken(token: string): boolean {
+  const trimmed = token.replace(/^\$+\s*/, '').trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  const command = trimmed.split(/\s+/)[0]?.toLowerCase() || '';
+  const commandSubcommands: Record<string, Set<string>> = {
+    npm: new Set(['add', 'build', 'ci', 'create', 'dev', 'exec', 'i', 'init', 'install', 'link', 'publish', 'remove', 'run', 'start', 'test', 'uninstall', 'update']),
+    pnpm: new Set(['add', 'build', 'create', 'dev', 'dlx', 'exec', 'i', 'install', 'link', 'publish', 'remove', 'run', 'start', 'test', 'uninstall', 'update']),
+    yarn: new Set(['add', 'build', 'create', 'dev', 'dlx', 'exec', 'install', 'link', 'remove', 'run', 'start', 'test', 'upgrade']),
+    git: new Set(['add', 'branch', 'checkout', 'clone', 'commit', 'diff', 'fetch', 'log', 'merge', 'pull', 'push', 'rebase', 'remote', 'reset', 'restore', 'show', 'status', 'switch']),
+    docker: new Set(['build', 'compose', 'exec', 'login', 'logs', 'ps', 'pull', 'push', 'run', 'start', 'stop']),
+    node: new Set(['--check', '--eval', '--inspect', '-e', 'test']),
+    bun: new Set(['add', 'build', 'create', 'dev', 'install', 'remove', 'run', 'start', 'test', 'x']),
+    deno: new Set(['bundle', 'cache', 'compile', 'fmt', 'install', 'lint', 'run', 'task', 'test']),
+  };
+  const words = trimmed.split(/\s+/);
+  const subcommand = words[1]?.toLowerCase() || '';
+
+  if (/^\$+\s+/.test(token)) {
+    return true;
+  }
+  if (/[|<>]/.test(trimmed) || /\s-{1,2}[A-Za-z0-9]/.test(trimmed)) {
+    return true;
+  }
+  if (/@[a-z0-9_.-]+(?:\/[a-z0-9_.-]+)?(?:@[^\s`"')\]]+)?/i.test(trimmed) || /https?:\/\//i.test(trimmed)) {
+    return true;
+  }
+  if ((command === 'npx' || command === 'curl' || command === 'python' || command === 'python3') && words.length > 1) {
+    return true;
+  }
+
+  if (!commandSubcommands[command]?.has(subcommand)) {
+    return false;
+  }
+
+  const rest = words.slice(2);
+  if (rest.length === 0) {
+    return true;
+  }
+  const restText = rest.join(' ');
+  if (/[|<>:=]/.test(restText) || /\s-{1,2}[A-Za-z0-9]/.test(` ${restText}`)) {
+    return true;
+  }
+  if (/@[a-z0-9_.-]+(?:\/[a-z0-9_.-]+)?(?:@[^\s`"')\]]+)?/i.test(restText) || /https?:\/\//i.test(restText)) {
+    return true;
+  }
+  if (rest.length === 1 && /^[A-Za-z0-9_.@/-]+$/.test(rest[0]) && !/^[a-z]+s$/i.test(rest[0])) {
+    return true;
+  }
+
+  return false;
+}
+
+function extractTechnicalTokens(markdown: string): string[] {
+  const tokens = new Set<string>();
+  const source = removeLeadingCitationBlock(markdown);
+
+  for (const match of source.matchAll(/`([^`\n]+)`/g)) {
+    tokens.add(match[1].trim());
+  }
+  for (const match of source.matchAll(/\b[A-Z][A-Z0-9_]{2,}\b/g)) {
+    tokens.add(match[0]);
+  }
+  for (const match of source.matchAll(/@[a-z0-9_.-]+\/[a-z0-9_.-]+(?:@[^\s`"')\]]+)?/gi)) {
+    tokens.add(match[0]);
+  }
+  for (const match of source.matchAll(/(?:^|\$+\s*)(?:npx|npm|pnpm|yarn|curl|docker|git|node|python3?|deno|bun)\b[^\n`]*/gim)) {
+    const token = match[0].trim();
+    if (looksLikeCommandToken(token)) {
+      tokens.add(token.replace(/^\$+\s*/, '').trim());
+    }
+  }
+  for (const match of source.matchAll(/https?:\/\/[^\s`"')\]]+/gi)) {
+    tokens.add(match[0]);
+  }
+  for (const match of source.matchAll(/\bv?\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?\b/g)) {
+    tokens.add(match[0]);
+  }
+
+  return [...tokens].filter(token => token.length >= 3);
+}
+
+function retainedTechnicalTokenRatio(baselineMarkdown: string, aiMarkdown: string): number {
+  const baselineTokens = extractTechnicalTokens(baselineMarkdown);
+  if (baselineTokens.length < 2) {
+    return 1;
+  }
+
+  const retained = baselineTokens.filter(token => aiMarkdown.includes(token)).length;
+  return retained / baselineTokens.length;
+}
+
+function attachWarningsToExportJson(exportJson: any, warnings: string[]): any {
+  if (!exportJson || typeof exportJson !== 'object') {
+    return exportJson;
+  }
+  if (!exportJson.processing || typeof exportJson.processing !== 'object') {
+    exportJson.processing = {};
+  }
+  exportJson.processing.warnings = warnings;
+  return exportJson;
+}
+
+function evaluateAiMarkdownQuality(
+  aiMarkdown: string,
+  offlineMarkdownBaseline: string,
+  rawAiMarkdown: string
+): AiMarkdownQualityResult {
+  const reasons: string[] = [];
+
+  if (countFenceMarkers(rawAiMarkdown) % 2 !== 0) {
+    reasons.push('malformed_fences');
+  }
+
+  const baselineHeadings = extractHeadingTexts(offlineMarkdownBaseline);
+  if (baselineHeadings.length > 0) {
+    const aiHeadingList = extractHeadingTexts(aiMarkdown);
+    const aiHeadings = new Set(aiHeadingList);
+    const retainedHeadingCount = baselineHeadings.filter(heading => aiHeadings.has(heading)).length;
+    const retainedHeadingRatio = retainedHeadingCount / baselineHeadings.length;
+    if (retainedHeadingRatio < 0.85) {
+      reasons.push('heading_loss');
+    }
+    if (retainedHeadingOrderRatio(baselineHeadings, aiHeadingList) < 0.85) {
+      reasons.push('heading_order_loss');
+    }
+  }
+
+  const baselineLength = comparableMarkdownTextLength(offlineMarkdownBaseline);
+  const aiLength = comparableMarkdownTextLength(aiMarkdown);
+  if (baselineLength > 0 && aiLength / baselineLength < 0.7) {
+    reasons.push('content_loss');
+  }
+
+  if (retainedTechnicalTokenRatio(offlineMarkdownBaseline, aiMarkdown) < 0.9) {
+    reasons.push('technical_token_loss');
+  }
+
+  return {
+    accepted: reasons.length === 0,
+    reasons,
+  };
+}
+
 export class EnhancedOffscreenProcessor {
   private static instance: EnhancedOffscreenProcessor | null = null;
   private isProcessing = false;
@@ -279,9 +495,11 @@ export class EnhancedOffscreenProcessor {
     title: string,
     config: OfflineModeConfig,
     metadataHtml?: string,
-    aiTrace: AIAttemptTrace = DEFAULT_AI_TRACE
+    aiTrace: AIAttemptTrace = DEFAULT_AI_TRACE,
+    progressStage = 'preprocessing',
+    progressMessage = 'Cleaning and preparing content...'
   ): Promise<ProcessingCompleteMessage['payload']> {
-    this.sendProgress('Cleaning and preparing content...', 20, 'preprocessing');
+    this.sendProgress(progressMessage, 20, progressStage);
 
     const chain = await processWithProviderChain(html, url, title, config, metadataHtml);
     const result = chain.result;
@@ -326,7 +544,7 @@ export class EnhancedOffscreenProcessor {
       fallbackCode?: AIFallbackCode;
     },
   ): Promise<ProcessingCompleteMessage['payload']> {
-    this.sendProgress('Sending to AI for processing...', 30, 'ai-processing');
+    let preparedOfflineResult: ProcessingCompleteMessage['payload'] | null = null;
 
     try {
       const runtimeProfile = getRuntimeProfile();
@@ -358,6 +576,7 @@ export class EnhancedOffscreenProcessor {
           }
         );
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
+        attachWarningsToExportJson(offlineResult.exportJson, offlineResult.warnings);
         return offlineResult;
       }
 
@@ -380,6 +599,7 @@ export class EnhancedOffscreenProcessor {
           }
         );
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
+        attachWarningsToExportJson(offlineResult.exportJson, offlineResult.warnings);
         return offlineResult;
       }
 
@@ -406,6 +626,7 @@ export class EnhancedOffscreenProcessor {
           }
         );
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
+        attachWarningsToExportJson(offlineResult.exportJson, offlineResult.warnings);
         return offlineResult;
       }
 
@@ -428,9 +649,59 @@ export class EnhancedOffscreenProcessor {
           }
         );
         offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
+        attachWarningsToExportJson(offlineResult.exportJson, offlineResult.warnings);
         return offlineResult;
       }
 
+      const capturedAt = new Date().toISOString();
+      const offlineBaselineResult = await this.processOfflineMode(
+        html,
+        url,
+        title,
+        config,
+        metadataHtml,
+        { aiAttempted: false, aiProvider: null, aiOutcome: 'not_attempted', runId },
+        'offline-baseline',
+        'Preparing offline Markdown baseline...'
+      );
+      const offlineWarnings = [...(offlineBaselineResult.warnings || [])];
+      const canonicalMetadata = buildCanonicalMetadata(
+        offlineBaselineResult.metadata as Partial<ExportMetadata>,
+        { title, url, capturedAt, selectionHash }
+      );
+      const offlineMarkdownBaseline = canonicalizeDeliveredMarkdown(
+        offlineBaselineResult.exportMd || '',
+        canonicalMetadata,
+        offlineWarnings
+      );
+      const offlineExportJson = offlineBaselineResult.exportJson && typeof offlineBaselineResult.exportJson === 'object'
+        ? { ...offlineBaselineResult.exportJson }
+        : this.generateStructuredExport(
+          { markdown: offlineMarkdownBaseline, metadata: canonicalMetadata, warnings: offlineWarnings },
+          url,
+          title
+        );
+      offlineExportJson.metadata = { ...(offlineExportJson.metadata || {}), ...canonicalMetadata };
+      if (!offlineExportJson.content || typeof offlineExportJson.content !== 'object') {
+        offlineExportJson.content = {};
+      }
+      offlineExportJson.content.markdown = offlineMarkdownBaseline;
+      attachWarningsToExportJson(offlineExportJson, offlineWarnings);
+
+      preparedOfflineResult = {
+        ...offlineBaselineResult,
+        exportMd: offlineMarkdownBaseline,
+        exportJson: offlineExportJson,
+        metadata: canonicalMetadata,
+        warnings: offlineWarnings,
+        originalHtml: html,
+        aiAttempted: false,
+        aiProvider: null,
+        aiOutcome: 'not_attempted',
+        runId,
+      };
+
+      this.sendProgress('Sending request to OpenRouter...', 35, 'ai-processing');
       this.sendProgress(
         runtimeProfile.isDevelopment
           ? 'Using BYOK in development...'
@@ -440,11 +711,12 @@ export class EnhancedOffscreenProcessor {
 
       const byokPrompt = buildByokPrompt({
         html,
+        offlineMarkdownBaseline,
         url,
         title,
         selectionHash,
         metadataHtml,
-        capturedAt: new Date().toISOString(),
+        capturedAt,
         customPrompt: settings.byok?.customPrompt,
       });
 
@@ -464,16 +736,46 @@ export class EnhancedOffscreenProcessor {
 
       this.sendProgress('Post-processing AI response...', 80, 'postprocessing');
       const postResult = MarkdownPostProcessor.process(processedMarkdown, {});
-      const canonicalMetadata = buildCanonicalMetadata(
-        { title, url, selectionHash },
-        { title, url, capturedAt: new Date().toISOString(), selectionHash }
-      );
       const canonicalMarkdown = canonicalizeDeliveredMarkdown(postResult.markdown, canonicalMetadata, aiWarnings);
+      const qualityGate = evaluateAiMarkdownQuality(canonicalMarkdown, offlineMarkdownBaseline, processedMarkdown);
+      if (!qualityGate.accepted) {
+        const warningCode: AIFallbackCode = 'ai_fallback:quality_gate_failed';
+        console.warn('[AI Mode] AI output failed quality gate:', qualityGate.reasons.join(','));
+        const qualityWarnings = qualityGate.reasons.map(reason => `ai_quality_gate:${reason}`);
+        const fallbackWarnings = Array.from(new Set([
+          ...(preparedOfflineResult.warnings || []),
+          ...aiWarnings,
+          warningCode,
+          ...qualityWarnings,
+        ]));
+        const fallbackExportJson = preparedOfflineResult.exportJson && typeof preparedOfflineResult.exportJson === 'object'
+          ? { ...preparedOfflineResult.exportJson }
+          : { version: '1.0' };
+        fallbackExportJson.metadata = { ...(fallbackExportJson.metadata || {}), ...canonicalMetadata };
+        if (!fallbackExportJson.content || typeof fallbackExportJson.content !== 'object') {
+          fallbackExportJson.content = {};
+        }
+        fallbackExportJson.content.markdown = preparedOfflineResult.exportMd;
+        attachWarningsToExportJson(fallbackExportJson, fallbackWarnings);
+
+        return {
+          ...preparedOfflineResult,
+          exportJson: fallbackExportJson,
+          warnings: fallbackWarnings,
+          aiAttempted: true,
+          aiProvider: 'openrouter',
+          aiOutcome: 'fallback_quality_gate_failed',
+          fallbackCode: warningCode,
+          runId,
+        };
+      }
+
       const exportJson = this.generateStructuredExport(postResult, url, title);
       if (exportJson?.content && typeof exportJson.content === 'object') {
         exportJson.content.markdown = canonicalMarkdown;
       }
       exportJson.metadata = { ...(exportJson.metadata || {}), ...canonicalMetadata };
+      attachWarningsToExportJson(exportJson, aiWarnings);
 
       return {
         exportMd: canonicalMarkdown,
@@ -501,6 +803,20 @@ export class EnhancedOffscreenProcessor {
       this.sendError(errorMessage, isCancelled ? 'cancelled' : 'ai-processing', true, runId);
       this.sendProgress('AI processing failed, falling back to offline mode...', 90, 'fallback');
 
+      if (preparedOfflineResult) {
+        const fallbackWarnings = [...(preparedOfflineResult.warnings || []), warningCode];
+        attachWarningsToExportJson(preparedOfflineResult.exportJson, fallbackWarnings);
+        return {
+          ...preparedOfflineResult,
+          warnings: fallbackWarnings,
+          aiAttempted: true,
+          aiProvider: 'openrouter',
+          aiOutcome,
+          fallbackCode: warningCode,
+          runId,
+        };
+      }
+
       const offlineResult = await this.processOfflineMode(
         html,
         url,
@@ -516,6 +832,7 @@ export class EnhancedOffscreenProcessor {
         }
       );
       offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
+      attachWarningsToExportJson(offlineResult.exportJson, offlineResult.warnings);
       return offlineResult;
     }
   }

@@ -19,6 +19,7 @@ type StageItem = {
 const AI_STAGES: StageItem[] = [
   { id: 'initialization', label: 'Capture request queued' },
   { id: 'preprocessing', label: 'Cleaning and preparing content' },
+  { id: 'offline-baseline', label: 'Preparing offline baseline' },
   { id: 'ai-processing', label: 'Sending request to OpenRouter' },
   { id: 'byok-processing', label: 'Waiting for AI response' },
   { id: 'postprocessing', label: 'Validating and finalizing output' },

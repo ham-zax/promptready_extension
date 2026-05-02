@@ -112,6 +112,23 @@ export default function RefactoredPopup() {
 
         if (!aiFailed) {
           setAiFallbackInfo(null);
+        } else {
+          const fallbackCode = typeof message?.payload?.fallbackCode === 'string'
+            ? message.payload.fallbackCode
+            : '';
+          const warnings = Array.isArray(message?.payload?.warnings)
+            ? message.payload.warnings.filter((warning: unknown): warning is string => typeof warning === 'string')
+            : [];
+          const qualityReasons = warnings
+            .filter((warning: string) => warning.startsWith('ai_quality_gate:'))
+            .map((warning: string) => warning.replace('ai_quality_gate:', ''));
+          const fallbackStage = fallbackCode === 'ai_fallback:quality_gate_failed'
+            ? 'postprocessing'
+            : 'fallback';
+          const fallbackError = fallbackCode === 'ai_fallback:quality_gate_failed'
+            ? `AI quality gate failed${qualityReasons.length > 0 ? `: ${qualityReasons.join(', ')}` : ''}`
+            : 'AI enhancement fell back to offline output.';
+          setAiFallbackInfo({ stage: fallbackStage, error: fallbackError });
         }
 
         setProcessingStage(
@@ -339,6 +356,8 @@ export default function RefactoredPopup() {
         return 'Capture request queued';
       case 'preprocessing':
         return 'Cleaning and preparing content';
+      case 'offline-baseline':
+        return 'Preparing offline baseline';
       case 'ai-processing':
         return 'Sending AI request';
       case 'byok-processing':

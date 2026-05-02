@@ -20,6 +20,7 @@ export const UI_MESSAGES = {
   aiFallbackMissingKey: 'No OpenRouter key configured — used offline output.',
   aiFallbackProviderUnsupported: 'Unsupported AI provider — used offline output.',
   aiFallbackDailyLimitReached: 'Daily free AI limit reached — used offline output.',
+  aiFallbackQualityGateFailed: 'AI output failed fidelity checks — used offline output.',
   aiModeRequiresApiKey: 'AI mode requires an OpenRouter API key.',
   dailyLimitReachedInline: 'Daily free AI limit reached. Enter unlock code or go to checkout for unlimited use.',
 

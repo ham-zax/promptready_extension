@@ -52,6 +52,8 @@ function fallbackMessage(aiOutcome?: AIAttemptOutcome): string {
       return 'Daily AI limit reached. Offline capture still works.';
     case 'fallback_provider':
       return 'Selected AI provider is not supported. Offline capture still works.';
+    case 'fallback_quality_gate_failed':
+      return 'AI output failed fidelity checks. Offline capture still works.';
     case 'fallback_cancelled':
       return 'AI enhancement was cancelled. Offline capture still works.';
     case 'fallback_request_failed':
@@ -69,6 +71,8 @@ function fallbackActions(aiOutcome?: AIAttemptOutcome): PopupOutcomeAction[] {
     case 'fallback_provider':
     case 'fallback_request_failed':
       return ['change_model', 'view_details'];
+    case 'fallback_quality_gate_failed':
+      return ['view_details'];
     default:
       return ['view_details'];
   }

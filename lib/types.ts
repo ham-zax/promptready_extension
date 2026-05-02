@@ -211,6 +211,7 @@ export type AIAttemptOutcome =
   | 'fallback_missing_key'
   | 'fallback_missing_model'
   | 'fallback_request_failed'
+  | 'fallback_quality_gate_failed'
   | 'fallback_daily_limit_reached'
   | 'fallback_cancelled';
 
@@ -219,6 +220,7 @@ export type AIFallbackCode =
   | 'ai_fallback:missing_openrouter_key'
   | 'ai_fallback:missing_openrouter_model'
   | 'ai_fallback:request_failed'
+  | 'ai_fallback:quality_gate_failed'
   | 'ai_fallback:daily_limit_reached'
   | 'ai_fallback:cancelled';
 

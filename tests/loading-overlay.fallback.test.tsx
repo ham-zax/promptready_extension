@@ -29,6 +29,22 @@ describe('LoadingOverlay AI fallback UX', () => {
     expect(failedStage?.className).not.toContain('border-rose');
   });
 
+  it('includes offline baseline preparation as a first-class AI stage', () => {
+    render(
+      <LoadingOverlay
+        status="processing"
+        mode="ai"
+        stage="offline-baseline"
+        message="Preparing offline Markdown baseline..."
+        progress={20}
+      />
+    );
+
+    const baselineStage = screen.getByText('Preparing offline baseline').closest('li');
+    expect(baselineStage?.className).toContain('border-brand-primary');
+    expect(screen.getByText('Sending request to OpenRouter')).toBeInTheDocument();
+  });
+
   it('keeps no-output failures red', () => {
     render(
       <LoadingOverlay
