@@ -72,6 +72,7 @@ export function canonicalizeDeliveredMarkdown(
   result = stripLeadingCitationBlock(result);
   result = sanitizeRiskyMarkdown(result, warnings);
   result = stripResidualUiNoiseLines(result, warnings);
+  result = stripSkipLinkTitlePrelude(result, normalizedMetadata.title, warnings);
   result = normalizeMarkdownSpacing(result);
   result = normalizeTechnicalMarkdownBlocks(result, warnings);
   result = normalizeInlineCodeSpacing(result, warnings);
@@ -230,6 +231,67 @@ function stripResidualUiNoiseLines(markdown: string, warnings: string[]): string
     warnings.push('Removed residual UI-noise lines from markdown');
   }
   return filtered.join('\n');
+}
+
+function stripSkipLinkTitlePrelude(markdown: string, title: string, warnings: string[]): string {
+  if (!markdown) {
+    return markdown;
+  }
+
+  const normalizedTitle = normalizeHeadingForComparison(title);
+  const lines = markdown.split('\n');
+  const output: string[] = [];
+  let changed = false;
+  let dropImmediateSeparator = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (dropImmediateSeparator) {
+      if (!trimmed) {
+        changed = true;
+        continue;
+      }
+      if (trimmed.length >= 3 && [...trimmed].every((char) => char === '-')) {
+        changed = true;
+        dropImmediateSeparator = false;
+        continue;
+      }
+      dropImmediateSeparator = false;
+    }
+
+    const lower = trimmed.toLowerCase();
+    if (lower.startsWith('[skip to main content](')) {
+      const closeIndex = trimmed.indexOf(')');
+      const remainderText = closeIndex === -1 ? '' : trimmed.slice(closeIndex + 1).trim();
+      const remainder = normalizeHeadingForComparison(remainderText);
+      const previousHeading = [...output]
+        .reverse()
+        .map((candidate) => {
+          const previous = candidate.trim();
+          return previous.startsWith('# ') ? previous.slice(2) : '';
+        })
+        .find(Boolean) || '';
+      const normalizedPreviousHeading = normalizeHeadingForComparison(previousHeading);
+
+      if (
+        !remainder ||
+        areHeadingsEquivalent(normalizedTitle, remainder) ||
+        areHeadingsEquivalent(normalizedPreviousHeading, remainder)
+      ) {
+        changed = true;
+        dropImmediateSeparator = true;
+        continue;
+      }
+    }
+
+    output.push(line);
+  }
+
+  if (changed) {
+    warnings.push('Removed skip-link navigation prelude from markdown');
+  }
+  return output.join('\n');
 }
 
 function normalizeMarkdownSpacing(markdown: string): string {

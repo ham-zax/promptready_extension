@@ -2104,6 +2104,67 @@ export class OfflineModeManager {
     return sanitized;
   }
 
+  private static stripSkipLinkTitlePrelude(markdown: string, title: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const normalizedTitle = this.normalizeHeadingForComparison(title);
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let changed = false;
+    let dropImmediateSeparator = false;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (dropImmediateSeparator) {
+        if (!trimmed) {
+          changed = true;
+          continue;
+        }
+        if (trimmed.length >= 3 && [...trimmed].every((char) => char === '-')) {
+          changed = true;
+          dropImmediateSeparator = false;
+          continue;
+        }
+        dropImmediateSeparator = false;
+      }
+
+      const lower = trimmed.toLowerCase();
+      if (lower.startsWith('[skip to main content](')) {
+        const closeIndex = trimmed.indexOf(')');
+        const remainderText = closeIndex === -1 ? '' : trimmed.slice(closeIndex + 1).trim();
+        const remainder = this.normalizeHeadingForComparison(remainderText);
+        const previousHeading = [...output]
+          .reverse()
+          .map((candidate) => {
+            const previous = candidate.trim();
+            return previous.startsWith('# ') ? previous.slice(2) : '';
+          })
+          .find(Boolean) || '';
+        const normalizedPreviousHeading = this.normalizeHeadingForComparison(previousHeading);
+
+        if (
+          !remainder ||
+          this.areHeadingsEquivalent(normalizedTitle, remainder) ||
+          this.areHeadingsEquivalent(normalizedPreviousHeading, remainder)
+        ) {
+          changed = true;
+          dropImmediateSeparator = true;
+          continue;
+        }
+      }
+
+      output.push(line);
+    }
+
+    if (changed) {
+      warnings.push('Removed skip-link navigation prelude from markdown');
+    }
+    return output.join('\n');
+  }
+
   private static stripUiNoiseCodeBlocks(markdown: string, warnings: string[]): string {
     if (!markdown) {
       return markdown;
@@ -4075,6 +4136,7 @@ export class OfflineModeManager {
     result = this.stripLeadingCitationBlock(result);
     result = this.sanitizeRiskyMarkdown(result, warnings);
     result = this.stripResidualUiNoiseLines(result, warnings);
+    result = this.stripSkipLinkTitlePrelude(result, normalizedMetadata.title, warnings);
     result = this.stripUiNoiseCodeBlocks(result, warnings);
     result = this.stripLowSignalMediaArtifacts(result, warnings);
     result = this.stripLeadingNavigationPrelude(result, warnings);
@@ -4095,6 +4157,7 @@ export class OfflineModeManager {
     // was previously glued to malformed fence blocks is removed.
     result = this.stripUiNoiseCodeBlocks(result, warnings);
     result = this.stripResidualUiNoiseLines(result, warnings);
+    result = this.stripSkipLinkTitlePrelude(result, normalizedMetadata.title, warnings);
     result = this.stripTerminalFooterCluster(result, warnings);
     result = this.ensurePrimaryHeading(result, normalizedMetadata.title);
 

@@ -48,8 +48,8 @@ afterEach(() => {
   cleanup();
 });
 
-describe('ProcessingProfiles deep capture toggle', () => {
-  it('shows simple strategy and format controls with advanced settings collapsed', () => {
+describe('ProcessingProfiles compact settings', () => {
+  it('shows simple strategy and format controls with capture policy handled outside settings', () => {
     const onSettingsChange = vi.fn();
     render(<ProcessingProfiles settings={makeSettings()} onSettingsChange={onSettingsChange} />);
 
@@ -57,12 +57,12 @@ describe('ProcessingProfiles deep capture toggle', () => {
     expect(screen.getByLabelText(/output format/i)).toHaveValue('clean-markdown');
     expect(screen.queryByRole('button', { name: /technical docs/i })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('checkbox', { name: /enable deep capture \(full-page only\)/i }),
+      screen.queryByRole('checkbox', { name: /deep capture/i }),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /advanced capture/i }));
+    fireEvent.click(screen.getByRole('button', { name: /more options/i }));
     expect(
-      screen.getByRole('checkbox', { name: /enable deep capture \(full-page only\)/i }),
+      screen.getByRole('checkbox', { name: /preserve code blocks/i }),
     ).toBeInTheDocument();
   });
 
@@ -116,29 +116,6 @@ describe('ProcessingProfiles deep capture toggle', () => {
           outputFormat: 'obsidian',
           readabilityPreset: 'standard',
           turndownPreset: 'obsidian',
-        }),
-      }),
-    );
-  });
-
-  it('updates capture policy when deep capture is toggled', () => {
-    const onSettingsChange = vi.fn();
-    render(<ProcessingProfiles settings={makeSettings()} onSettingsChange={onSettingsChange} />);
-
-    fireEvent.click(screen.getByRole('button', { name: /advanced capture/i }));
-
-    const checkbox = screen.getAllByRole('checkbox', {
-      name: /enable deep capture \(full-page only\)/i,
-    })[0] as HTMLInputElement;
-    expect(checkbox.checked).toBe(false);
-
-    fireEvent.click(checkbox);
-    expect(onSettingsChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        processing: expect.objectContaining({
-          capturePolicy: expect.objectContaining({
-            deepCaptureEnabled: true,
-          }),
         }),
       }),
     );

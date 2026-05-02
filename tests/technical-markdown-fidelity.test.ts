@@ -369,7 +369,7 @@ describe('technical markdown fidelity', () => {
     expect(warnings).not.toContain('Auto-closed malformed JSON config block');
   });
 
-  it('normalizes unquoted collapsed satori JSON object keys', () => {
+  it('normalizes unquoted collapsed JSON object keys', () => {
     const warnings: string[] = [];
     const markdown = [
       'MCP Config[mcp_servers.satori]',
@@ -383,5 +383,164 @@ describe('technical markdown fidelity', () => {
 
     expect(canonical).toContain('```json\n{\n  "satori": {');
     expect(canonical).not.toContain('"satori: {');
+  });
+
+  it('drops stray prose fences after JSON config while preserving later command snippets', () => {
+    const warnings: string[] = [];
+    const markdown = [
+      '#### MCP Config',
+      '',
+      '```json',
+      '"satori": {',
+      '  "command": "npx",',
+      '  "args": ["-y", "@zokizuan/satori-mcp@4.9.1"],',
+      '  "timeout": 180000,',
+      '  "env": {',
+      '"MILVUS_TOKEN": "your-milvus-token"',
+      '  }',
+      '}',
+      '```',
+      '',
+      '```',
+      '`MILVUS_TOKEN`is only needed for authenticated Milvus or Zilliz endpoints; local unauthenticated Milvus only needs`MILVUS_ADDRESS`.',
+      '',
+      '### For People Who Want the Details',
+      '',
+      '#### Scope filtering`scope=runtime`excludes docs/tests,`docs`targets documentation, and`mixed`includes everything.',
+      '',
+      '```text',
+      'Deterministic tie-break chain:',
+      'score desc -> file asc -> start_line asc -> symbol label asc -> symbol id asc',
+      '```',
+      '',
+      '### Failure States Are Explicit',
+      '',
+      'Any`requires_reindex`response includes`hints.reindex`with the exact path to repair before retrying the original call.',
+      '',
+      '```text',
+      'manage_index({ action: "reindex", path: <hints.reindex.args.path> })',
+      '// then retry the original tool call',
+      '```',
+    ].join('\n');
+
+    const canonical = canonicalizeDeliveredMarkdown(markdown, metadata, warnings);
+
+    expect(canonical).toContain('```json\n{\n  "satori": {');
+    expect(canonical).toContain('}\n}\n```\n\n`MILVUS_TOKEN` is only needed');
+    expect(canonical).toContain('only needs `MILVUS_ADDRESS`.');
+    expect(canonical).toContain('### For People Who Want the Details');
+    expect(canonical).toContain('#### Scope filtering `scope=runtime` excludes docs/tests, `docs` targets documentation, and `mixed` includes everything.');
+    expect(canonical).toContain('```text\nDeterministic tie-break chain:\nscore desc -> file asc -> start_line asc -> symbol label asc -> symbol id asc\n```');
+    expect(canonical).toContain('### Failure States Are Explicit');
+    expect(canonical).toContain('```text\nmanage_index({ action: "reindex", path: <hints.reindex.args.path> })\n// then retry the original tool call\n```');
+    expect(canonical).not.toContain('```\n`MILVUS_TOKEN`');
+    expect(canonical).not.toContain('```text\n### Failure States');
+    expect((canonical.match(/```/g) || []).length % 2).toBe(0);
+  });
+
+  it('repairs bare JSON config fences with nested env-key fences', () => {
+    const warnings: string[] = [];
+    const markdown = [
+      '#### MCP Config',
+      '',
+      '```',
+      '"satori": {',
+      ' "command": "npx",',
+      ' "args": ["-y", "@zokizuan/satori-mcp@4.9.1"],',
+      ' "timeout": 180000,',
+      ' "env": {',
+      '',
+      '```',
+      '"EMBEDDING_PROVIDER": "VoyageAI",',
+      '```',
+      '',
+      '```',
+      '"MILVUS_TOKEN": "your-milvus-token"',
+      '```',
+      '',
+      ' }',
+      '}',
+      '```',
+      '',
+      '`MILVUS_TOKEN`is only needed for authenticated Milvus or Zilliz endpoints.',
+    ].join('\n');
+
+    const canonical = canonicalizeDeliveredMarkdown(markdown, metadata, warnings);
+
+    expect(canonical).toContain('```json\n{\n  "satori": {');
+    expect(canonical).toContain('  "EMBEDDING_PROVIDER": "VoyageAI",\n  "MILVUS_TOKEN": "your-milvus-token"');
+    expect(canonical).toContain('}\n}\n```\n\n`MILVUS_TOKEN` is only needed');
+    expect(canonical).not.toContain('```\n"EMBEDDING_PROVIDER"');
+    expect(canonical).not.toContain('```\n"MILVUS_TOKEN"');
+    expect((canonical.match(/```/g) || []).length % 2).toBe(0);
+  });
+
+  it('repairs generic JSON object fragments without relying on a specific config key', () => {
+    const warnings: string[] = [];
+    const markdown = [
+      '#### Worker Config',
+      '',
+      '```json',
+      '"worker": {',
+      '  "command": "node",',
+      '  "args": ["worker.js"]',
+      '}',
+      '```',
+      '',
+      '```',
+      '"server": {',
+      ' "command": "npx",',
+      ' "env": {',
+      '```',
+      '"API_TOKEN": "token"',
+      '```',
+      ' }',
+      '}',
+      '```',
+    ].join('\n');
+
+    const canonical = canonicalizeDeliveredMarkdown(markdown, metadata, warnings);
+
+    expect(canonical).toContain('```json\n{\n  "worker": {');
+    expect(canonical).toContain('"args": ["worker.js"]\n}\n}\n```');
+    expect(canonical).toContain('```json\n{\n  "server": {');
+    expect(canonical).toContain('  "API_TOKEN": "token"');
+    expect(canonical).not.toContain('```json\n"worker": {');
+    expect(canonical).not.toContain('```\n"server": {');
+    expect(warnings.join('\n')).not.toMatch(/Satori/i);
+    expect((canonical.match(/```/g) || []).length % 2).toBe(0);
+  });
+
+  it('removes Reddit skip-link title prelude after the canonical heading', () => {
+    const warnings: string[] = [];
+    const redditMetadata: ExportMetadata = {
+      title: "I gave Claude Code a $0.02/call coworker and stopped hitting Pro limits — here's the full setup : r/ClaudeAI",
+      url: 'https://www.reddit.com/r/ClaudeAI/comments/1t1o43w/i_gave_claude_code_a_002call_coworker_and_stopped/',
+      capturedAt: '2026-05-02T21:59:04.210Z',
+      publishedAt: '2026-05-02T19:51:13.374Z',
+      selectionHash: 'reddit-hash',
+    };
+    const markdown = [
+      '# I gave Claude Code a $0.02/call coworker and stopped hitting Pro limits — here\'s the full setup : r/ClaudeAI',
+      '',
+      '[Skip to main content](https://www.reddit.com/r/ClaudeAI/comments/1t1o43w/i_gave_claude_code_a_002call_coworker_and_stopped/#main-content) I gave Claude Code a $0.02/call coworker and stopped hitting Pro limits — here\'s the full setup : r/ClaudeAI',
+      '',
+      '---',
+      '',
+      '## Post Content',
+      '',
+      'Was hitting my weekly Pro limit by Wednesday every single week.',
+    ].join('\n');
+
+    const canonical = canonicalizeDeliveredMarkdown(markdown, redditMetadata, warnings);
+    const offlineCanonical = OfflineModeManager.canonicalizeDeliveredMarkdown(markdown, redditMetadata, []);
+
+    expect(canonical).toContain('## Post Content');
+    expect(canonical).toContain('Was hitting my weekly Pro limit');
+    expect(canonical).not.toContain('[Skip to main content]');
+    expect(canonical).not.toMatch(/main-content\) I gave Claude Code/);
+    expect(offlineCanonical).toContain('## Post Content');
+    expect(offlineCanonical).not.toContain('[Skip to main content]');
+    expect(offlineCanonical).not.toMatch(/main-content\) I gave Claude Code/);
   });
 });

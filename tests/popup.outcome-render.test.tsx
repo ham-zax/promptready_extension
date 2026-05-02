@@ -95,6 +95,29 @@ const settings = {
     customPrompt: '',
   },
   privacy: { telemetryEnabled: false },
+  processing: {
+    profile: 'standard',
+    contentStrategy: 'auto',
+    outputFormat: 'clean-markdown',
+    readabilityPreset: 'standard',
+    turndownPreset: 'standard',
+    capturePolicy: {
+      settleTimeoutMs: 600,
+      quietWindowMs: 150,
+      deepCaptureEnabled: false,
+      maxScrollSteps: 5,
+      maxScrollDurationMs: 3000,
+      scrollStepDelayMs: 180,
+      minTextGainRatio: 0.2,
+      minHeadingGain: 2,
+    },
+    customOptions: {
+      preserveCodeBlocks: true,
+      includeImages: true,
+      preserveTables: true,
+      preserveLinks: true,
+    },
+  },
   ui: {
     theme: 'auto' as const,
     animations: false,
@@ -113,6 +136,7 @@ const settings = {
 function renderPopupWithExport(aiOutcome = 'fallback_missing_key') {
   const handleCopy = vi.fn();
   const handleExport = vi.fn();
+  const onSettingsChange = vi.fn();
 
   mocks.usePopupController.mockReturnValue({
     state: {
@@ -141,12 +165,12 @@ function renderPopupWithExport(aiOutcome = 'fallback_missing_key') {
     handleCapture: vi.fn(),
     handleCopy,
     handleExport,
-    onSettingsChange: vi.fn(),
+    onSettingsChange,
   });
 
   render(<Popup />);
 
-  return { handleCopy, handleExport };
+  return { handleCopy, handleExport, onSettingsChange };
 }
 
 async function showProviderFallbackDetails(error = 'OpenRouter provider returned 429 rate limited') {
@@ -194,6 +218,25 @@ describe('Popup outcome rendering', () => {
     expect(handleExport).toHaveBeenCalledWith('md');
   });
 
+  it('shows deep capture on the main capture surface and updates capture policy', () => {
+    const { onSettingsChange } = renderPopupWithExport('fallback_missing_key');
+
+    const checkbox = screen.getByRole('checkbox', { name: /deep capture/i }) as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+
+    fireEvent.click(checkbox);
+
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        processing: expect.objectContaining({
+          capturePolicy: expect.objectContaining({
+            deepCaptureEnabled: true,
+          }),
+        }),
+      }),
+    );
+  });
+
   it('keeps developer payloads collapsed until details are opened', () => {
     renderPopupWithExport('fallback_request_failed');
 
@@ -215,6 +258,28 @@ describe('Popup outcome rendering', () => {
     expect(screen.getByRole('button', { name: /change model/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /copy json/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /raw md/i })).not.toBeInTheDocument();
+  });
+
+  it('does not describe quality-gate fallback output as failed finalization', async () => {
+    renderPopupWithExport('fallback_quality_gate_failed');
+
+    const popupListener = mocks.runtimeAddListener.mock.calls[0]?.[0];
+    expect(popupListener).toBeTypeOf('function');
+
+    await act(async () => {
+      popupListener({
+        type: 'PROCESSING_COMPLETE',
+        payload: {
+          aiOutcome: 'fallback_quality_gate_failed',
+          fallbackCode: 'ai_fallback:quality_gate_failed',
+          warnings: ['ai_quality_gate:heading_order_loss'],
+        },
+      });
+    });
+
+    expect(screen.getAllByText('Offline output ready').length).toBeGreaterThan(0);
+    expect(screen.getByText(/AI quality gate failed: heading_order_loss/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Failed at Checking and finalizing Markdown/i)).not.toBeInTheDocument();
   });
 
   it('keeps expanded exports separate from outcome details', async () => {

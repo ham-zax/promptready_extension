@@ -22,6 +22,8 @@ import {
 } from '../lib/openrouter-models.js';
 import { normalizeInlineCodeSpacing } from '../lib/markdown-inline-code-normalizer.js';
 
+const OFFSCREEN_TARGET = 'promptready-offscreen';
+
 export default defineBackground(() => {
   const runtimeProfile = getRuntimeProfile();
   const runtimeValidation = validateRuntimeProfile(runtimeProfile);
@@ -46,6 +48,10 @@ export default defineBackground(() => {
 
   // Handle messages from content script and popup
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.target === OFFSCREEN_TARGET) {
+      return false;
+    }
+
     console.log('Background script received message:', message);
     return processor.handleMessage(message, sender, sendResponse);
   });
@@ -83,6 +89,8 @@ function isExportData(value: unknown): value is ExportData {
 type OffscreenProcessResponse =
   | { success: true; data: any }
   | { success: false; error?: string };
+
+const OFFSCREEN_PROCESS_RESPONSE_PREFIX = 'offscreen_process_response_';
 
 function isOffscreenProcessResponse(value: unknown): value is OffscreenProcessResponse {
   if (!value || typeof value !== 'object') return false;
@@ -1041,6 +1049,12 @@ export class EnhancedContentProcessor {
         response = await this.sendOffscreenProcessMessage(offscreenProcessMessage);
       }
 
+      if (!isOffscreenProcessResponse(response)) {
+        response = await this.consumeStoredOffscreenProcessResponse(runId);
+      } else {
+        await this.clearStoredOffscreenProcessResponse(runId);
+      }
+
       // Handle the direct response
       if (!isOffscreenProcessResponse(response)) {
         throw new Error('Offscreen processor did not return a valid response');
@@ -1344,9 +1358,8 @@ export class EnhancedContentProcessor {
       console.warn('[Background] Failed to release inflight slot on PROCESSING_ERROR:', settleError);
     });
 
-    console.error(`Processing error in ${stage}:`, error);
-
     if (fallbackUsed) {
+      console.warn(`Processing fallback in ${stage}:`, error);
       console.log('Fallback was used, processing may continue');
       // Broadcast a non-fatal fallback notice so the popup can show which AI step failed.
       await this.broadcastMessage({
@@ -1363,6 +1376,7 @@ export class EnhancedContentProcessor {
       return;
     }
 
+    console.error(`Processing error in ${stage}:`, error);
     this.broadcastError(`Processing failed in ${stage}: ${error}`).catch(console.error);
   }
 
@@ -1640,7 +1654,10 @@ export class EnhancedContentProcessor {
     message: Record<string, unknown>,
   ): Promise<unknown> {
     try {
-      return await browser.runtime.sendMessage(message);
+      return await browser.runtime.sendMessage({
+        target: OFFSCREEN_TARGET,
+        ...message,
+      });
     } catch (error) {
       console.warn('[Background] sendMessage to offscreen processor rejected:', error);
       return undefined;
@@ -1649,6 +1666,50 @@ export class EnhancedContentProcessor {
 
   private async waitForOffscreenRetryDelay(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  private offscreenProcessResponseKey(runId: string | undefined): string | null {
+    return runId ? `${OFFSCREEN_PROCESS_RESPONSE_PREFIX}${runId}` : null;
+  }
+
+  private async consumeStoredOffscreenProcessResponse(runId: string | undefined): Promise<OffscreenProcessResponse | undefined> {
+    const key = this.offscreenProcessResponseKey(runId);
+    if (!key) {
+      return undefined;
+    }
+
+    try {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const stored = await browser.storage.session.get(key);
+        const response = stored?.[key];
+        if (isOffscreenProcessResponse(response)) {
+          await browser.storage.session.remove(key);
+          return response;
+        }
+
+        if (attempt < 9) {
+          await this.waitForOffscreenRetryDelay();
+        }
+      }
+
+      return undefined;
+    } catch (error) {
+      console.warn('[Background] Failed to consume stored offscreen processing response:', error);
+      return undefined;
+    }
+  }
+
+  private async clearStoredOffscreenProcessResponse(runId: string | undefined): Promise<void> {
+    const key = this.offscreenProcessResponseKey(runId);
+    if (!key) {
+      return;
+    }
+
+    try {
+      await browser.storage.session.remove(key);
+    } catch (error) {
+      console.warn('[Background] Failed to clear stored offscreen processing response:', error);
+    }
   }
 
   /**

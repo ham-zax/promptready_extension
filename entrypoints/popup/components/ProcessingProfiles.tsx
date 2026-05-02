@@ -75,7 +75,7 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
           className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
         >
           <SlidersHorizontal className="h-3.5 w-3.5" />
-          {showAdvanced ? 'Hide advanced capture' : 'Advanced capture'}
+          {showAdvanced ? 'Hide options' : 'More options'}
         </button>
       </div>
 
@@ -129,31 +129,7 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
         <div className="border-t border-border pt-3 space-y-3">
           <div className="flex items-center space-x-2">
             <SettingsIcon className="w-4 h-4 text-muted-foreground" />
-            <h5 className="font-medium text-sm text-foreground">Advanced capture</h5>
-          </div>
-
-          <div className="bg-muted border border-border rounded-lg p-3">
-            <label className="flex items-start space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.processing?.capturePolicy?.deepCaptureEnabled ?? false}
-                onChange={(e) => {
-                  updateProcessing({
-                    capturePolicy: {
-                      ...settings.processing?.capturePolicy,
-                      deepCaptureEnabled: e.target.checked,
-                    } as NonNullable<Settings['processing']>['capturePolicy'],
-                  });
-                }}
-                className="w-4 h-4 rounded border-border text-brand-primary focus:ring-brand-primary mt-0.5"
-              />
-              <div className="min-w-0">
-                <span className="text-sm text-foreground font-medium">Enable deep capture (full-page only)</span>
-                <p className="text-xs text-muted-foreground mt-1 leading-snug">
-                  Performs bounded scroll-and-settle before snapshot selection. Selection captures remain exact and fast.
-                </p>
-              </div>
-            </label>
+            <h5 className="font-medium text-sm text-foreground">More options</h5>
           </div>
 
           <div className="bg-muted border border-border rounded-lg p-3">

@@ -16,8 +16,12 @@ import { normalizeByokProvider } from '../../lib/byok-provider.js';
 import { buildCanonicalMetadata, canonicalizeDeliveredMarkdown } from '../../lib/markdown-canonicalizer.js';
 import { buildByokPrompt } from '../../core/prompts/byok-prompt.js';
 
+const OFFSCREEN_TARGET = 'promptready-offscreen';
+const OFFSCREEN_PROCESS_RESPONSE_PREFIX = 'offscreen_process_response_';
+
 interface ProcessingMessage {
   type: 'ENHANCED_OFFSCREEN_PROCESS';
+  target?: typeof OFFSCREEN_TARGET;
   payload: {
     html: string;
     url: string;
@@ -315,13 +319,21 @@ export class EnhancedOffscreenProcessor {
 
   private setupMessageListener(): void {
     browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.target && message.target !== OFFSCREEN_TARGET) {
+        return false;
+      }
+
       if (message.type === 'ENHANCED_OFFSCREEN_PROCESS') {
         this.handleProcessingRequest(message as ProcessingMessage)
           .then(result => sendResponse({ success: true, data: result }))
-          .catch(error => sendResponse({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-          }));
+          .catch(async error => {
+            const response = {
+              success: false as const,
+              error: error instanceof Error ? error.message : 'Unknown error',
+            };
+            await this.storeProcessResponse((message as ProcessingMessage).payload?.runId, response);
+            sendResponse(response);
+          });
         return true; // Keep message channel open for async response
       }
 
@@ -480,6 +492,7 @@ export class EnhancedOffscreenProcessor {
       }
 
       processingResult.runId = runId;
+      await this.storeProcessResponse(runId, { success: true, data: processingResult });
       return processingResult;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown processing error';
@@ -929,6 +942,23 @@ export class EnhancedOffscreenProcessor {
     }).catch((err) => {
       console.warn('[EnhancedOffscreenProcessor] Failed to send complete event:', err);
     });
+  }
+
+  private async storeProcessResponse(
+    runId: string | undefined,
+    response: { success: true; data: ProcessingCompleteMessage['payload'] } | { success: false; error?: string }
+  ): Promise<void> {
+    if (!runId) {
+      return;
+    }
+
+    try {
+      await browser.storage.session.set({
+        [`${OFFSCREEN_PROCESS_RESPONSE_PREFIX}${runId}`]: response,
+      });
+    } catch (error) {
+      console.warn('[EnhancedOffscreenProcessor] Failed to store processing response handoff:', error);
+    }
   }
 
   private sendError(error: string, stage: string, fallbackUsed = false, runId?: string): void {

@@ -303,6 +303,21 @@ export default function RefactoredPopup() {
   }, []);
 
   const processingActive = isProcessing || controllerIsProcessing;
+  const deepCaptureEnabled = state.settings?.processing?.capturePolicy?.deepCaptureEnabled ?? false;
+
+  const handleDeepCaptureChange = (enabled: boolean) => {
+    const currentProcessing: Partial<NonNullable<Settings['processing']>> = state.settings?.processing || {};
+
+    onSettingsChange({
+      processing: {
+        ...currentProcessing,
+        capturePolicy: {
+          ...currentProcessing.capturePolicy,
+          deepCaptureEnabled: enabled,
+        },
+      } as NonNullable<Settings['processing']>,
+    });
+  };
 
   const handleCaptureWithUiLock = async () => {
     setIsProcessing(true);
@@ -349,27 +364,6 @@ export default function RefactoredPopup() {
         : state.hasApiKey
           ? `${Math.max(0, state.remainingFreeByokStartsToday)} free AI starts left today`
           : 'Add BYOK API key to use AI mode';
-
-  const formatPipelineStage = (stage: string): string => {
-    switch (stage) {
-      case 'initialization':
-        return 'Capture request queued';
-      case 'preprocessing':
-        return 'Extracting page content';
-      case 'offline-baseline':
-        return 'Preparing reliable Markdown baseline';
-      case 'ai-processing':
-        return 'Sending request to OpenRouter';
-      case 'byok-processing':
-        return 'Waiting for OpenRouter response';
-      case 'postprocessing':
-        return 'Checking and finalizing Markdown';
-      case 'fallback':
-        return 'Continuing with offline capture';
-      default:
-        return stage;
-    }
-  };
 
   const truncateMessage = (value: string, max = 140): string => {
     if (!value) return '';
@@ -601,6 +595,24 @@ export default function RefactoredPopup() {
             >
               Capture Content
             </PrimaryButton>
+
+            {state.settings && (
+              <label className="mt-3 flex items-start gap-3 rounded-lg border border-border bg-background px-3 py-2.5 cursor-pointer transition-colors hover:bg-muted/60">
+                <input
+                  type="checkbox"
+                  checked={deepCaptureEnabled}
+                  onChange={(event) => handleDeepCaptureChange(event.target.checked)}
+                  disabled={processingActive}
+                  className="mt-0.5 h-4 w-4 rounded border-border text-brand-primary focus:ring-brand-primary"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-foreground">Deep capture</span>
+                  <span className="block text-xs leading-snug text-muted-foreground">
+                    Scroll and settle long or lazy-loaded pages before capture.
+                  </span>
+                </span>
+              </label>
+            )}
 
             {!hasContent && !processingActive && (
               <p className="mt-2 px-1 text-xs text-muted-foreground leading-snug">
@@ -894,7 +906,7 @@ export default function RefactoredPopup() {
 
         const detail =
           toastOutcome?.tone === 'degraded' && aiFallbackInfo
-            ? `Failed at ${formatPipelineStage(aiFallbackInfo.stage)}`
+            ? aiFallbackInfo.error
             : undefined;
 
         return (

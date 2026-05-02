@@ -5,6 +5,13 @@ const browserMock = vi.hoisted(() => ({
   runtime: {
     sendMessage: vi.fn(),
   },
+  storage: {
+    session: {
+      get: vi.fn(),
+      set: vi.fn(),
+      remove: vi.fn(),
+    },
+  },
 }));
 
 vi.mock('wxt/browser', () => ({
@@ -71,6 +78,9 @@ describe('background offscreen processing response handling', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.stubGlobal('defineBackground', (setup: unknown) => setup);
+    browserMock.storage.session.get.mockResolvedValue({});
+    browserMock.storage.session.set.mockResolvedValue(undefined);
+    browserMock.storage.session.remove.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -99,6 +109,13 @@ describe('background offscreen processing response handling', () => {
     await runCapture(processor);
 
     expect(browserMock.runtime.sendMessage).toHaveBeenCalledTimes(2);
+    expect(browserMock.runtime.sendMessage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        type: 'ENHANCED_OFFSCREEN_PROCESS',
+        target: 'promptready-offscreen',
+      }),
+    );
     expect(processor.ensureOffscreenDocument).toHaveBeenCalledTimes(2);
     expect(processor.handleProcessingComplete).toHaveBeenCalledWith({ payload: processingPayload });
     expect(processor.broadcastError).not.toHaveBeenCalled();
@@ -145,5 +162,70 @@ describe('background offscreen processing response handling', () => {
     expect(processor.broadcastError).not.toHaveBeenCalledWith(
       expect.stringContaining("Cannot read properties of undefined"),
     );
+  });
+
+  it('recovers a completed offscreen result from session storage when direct responses are missing', async () => {
+    const processor = await createProcessor();
+    const processingPayload = {
+      exportMd: 'Offline fallback markdown',
+      exportJson: { content: { markdown: 'Offline fallback markdown' }, metadata: {} },
+      metadata: {},
+      stats: {},
+      warnings: ['ai_fallback:request_failed'],
+      originalHtml: '<main>Captured</main>',
+      aiAttempted: true,
+      aiProvider: 'openrouter',
+      aiOutcome: 'fallback_request_failed',
+      fallbackCode: 'ai_fallback:request_failed',
+      runId: 'run_test',
+    };
+
+    browserMock.runtime.sendMessage.mockResolvedValue(undefined);
+    browserMock.storage.session.get.mockResolvedValue({
+      offscreen_process_response_run_test: { success: true, data: processingPayload },
+    });
+
+    await runCapture(processor);
+
+    expect(browserMock.runtime.sendMessage).toHaveBeenCalledTimes(2);
+    expect(processor.handleProcessingComplete).toHaveBeenCalledWith({ payload: processingPayload });
+    expect(processor.broadcastError).not.toHaveBeenCalled();
+    expect(browserMock.storage.session.remove).toHaveBeenCalledWith('offscreen_process_response_run_test');
+  });
+
+  it('treats fallback processing errors as degraded notices rather than extension errors', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const processor = await createProcessor();
+    processor.broadcastMessage = vi.fn().mockResolvedValue(undefined);
+
+    await processor.handleProcessingError({
+      type: 'PROCESSING_ERROR',
+      payload: {
+        error: 'BYOK returned empty content for model=openrouter/free',
+        stage: 'ai-processing',
+        fallbackUsed: true,
+        runId: 'run_test',
+      },
+    });
+
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      'Processing error in ai-processing:',
+      'BYOK returned empty content for model=openrouter/free',
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Processing fallback in ai-processing:',
+      'BYOK returned empty content for model=openrouter/free',
+    );
+    expect(processor.broadcastMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'PROCESSING_FALLBACK',
+        payload: expect.objectContaining({
+          fallbackUsed: true,
+          stage: 'ai-processing',
+        }),
+      }),
+    );
+    expect(processor.broadcastError).not.toHaveBeenCalled();
   });
 });

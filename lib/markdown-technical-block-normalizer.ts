@@ -34,7 +34,7 @@ function normalizeJsonConfigLine(line: string): string {
   if (trimmed === '{' || trimmed === '}') {
     return trimmed;
   }
-  return `  ${trimmed}`;
+  return `  ${trimmed.replace(/^([A-Za-z_$][\w$.-]*)\s*:/, '"$1":')}`;
 }
 
 function pushWarningOnce(warnings: string[], warning: string): void {
@@ -84,6 +84,8 @@ const KNOWN_FENCE_LANGUAGES = new Set([
   'yml',
   'zsh',
 ]);
+
+const JSON_OBJECT_FRAGMENT_OPEN_RE = /^"?[A-Za-z_$][\w$.-]*"?\s*:\s*[{[]/;
 
 function isFenceLanguageChar(char: string): boolean {
   const code = char.charCodeAt(0);
@@ -268,14 +270,27 @@ function looksLikeShellFenceProse(line: string): boolean {
   );
 }
 
+function looksLikeMarkdownProseLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  return (
+    /^#{1,6}\s+\S/.test(trimmed) ||
+    /^`[^`\n]+`\s*[A-Za-z]/.test(trimmed) ||
+    /^\*\*[^*\n]+:\*\*/.test(trimmed) ||
+    /^[A-Z][A-Za-z0-9 ,.'’:/()!-]{12,}[.:]?$/.test(trimmed)
+  );
+}
+
 function isShellFence(language: string): boolean {
   return language === 'bash' || language === 'sh' || language === 'shell' || language === 'zsh';
 }
 
-// Targeted repair for Satori/MCP install snippets that extraction can collapse
-// into one TOML/JSON run. Keep this scoped rather than treating all config text
-// as a generic machine-repair surface.
-function repairCollapsedSatoriMcpConfig(markdown: string, warnings: string[]): string {
+// Targeted repair for MCP/install snippets that extraction can collapse into
+// one TOML/JSON run. Keep this bounded to config-looking sections.
+function repairCollapsedMcpConfig(markdown: string, warnings: string[]): string {
   const lines = markdown.split('\n');
   const output: string[] = [];
   let changed = false;
@@ -319,7 +334,7 @@ function repairCollapsedSatoriMcpConfig(markdown: string, warnings: string[]): s
     let line = rawLine;
 
     if (!inToml && !inJson) {
-      const collapsedMcpConfig = line.match(/^(.*?\bMCP Config)\s*(\[mcp_servers\.satori\].*)$/);
+      const collapsedMcpConfig = line.match(/^(.*?\bMCP Config)\s*(\[mcp_servers\.[^\]]+\].*)$/);
       if (collapsedMcpConfig) {
         const heading = collapsedMcpConfig[1].trim();
         const tomlStart = collapsedMcpConfig[2].trim();
@@ -337,17 +352,14 @@ function repairCollapsedSatoriMcpConfig(markdown: string, warnings: string[]): s
     }
 
     if (inToml) {
-      const jsonStartIndex = line.search(/"?satori"?\s*:/i);
+      const jsonStartIndex = line.search(/"?[A-Za-z_$][\w$.-]*"?\s*:\s*[{[]/);
       if (jsonStartIndex !== -1) {
         const beforeJson = line.slice(0, jsonStartIndex).trimEnd();
         const jsonObjectLine = line.slice(jsonStartIndex).trim();
         if (beforeJson) {
           output.push(beforeJson);
         }
-        const normalizedJsonObjectLine = jsonObjectLine.startsWith('"')
-          ? jsonObjectLine
-          : jsonObjectLine.replace(/^satori\s*:/i, '"satori":');
-        openJsonWithObjectLine(normalizedJsonObjectLine);
+        openJsonWithObjectLine(jsonObjectLine);
         changed = true;
         continue;
       }
@@ -400,6 +412,8 @@ function repairFenceBoundaries(markdown: string, warnings: string[]): string {
   let inFence = false;
   let fenceLanguage = '';
   let jsonBraceBalance = 0;
+  let jsonSeenContent = false;
+  let jsonWrappedObjectFragment = false;
   let skipStandaloneJsonClosers = 0;
   let skipStrayJsonFenceCloser = false;
   let skipBlankAfterNestedFence = false;
@@ -463,8 +477,22 @@ function repairFenceBoundaries(markdown: string, warnings: string[]): string {
 
       const closeIndex = line.indexOf('```');
       if (closeIndex === -1) {
-        output.push(line);
+        let outputLine = line;
+        if (fenceLanguage === 'json' && !jsonSeenContent && !jsonWrappedObjectFragment && JSON_OBJECT_FRAGMENT_OPEN_RE.test(trimmed)) {
+          output.push('{');
+          jsonBraceBalance = 1;
+          jsonWrappedObjectFragment = true;
+          outputLine = normalizeJsonConfigLine(line);
+          pushWarningOnce(warnings, 'Wrapped JSON config fragment');
+          changed = true;
+        } else if (fenceLanguage === 'json' && jsonWrappedObjectFragment) {
+          outputLine = normalizeJsonConfigLine(line);
+        }
+        output.push(outputLine);
         if (fenceLanguage === 'json') {
+          if (trimmed) {
+            jsonSeenContent = true;
+          }
           jsonBraceBalance += countJsonBraceDelta(line);
         }
         continue;
@@ -473,6 +501,11 @@ function repairFenceBoundaries(markdown: string, warnings: string[]): string {
       const before = line.slice(0, closeIndex);
       const after = line.slice(closeIndex + 3);
       const nextLine = nextNonEmptyLine(queue, index + 1);
+      if (trimmed === '```' && fenceLanguage === 'json' && jsonWrappedObjectFragment && jsonBraceBalance === 1) {
+        output.push('}');
+        jsonBraceBalance = 0;
+        changed = true;
+      }
       if (trimmed === '```' && fenceLanguage === 'json' && jsonBraceBalance > 0) {
         if (output[output.length - 1] === '') {
           output.pop();
@@ -500,6 +533,8 @@ function repairFenceBoundaries(markdown: string, warnings: string[]): string {
       inFence = false;
       fenceLanguage = '';
       jsonBraceBalance = 0;
+      jsonSeenContent = false;
+      jsonWrappedObjectFragment = false;
       changed = true;
 
       if (after.trim()) {
@@ -531,12 +566,32 @@ function repairFenceBoundaries(markdown: string, warnings: string[]): string {
       const language = languageIndex === -1 ? '' : (queue[languageIndex]?.trim().toLowerCase() || '');
       const contentIndex = languageIndex === -1 ? -1 : nextNonEmptyLineIndex(queue, languageIndex + 1);
       const nextContent = contentIndex === -1 ? null : (queue[contentIndex]?.trim() || null);
+      if (JSON_OBJECT_FRAGMENT_OPEN_RE.test(language)) {
+        output.push('```json');
+        output.push('{');
+        inFence = true;
+        fenceLanguage = 'json';
+        jsonBraceBalance = 1;
+        jsonSeenContent = false;
+        jsonWrappedObjectFragment = true;
+        index = languageIndex - 1;
+        pushWarningOnce(warnings, 'Wrapped JSON config fragment');
+        changed = true;
+        continue;
+      }
       if (looksLikeConfigLanguageLine(language, nextContent)) {
         output.push(`\`\`\`${language}`);
         inFence = true;
         fenceLanguage = language;
         jsonBraceBalance = 0;
+        jsonSeenContent = false;
+        jsonWrappedObjectFragment = false;
         index = languageIndex;
+        changed = true;
+        continue;
+      }
+      if (nextContent && looksLikeMarkdownProseLine(nextContent)) {
+        pushWarningOnce(warnings, 'Dropped stray prose code fence');
         changed = true;
         continue;
       }
@@ -574,6 +629,8 @@ function repairFenceBoundaries(markdown: string, warnings: string[]): string {
     inFence = true;
     fenceLanguage = language.toLowerCase();
     jsonBraceBalance = 0;
+    jsonSeenContent = false;
+    jsonWrappedObjectFragment = false;
 
     if (remainder.trim()) {
       queue.splice(index + 1, 0, remainder.trimStart());
@@ -604,7 +661,7 @@ export function normalizeTechnicalMarkdownBlocks(markdown: string, warnings: str
   }
 
   let result = markdown;
-  result = repairCollapsedSatoriMcpConfig(result, warnings);
+  result = repairCollapsedMcpConfig(result, warnings);
   result = repairFenceBoundaries(result, warnings);
   return result;
 }
