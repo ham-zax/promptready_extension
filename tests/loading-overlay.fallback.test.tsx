@@ -1,10 +1,14 @@
 import React from 'react';
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
 import { LoadingOverlay } from '@/entrypoints/popup/components/LoadingOverlay';
 
 describe('LoadingOverlay AI fallback UX', () => {
-  it('shows the failed step and error message when failedStage is provided', () => {
+  beforeEach(() => {
+    cleanup();
+  });
+
+  it('shows continuing offline fallback as degraded rather than failed', () => {
     render(
       <LoadingOverlay
         status="processing"
@@ -12,12 +16,32 @@ describe('LoadingOverlay AI fallback UX', () => {
         stage="fallback"
         failedStage="ai-processing"
         failedMessage="OpenRouter request failed: 401 Unauthorized"
-        message="AI failed — switching to offline processing…"
+        message="AI unavailable; continuing with offline capture..."
         progress={90}
       />
     );
 
-    expect(screen.getByText('Sending request to OpenRouter')).toBeInTheDocument();
+    const failedStage = screen.getByText('Sending request to OpenRouter').closest('li');
+    expect(screen.getByText('Continuing with offline capture')).toBeInTheDocument();
+    expect(screen.queryByText(/Fallback to offline pipeline/i)).not.toBeInTheDocument();
     expect(screen.getByText(/401 Unauthorized/i)).toBeInTheDocument();
+    expect(failedStage?.className).toContain('border-amber');
+    expect(failedStage?.className).not.toContain('border-rose');
+  });
+
+  it('keeps no-output failures red', () => {
+    render(
+      <LoadingOverlay
+        status="error"
+        mode="ai"
+        stage="ai-processing"
+        failedStage="ai-processing"
+        failedMessage="OpenRouter request failed: 401 Unauthorized"
+        message="No usable output was generated."
+      />
+    );
+
+    const failedStage = screen.getByText('Sending request to OpenRouter').closest('li');
+    expect(failedStage?.className).toContain('border-rose');
   });
 });

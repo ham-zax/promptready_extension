@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, LoaderCircle, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, LoaderCircle, XCircle } from 'lucide-react';
 
 type LoadingOverlayProps = {
   status: 'idle' | 'capturing' | 'cleaning' | 'structuring' | 'exporting' | 'complete' | 'error' | 'processing';
@@ -22,7 +22,7 @@ const AI_STAGES: StageItem[] = [
   { id: 'ai-processing', label: 'Sending request to OpenRouter' },
   { id: 'byok-processing', label: 'Waiting for AI response' },
   { id: 'postprocessing', label: 'Validating and finalizing output' },
-  { id: 'fallback', label: 'Fallback to offline pipeline (if needed)' },
+  { id: 'fallback', label: 'Continuing with offline capture' },
 ];
 
 const OFFLINE_STAGES: StageItem[] = [
@@ -66,6 +66,8 @@ export function LoadingOverlay({ status, message, progress, stage, mode = 'offli
   const stages = mode === 'ai' ? AI_STAGES : OFFLINE_STAGES;
   const currentStage = stage || stageFromStatus(status);
   const activeIndex = Math.max(0, stages.findIndex((item) => item.id === currentStage));
+  const isNoOutputFailure = status === 'error';
+  const isContinuingFallback = mode === 'ai' && currentStage === 'fallback' && !isNoOutputFailure;
 
   return (
     <div className="absolute inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col items-center justify-center px-4">
@@ -77,7 +79,11 @@ export function LoadingOverlay({ status, message, progress, stage, mode = 'offli
 
       <div className="mt-4 text-sm font-semibold text-foreground text-center">{label}</div>
       <div className="mt-1 text-[11px] text-muted-foreground text-center">
-        {mode === 'ai' ? 'AI mode is waiting for server response…' : 'Offline pipeline is processing locally…'}
+        {isContinuingFallback
+          ? 'Offline capture is continuing locally...'
+          : mode === 'ai'
+            ? 'AI mode is waiting for server response...'
+            : 'Offline pipeline is processing locally...'}
       </div>
 
       {pct !== undefined && (
@@ -92,9 +98,11 @@ export function LoadingOverlay({ status, message, progress, stage, mode = 'offli
       <ul className="mt-4 w-full max-w-[320px] space-y-1.5">
         {stages.map((item, index) => {
           const failedStageId = typeof failedStage === 'string' ? failedStage : '';
-          const isFailed = Boolean(failedStageId) && item.id === failedStageId;
-          const isDone = index < activeIndex && !isFailed;
-          const isActive = index === activeIndex && !isFailed;
+          const hasStageFailure = Boolean(failedStageId) && item.id === failedStageId;
+          const isFailed = hasStageFailure && isNoOutputFailure;
+          const isDegraded = hasStageFailure && !isNoOutputFailure;
+          const isDone = index < activeIndex && !isFailed && !isDegraded;
+          const isActive = index === activeIndex && !isFailed && !isDegraded;
 
           const truncatedFailure =
             typeof failedMessage === 'string' && failedMessage
@@ -107,6 +115,8 @@ export function LoadingOverlay({ status, message, progress, stage, mode = 'offli
               className={`flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-[11px] ${
                 isFailed
                   ? 'border-rose-600/30 bg-rose-600/10 text-rose-700'
+                  : isDegraded
+                  ? 'border-amber-600/30 bg-amber-600/10 text-amber-800'
                   : isDone
                   ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
                   : isActive
@@ -116,6 +126,8 @@ export function LoadingOverlay({ status, message, progress, stage, mode = 'offli
             >
               {isFailed ? (
                 <XCircle className="mt-0.5 w-3.5 h-3.5" />
+              ) : isDegraded ? (
+                <AlertTriangle className="mt-0.5 w-3.5 h-3.5" />
               ) : isDone ? (
                 <CheckCircle2 className="w-3.5 h-3.5" />
               ) : isActive ? (
@@ -126,7 +138,7 @@ export function LoadingOverlay({ status, message, progress, stage, mode = 'offli
 
               <div className="min-w-0">
                 <div>{item.label}</div>
-                {isFailed && truncatedFailure && (
+                {(isFailed || isDegraded) && truncatedFailure && (
                   <div className="mt-0.5 text-[10px] opacity-80 leading-snug">{truncatedFailure}</div>
                 )}
               </div>

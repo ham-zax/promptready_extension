@@ -69,7 +69,7 @@ export function ModeToggle({ mode, onChange, onUpgradePrompt }: ModeToggleProps)
           <ToggleGroupItem
             value="offline"
             title="Free • Instant"
-            className="h-11 rounded-xl border border-transparent bg-transparent text-foreground transition-all duration-200 ease-out hover:bg-muted/85 active:scale-[0.98] data-[state=on]:bg-brand-primary data-[state=on]:text-brand-primary-foreground data-[state=on]:border-[#c90000] data-[state=on]:shadow-[0_4px_10px_rgba(231,0,0,0.18)]"
+            className="h-11 rounded-xl border border-transparent bg-transparent text-foreground transition-all duration-200 ease-out hover:bg-muted/85 active:scale-[0.98] data-[state=on]:bg-muted data-[state=on]:text-foreground data-[state=on]:border-border data-[state=on]:shadow-sm"
             aria-label="Offline Mode"
           >
             <div className="flex items-center justify-center space-x-2 font-semibold text-sm">

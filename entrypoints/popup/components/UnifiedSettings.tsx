@@ -12,6 +12,8 @@ interface UnifiedSettingsProps {
   settings?: Settings;
   onSettingsChange: (settings: Partial<Settings>) => void;
   hasApiKey: boolean;
+  initialView?: View;
+  intentKey?: number;
 }
 
 type View = 'main' | 'byok';
@@ -70,6 +72,8 @@ export function UnifiedSettings({
   settings,
   onSettingsChange,
   hasApiKey,
+  initialView = 'main',
+  intentKey = 0,
 }: UnifiedSettingsProps) {
   const effectiveSettings: Settings = settings ?? {
     mode: 'offline',
@@ -110,14 +114,15 @@ export function UnifiedSettings({
     },
   };
 
-  const [currentView, setCurrentView] = useState<View>('main');
+  const [currentView, setCurrentView] = useState<View>(initialView);
 
   useEffect(() => {
-    if (!isExpanded) {
-      const timer = setTimeout(() => setCurrentView('main'), 300);
-      return () => clearTimeout(timer);
-    }
-  }, [isExpanded]);
+    const timer = setTimeout(() => {
+      setCurrentView(isExpanded ? initialView : 'main');
+    }, isExpanded ? 0 : 300);
+
+    return () => clearTimeout(timer);
+  }, [initialView, intentKey, isExpanded]);
 
   const handleByokComplete = () => {
     setCurrentView('main');
