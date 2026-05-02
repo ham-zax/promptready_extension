@@ -93,6 +93,29 @@ describe('BYOKClient', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('uses the proxy JSON error message instead of exposing the raw error envelope', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        error: 'OpenRouter returned no text for model=google/gemma-4-31b-it:free. Try another OpenRouter model.',
+      }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    await expect(BYOKClient.makeRequest(
+      { prompt: 'hello', maxTokens: 10, temperature: 0 },
+      {
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-or-v1-test-key',
+        model: 'google/gemma-4-31b-it:free',
+      },
+      { proxyUrl: 'https://promptready.app/api/proxy' }
+    )).rejects.toThrow(
+      'BYOK request failed: OpenRouter returned no text for model=google/gemma-4-31b-it:free. Try another OpenRouter model.',
+    );
+  });
+
   it('reports proxy URL and dev remediation when browser fetch fails before a response', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('Failed to fetch'));
 

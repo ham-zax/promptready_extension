@@ -80,6 +80,15 @@ function isExportData(value: unknown): value is ExportData {
   return typeof v.markdown === 'string' && 'json' in v && 'metadata' in v;
 }
 
+type OffscreenProcessResponse =
+  | { success: true; data: any }
+  | { success: false; error?: string };
+
+function isOffscreenProcessResponse(value: unknown): value is OffscreenProcessResponse {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as any).success === 'boolean';
+}
+
 export class EnhancedContentProcessor {
   private readonly offscreenPath = '/offscreen.html' as const;
   private readonly EXPORT_DATA_KEY = 'currentExportData';
@@ -1002,8 +1011,7 @@ export class EnhancedContentProcessor {
       // Ensure offscreen document exists
       await this.ensureOffscreenDocument();
 
-      // Send to enhanced offscreen processor with direct response
-      const response = await browser.runtime.sendMessage({
+      const offscreenProcessMessage = {
         type: 'ENHANCED_OFFSCREEN_PROCESS',
         payload: {
           html,
@@ -1020,11 +1028,30 @@ export class EnhancedContentProcessor {
           runId,
           aiGate,
         },
-      });
+      };
+
+      // Send to enhanced offscreen processor with direct response. MV3 can
+      // report an existing offscreen document before its listener is ready, so
+      // retry once when no response shape comes back.
+      let response = await browser.runtime.sendMessage(offscreenProcessMessage);
+      if (!isOffscreenProcessResponse(response)) {
+        console.warn('[Background] Offscreen processor returned no direct response; retrying once.');
+        await this.ensureOffscreenDocument();
+        await this.waitForOffscreenRetryDelay();
+        response = await browser.runtime.sendMessage(offscreenProcessMessage);
+      }
 
       // Handle the direct response
+      if (!isOffscreenProcessResponse(response)) {
+        throw new Error('Offscreen processor did not return a valid response');
+      }
+
       if (!response.success) {
         throw new Error(response.error || 'Processing failed');
+      }
+
+      if (!response.data || typeof response.data !== 'object') {
+        throw new Error('Offscreen processor returned an invalid processing result');
       }
 
       // Check performance overhead after processing
@@ -1607,6 +1634,10 @@ export class EnhancedContentProcessor {
       // Clear the promise once creation is complete (success or failure)
       this.offscreenCreationPromise = null;
     }
+  }
+
+  private async waitForOffscreenRetryDelay(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
   /**

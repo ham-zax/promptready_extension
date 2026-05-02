@@ -330,4 +330,138 @@ describe('ai-proxy BYOK CORS', () => {
     expect(upstreamBody.max_completion_tokens).toBe(123);
     expect(upstreamBody).not.toHaveProperty('max_tokens');
   });
+
+  it('returns the first non-empty OpenRouter choice content', async () => {
+    const env = createEnv();
+    const upstreamFetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: 'content_filter',
+              native_finish_reason: 'SAFETY',
+              message: { role: 'assistant', content: null },
+            },
+            {
+              finish_reason: 'stop',
+              native_finish_reason: 'stop',
+              message: { role: 'assistant', content: 'usable text' },
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    global.fetch = upstreamFetch as any;
+
+    const req = new Request('https://worker.test/byok/proxy', {
+      method: 'POST',
+      headers: {
+        Origin: 'http://localhost:5173',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt: 'hello',
+        maxTokens: 123,
+        settings: {
+          apiBase: 'https://openrouter.ai/api/v1',
+          apiKey: 'sk-or-v1-user-key',
+          model: 'openai/gpt-5.2',
+        },
+      }),
+    });
+
+    const res = await worker.fetch(req, env, createCtx());
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.content).toBe('usable text');
+  });
+
+  it('surfaces embedded OpenRouter choice errors with their status code', async () => {
+    const env = createEnv();
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          model: 'google/gemma-4-31b-it:free',
+          choices: [
+            {
+              finish_reason: 'error',
+              native_finish_reason: 'rate_limited',
+              message: { role: 'assistant', content: null },
+              error: {
+                code: 429,
+                message: 'Provider temporarily rate-limited',
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    ) as any;
+
+    const req = new Request('https://worker.test/byok/proxy', {
+      method: 'POST',
+      headers: {
+        Origin: 'http://localhost:5173',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt: 'hello',
+        settings: {
+          apiBase: 'https://openrouter.ai/api/v1',
+          apiKey: 'sk-or-v1-user-key',
+          model: 'google/gemma-4-31b-it:free',
+        },
+      }),
+    });
+
+    const res = await worker.fetch(req, env, createCtx());
+    expect(res.status).toBe(429);
+    const body = await res.json() as any;
+    expect(body.error).toContain('Upstream provider error (429): Provider temporarily rate-limited');
+  });
+
+  it('reports no-text completions with model and finish reason context', async () => {
+    const env = createEnv();
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          model: 'google/gemma-4-31b-it:free',
+          choices: [
+            {
+              finish_reason: 'content_filter',
+              native_finish_reason: 'SAFETY',
+              message: { role: 'assistant', content: null },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    ) as any;
+
+    const req = new Request('https://worker.test/byok/proxy', {
+      method: 'POST',
+      headers: {
+        Origin: 'http://localhost:5173',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt: 'hello',
+        settings: {
+          apiBase: 'https://openrouter.ai/api/v1',
+          apiKey: 'sk-or-v1-user-key',
+          model: 'google/gemma-4-31b-it:free',
+        },
+      }),
+    });
+
+    const res = await worker.fetch(req, env, createCtx());
+    expect(res.status).toBe(502);
+    const body = await res.json() as any;
+    expect(body.error).toContain('OpenRouter returned no text');
+    expect(body.error).toContain('model=google/gemma-4-31b-it:free');
+    expect(body.error).toContain('finish_reason=content_filter');
+    expect(body.error).toContain('Try another OpenRouter model');
+  });
 });

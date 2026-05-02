@@ -91,7 +91,16 @@ export class BYOKClient {
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(`BYOK request failed: ${response.status} ${text.slice(0, 300)}`);
+        let message = `${response.status} ${text.slice(0, 300)}`;
+        try {
+          const payload = JSON.parse(text) as { error?: unknown };
+          if (typeof payload?.error === 'string' && payload.error.trim()) {
+            message = payload.error.trim();
+          }
+        } catch {
+          // Keep the status + text fallback for non-JSON proxy errors.
+        }
+        throw new Error(`BYOK request failed: ${message}`);
       }
 
       const payload = await response.json() as any;

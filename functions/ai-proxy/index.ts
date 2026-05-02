@@ -54,6 +54,19 @@ interface BYOKProxyRequest {
   };
 }
 
+type OpenRouterChoice = {
+  finish_reason?: unknown;
+  native_finish_reason?: unknown;
+  message?: {
+    content?: unknown;
+  };
+  text?: unknown;
+  error?: {
+    code?: unknown;
+    message?: unknown;
+  };
+};
+
 type RateLimitScope = "user" | "origin" | "ip";
 
 const RATE_LIMIT_PREFIX = "ai-proxy:rl";
@@ -180,6 +193,73 @@ function errorResponse(
   corsHeaders: HeadersInit = buildCorsHeaders(null),
 ): Response {
   return jsonResponse({ error: message }, status, corsHeaders);
+}
+
+function getChoices(payload: any): OpenRouterChoice[] {
+  return Array.isArray(payload?.choices) ? payload.choices : [];
+}
+
+function getFirstChoiceContent(payload: any): string | null {
+  for (const choice of getChoices(payload)) {
+    const messageContent = choice?.message?.content;
+    if (typeof messageContent === "string" && messageContent.trim()) {
+      return messageContent;
+    }
+
+    const textContent = choice?.text;
+    if (typeof textContent === "string" && textContent.trim()) {
+      return textContent;
+    }
+  }
+
+  return null;
+}
+
+function getEmbeddedChoiceError(payload: any): { status: number; message: string } | null {
+  for (const choice of getChoices(payload)) {
+    const error = choice?.error;
+    if (!error) continue;
+
+    const code = typeof error.code === "number" ? error.code : 502;
+    const status = code >= 400 && code <= 599 ? code : 502;
+    const message =
+      typeof error.message === "string" && error.message.trim()
+        ? error.message.trim()
+        : "OpenRouter choice failed";
+
+    return { status, message: `Upstream provider error (${code}): ${message}` };
+  }
+
+  return null;
+}
+
+function formatChoiceReasons(payload: any): string {
+  const reasons = getChoices(payload)
+    .map((choice) => {
+      const finish = typeof choice.finish_reason === "string" ? choice.finish_reason : "";
+      const native = typeof choice.native_finish_reason === "string" ? choice.native_finish_reason : "";
+      if (finish && native && native !== finish) return `${finish}/${native}`;
+      return finish || native;
+    })
+    .filter(Boolean);
+
+  return Array.from(new Set(reasons)).join(",");
+}
+
+function buildNoTextMessage(payload: any, requestedModel: string, isOpenRouterBase: boolean): string {
+  const model =
+    typeof payload?.model === "string" && payload.model.trim()
+      ? payload.model.trim()
+      : requestedModel;
+  const reasons = formatChoiceReasons(payload);
+  const base = isOpenRouterBase
+    ? `OpenRouter returned no text for model=${model}`
+    : `Upstream provider returned no text for model=${model}`;
+  const reasonSuffix = reasons ? ` (finish_reason=${reasons})` : "";
+  const action = isOpenRouterBase
+    ? " Try another OpenRouter model or provider."
+    : " Try another model or provider.";
+  return `${base}${reasonSuffix}.${action}`;
 }
 
 function withCors(response: Response, corsHeaders: HeadersInit): Response {
@@ -387,10 +467,15 @@ async function handleBYOKProxy(
   }
 
   const payload = (await upstreamResponse.json()) as any;
-  const content = payload?.choices?.[0]?.message?.content;
-  if (typeof content !== "string" || !content.trim()) {
+  const content = getFirstChoiceContent(payload);
+  if (!content) {
+    const embeddedError = getEmbeddedChoiceError(payload);
+    if (embeddedError) {
+      return errorResponse(embeddedError.message, embeddedError.status, corsHeaders);
+    }
+
     return errorResponse(
-      "Upstream provider returned empty content",
+      buildNoTextMessage(payload, model, isOpenRouterBase),
       502,
       corsHeaders,
     );
