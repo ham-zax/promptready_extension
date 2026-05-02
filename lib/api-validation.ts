@@ -17,56 +17,6 @@ export interface ValidationResult {
   };
 }
 
-// OpenRouter validation
-export async function validateOpenRouter(apiKey: string): Promise<ValidationResult> {
-  try {
-    const response = await fetch('https://openrouter.ai/api/v1/auth/key', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        return {
-          isValid: false,
-          message: 'Invalid API key. Please check your OpenRouter key.',
-        };
-      }
-      if (response.status === 403) {
-        return {
-          isValid: false,
-          message: 'API key does not have required permissions.',
-        };
-      }
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data: any = await response.json();
-    return {
-      isValid: true,
-      message: `✅ Valid OpenRouter key. Balance: ${data.data?.balance || 'Unknown'}`,
-      details: {
-        balance: data.data?.balance,
-        organization: data.data?.organization,
-      },
-    };
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('Failed to fetch')) {
-      return {
-        isValid: false,
-        message: 'Network error. Please check your internet connection.',
-      };
-    }
-    return {
-      isValid: false,
-      message: 'Failed to validate OpenRouter key. Please try again.',
-    };
-  }
-}
-
 // Main validation function
 export async function validateApiKey(request: ValidationRequest): Promise<ValidationResult> {
   const { provider, apiKey, apiBase } = request;
@@ -100,7 +50,11 @@ export async function validateApiKey(request: ValidationRequest): Promise<Valida
     };
   }
 
-  return validateOpenRouter(apiKey);
+  // Local format validation only; actual key verification happens via proxy on first AI request.
+  return {
+    isValid: true,
+    message: 'Key format looks valid. It will be verified on first AI request.',
+  };
 }
 
 // Helper function for URL validation
