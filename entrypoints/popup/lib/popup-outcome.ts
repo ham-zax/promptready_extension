@@ -36,6 +36,11 @@ export interface PopupOutcomeInput {
   aiLockReason?: AILockReason;
   processingStatus?: string;
   processingMessage?: string;
+  qualityReport?: {
+    completenessStatus?: 'complete' | 'partial' | 'incomplete_title_only' | 'incomplete_empty_body' | 'incomplete_navigation_only';
+    overallScore?: number;
+    issues?: Array<{ message: string; category: string }>;
+  };
 }
 
 function isFallbackOutcome(aiOutcome?: AIAttemptOutcome): boolean {
@@ -80,6 +85,43 @@ function fallbackActions(aiOutcome?: AIAttemptOutcome): PopupOutcomeAction[] {
 
 export function derivePopupOutcome(input: PopupOutcomeInput): PopupOutcomeViewModel | null {
   if (input.hasContent) {
+    const completenessStatus = input.qualityReport?.completenessStatus;
+
+    if (completenessStatus === 'incomplete_empty_body') {
+      return {
+        kind: 'failed',
+        title: 'Capture incomplete',
+        message: 'PromptReady found only metadata, but no page content. The page may have changed structure.',
+        tone: 'error',
+        primaryActions: [],
+        secondaryActions: ['view_details'],
+        details: input.qualityReport?.issues?.[0]?.message,
+      };
+    }
+
+    if (completenessStatus === 'incomplete_title_only') {
+      return {
+        kind: 'failed',
+        title: 'Capture incomplete',
+        message: 'PromptReady found the page title, but not the main body content.',
+        tone: 'error',
+        primaryActions: [],
+        secondaryActions: ['view_details'],
+        details: input.qualityReport?.issues?.[0]?.message,
+      };
+    }
+
+    if (completenessStatus === 'incomplete_navigation_only') {
+      return {
+        kind: 'failed',
+        title: 'Capture incomplete',
+        message: 'Only navigation content was captured, not the main page content.',
+        tone: 'error',
+        primaryActions: [],
+        secondaryActions: ['view_details'],
+      };
+    }
+
     if (input.mode === 'ai' && input.aiOutcome === 'success') {
       return {
         kind: 'ready_ai',

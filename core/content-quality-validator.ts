@@ -15,6 +15,7 @@ export interface QualityReport {
   issues: QualityIssue[];
   recommendations: string[];
   passesThreshold: boolean;
+  completenessStatus: 'complete' | 'partial' | 'incomplete_title_only' | 'incomplete_empty_body' | 'incomplete_navigation_only';
 }
 
 export interface QualityIssue {
@@ -63,7 +64,7 @@ export class ContentQualityValidator {
     const structureIntegrity = this.calculateStructureIntegrity(markdown, originalHtml, issues);
     const markdownQuality = this.calculateMarkdownQuality(markdown, issues);
     const readability = this.calculateReadability(markdown, issues);
-    const completeness = this.calculateCompleteness(markdown, originalHtml, processingStats, issues);
+    const { score: completeness, status: completenessStatus } = this.calculateCompleteness(markdown, originalHtml, processingStats, issues);
 
     const metrics: QualityMetrics = {
       contentPreservation,
@@ -82,9 +83,18 @@ export class ContentQualityValidator {
       completeness: 0.20,
     };
 
-    const overallScore = Object.entries(metrics).reduce((score, [metric, value]) => {
-      return score + (value * weights[metric as keyof QualityMetrics]);
+    let overallScore: number = Object.entries(metrics).reduce((score: number, [metric, value]: [string, number]) => {
+      return score + (value * weights[metric as keyof typeof weights]);
     }, 0);
+
+    // Enforce hard caps for incomplete captures
+    if (completenessStatus === 'incomplete_empty_body') {
+      overallScore = Math.min(overallScore, 25);
+    } else if (completenessStatus === 'incomplete_title_only') {
+      overallScore = Math.min(overallScore, 20);
+    } else if (completenessStatus === 'partial' && metrics.completeness < 50) {
+      overallScore = Math.min(overallScore, 45);
+    }
 
     // Generate recommendations
     this.generateRecommendations(metrics, issues, recommendations, config);
@@ -101,7 +111,22 @@ export class ContentQualityValidator {
       issues: issues.sort((a, b) => b.severity - a.severity),
       recommendations,
       passesThreshold,
+      completenessStatus,
     };
+  }
+
+  /**
+   * Normalize input text for comparison
+   */
+  private static normalizeInputText(value: string): string {
+    if (!value) return '';
+    return value
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<!\[cdata\[[\s\S]*?\]\]>/gi, ' ')
+      .replace(/-->/g, ' ')
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /**
@@ -112,24 +137,17 @@ export class ContentQualityValidator {
     originalHtml: string,
     issues: QualityIssue[]
   ): number {
-    const markdownLength = markdown.length;
-    const originalLength = originalHtml.length;
-    
+    const markdownLength = this.normalizeInputText(markdown).length;
+    const originalLength = this.normalizeInputText(originalHtml).length;
+
     if (originalLength === 0) {
-      issues.push({
-        type: 'error',
-        category: 'content',
-        message: 'Original content is empty',
-        severity: 10,
-      });
-      return 0;
+      return markdownLength > 0 ? 100 : 0;
     }
 
     const reductionRatio = 1 - (markdownLength / originalLength);
-    
-    // Score based on content reduction
+
     let score = 100;
-    
+
     if (reductionRatio > 0.95) {
       score = 10;
       issues.push({
@@ -167,7 +185,6 @@ export class ContentQualityValidator {
       });
     }
 
-    // Check for minimum content length
     if (markdownLength < 200) {
       score = Math.min(score, 20);
       issues.push({
@@ -396,18 +413,99 @@ export class ContentQualityValidator {
   }
 
   /**
-   * Calculate completeness score
+   * Calculate completeness score and detect body content
    */
   private static calculateCompleteness(
     markdown: string,
     originalHtml: string,
     processingStats: any,
     issues: QualityIssue[]
-  ): number {
+  ): { score: number; status: QualityReport['completenessStatus'] } {
     let score = 100;
+    let status: QualityReport['completenessStatus'] = 'complete';
+
+    const body = this.extractBodyContent(markdown);
+    const codeIsSubstantive = body.codeChars >= 120;
+
+    // Classify completeness based on body content
+    if (body.bodyChars === 0) {
+      if (body.hasMeaningfulPrimaryHeading) {
+        status = 'incomplete_title_only';
+        score = 20;
+        issues.push({
+          type: 'error',
+          category: 'content',
+          message: 'quality:title_only_capture - Only title extracted, no substantial body content',
+          severity: 8,
+          suggestion: 'Verify page has body content or check extraction selector drift',
+        });
+      } else {
+        status = 'incomplete_empty_body';
+        score = 15;
+        issues.push({
+          type: 'error',
+          category: 'content',
+          message: 'quality:empty_body - No body content extracted, only citation metadata',
+          severity: 9,
+          suggestion: 'Check content extraction selectors or page structure changes',
+        });
+      }
+    } else if (!codeIsSubstantive && body.navigationOnly) {
+      status = 'incomplete_navigation_only';
+      score = 20;
+      issues.push({
+        type: 'error',
+        category: 'content',
+        message: 'quality:navigation_only - Only navigation content was captured',
+        severity: 8,
+        suggestion: 'Check content extraction scope and boilerplate filtering',
+      });
+    } else if (
+      !codeIsSubstantive &&
+      body.bodyChars < 500 &&
+      body.hasMeaningfulPrimaryHeading &&
+      body.titleSimilarity > 0.6
+    ) {
+      status = 'incomplete_title_only';
+      score = 20;
+      issues.push({
+        type: 'error',
+        category: 'content',
+        message: 'quality:title_only_capture - Body content mostly duplicates the page title',
+        severity: 8,
+        suggestion: 'Verify page has body content or check extraction selector drift',
+      });
+    } else if (!codeIsSubstantive && body.bodyChars < 100) {
+      status = 'partial';
+      score = 40;
+      issues.push({
+        type: 'warning',
+        category: 'content',
+        message: 'quality:very_short_body - Very little body content extracted',
+        severity: 5,
+      });
+    } else if (!codeIsSubstantive && body.bodyChars < 300 && body.paragraphCount < 2 && body.structuralBlockCount < 2) {
+      status = 'partial';
+      score = Math.min(score, 45);
+      issues.push({
+        type: 'warning',
+        category: 'content',
+        message: 'quality:short_body - Limited body content extracted',
+        severity: 4,
+      });
+    } else if (body.citationHeaderRatio > 0.4 && body.bodyChars < 500 && !codeIsSubstantive) {
+      status = 'partial';
+      score = Math.min(score, 45);
+      issues.push({
+        type: 'warning',
+        category: 'content',
+        message: 'quality:metadata_dominant - Citation metadata dominates captured content',
+        severity: 5,
+      });
+    }
 
     // Check if processing used fallbacks
-    if (processingStats?.fallbacksUsed?.length > 0) {
+    if (processingStats?.fallbacksUsed?.length > 0 && status !== 'incomplete_empty_body') {
       const fallbackPenalty = processingStats.fallbacksUsed.length * 15;
       score -= fallbackPenalty;
       issues.push({
@@ -441,7 +539,136 @@ export class ContentQualityValidator {
       });
     }
 
-    return Math.max(0, score);
+    return { score: Math.max(0, score), status };
+  }
+
+  /**
+   * Extract body content by stripping citation header and title
+   */
+  private static extractBodyContent(markdown: string): {
+    bodyContent: string;
+    bodyChars: number;
+    paragraphCount: number;
+    codeChars: number;
+    structuralBlockCount: number;
+    citationHeaderRatio: number;
+    titleSimilarity: number;
+    navigationOnly: boolean;
+    hasMeaningfulPrimaryHeading: boolean;
+  } {
+    const lines = markdown.split('\n');
+    const bodyLines: string[] = [];
+    let inCitationBlock = false;
+    let citationChars = 0;
+    let primaryHeading = '';
+    let skippedPrimaryHeading = false;
+
+    for (const line of lines) {
+      if (line.startsWith('> ')) {
+        inCitationBlock = true;
+        citationChars += line.length;
+        continue;
+      }
+      if (inCitationBlock && line === '') {
+        inCitationBlock = false;
+        continue;
+      }
+      if (inCitationBlock) continue;
+
+      if (line.startsWith('# ')) {
+        if (!skippedPrimaryHeading && bodyLines.length === 0) {
+          primaryHeading = line.replace(/^#\s+/, '').trim();
+          skippedPrimaryHeading = true;
+          continue;
+        }
+      }
+
+      bodyLines.push(line);
+    }
+
+    const bodyContent = bodyLines.join('\n').trim();
+    const normalizedBody = this.normalizeInputText(bodyContent);
+    const codeChars = this.countCodeChars(bodyContent);
+    const proseContent = bodyContent.replace(/```[\s\S]*?```/g, ' ');
+    const paragraphCount = proseContent
+      .split(/\n{2,}/)
+      .map((block) => this.normalizeInputText(block.replace(/^#{1,6}\s+/gm, '')))
+      .filter((block) => block.length >= 40 || block.split(/\s+/).filter(Boolean).length >= 8)
+      .length;
+    const structuralBlockCount = (
+      (bodyContent.match(/^#{2,6}\s+/gm) || []).length +
+      (bodyContent.match(/^\s*[-*+]\s+\S/gm) || []).length +
+      (bodyContent.match(/```[\s\S]*?```/g) || []).length
+    );
+    const totalChars = citationChars + this.normalizeInputText(markdown.replace(/^>\s.*$/gm, '')).length;
+    const citationHeaderRatio = totalChars > 0 ? citationChars / totalChars : 0;
+    const titleSimilarity = this.calculateTokenSimilarity(primaryHeading, normalizedBody);
+    const hasMeaningfulPrimaryHeading = Boolean(primaryHeading) && !/^(untitled page|untitled|unknown)$/i.test(primaryHeading);
+
+    return {
+      bodyContent,
+      bodyChars: normalizedBody.length,
+      paragraphCount,
+      codeChars,
+      structuralBlockCount,
+      citationHeaderRatio,
+      titleSimilarity,
+      navigationOnly: this.isNavigationOnly(bodyContent, paragraphCount),
+      hasMeaningfulPrimaryHeading,
+    };
+  }
+
+  private static countCodeChars(markdown: string): number {
+    const codeBlocks = markdown.match(/```[\s\S]*?```/g) || [];
+    return codeBlocks.reduce((total, block) => {
+      return total + this.normalizeInputText(block.replace(/^```[^\n]*\n?/, '').replace(/```$/, '')).length;
+    }, 0);
+  }
+
+  private static calculateTokenSimilarity(title: string, body: string): number {
+    const titleTokens = this.tokenizeForSimilarity(title);
+    const bodyTokens = this.tokenizeForSimilarity(body);
+
+    if (titleTokens.size === 0 || bodyTokens.size === 0) {
+      return 0;
+    }
+
+    let intersection = 0;
+    for (const token of titleTokens) {
+      if (bodyTokens.has(token)) {
+        intersection += 1;
+      }
+    }
+
+    return intersection / titleTokens.size;
+  }
+
+  private static tokenizeForSimilarity(value: string): Set<string> {
+    const normalized = this.normalizeInputText(value)
+      .toLowerCase()
+      .replace(/https?:\/\/\S+/g, ' ')
+      .replace(/[^a-z0-9]+/g, ' ');
+
+    return new Set(
+      normalized
+        .split(/\s+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 2)
+    );
+  }
+
+  private static isNavigationOnly(markdown: string, paragraphCount: number): boolean {
+    const normalized = this.normalizeInputText(markdown).toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+
+    const linkCount = (markdown.match(/\[[^\]]+\]\([^)]+\)/g) || []).length;
+    const navTokens = normalized.match(/\b(home|menu|login|sign in|sign up|subscribe|search|skip to|main content|privacy|terms|advertise|related|share|comments?)\b/g) || [];
+    const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+    const navRatio = wordCount > 0 ? navTokens.length / wordCount : 0;
+
+    return paragraphCount === 0 && normalized.length < 500 && (linkCount >= 3 || navRatio > 0.25);
   }
 
   /**

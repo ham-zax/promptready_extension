@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import Popup from '@/entrypoints/popup/Popup';
+import { derivePopupOutcome, type PopupOutcomeInput } from '@/entrypoints/popup/lib/popup-outcome';
 
 const mocks = vi.hoisted(() => ({
   usePopupController: vi.fn(),
@@ -133,7 +134,10 @@ const settings = {
   },
 };
 
-function renderPopupWithExport(aiOutcome = 'fallback_missing_key') {
+function renderPopupWithExport(
+  aiOutcome = 'fallback_missing_key',
+  qualityReport: Record<string, unknown> = { overallScore: 99 },
+) {
   const handleCopy = vi.fn();
   const handleExport = vi.fn();
   const onSettingsChange = vi.fn();
@@ -154,7 +158,7 @@ function renderPopupWithExport(aiOutcome = 'fallback_missing_key') {
         json: { content: { markdown: '# Captured' }, export: { html: '<main>Captured</main>' } },
         metadata: {},
         stats: { totalTime: 123, provider: 'local-offline' },
-        qualityReport: { overallScore: 99 },
+        qualityReport,
         aiOutcome,
       },
       toast: null,
@@ -332,5 +336,94 @@ describe('Popup outcome rendering', () => {
     fireEvent.click(screen.getByRole('button', { name: /open settings/i }));
 
     expect(screen.getByTestId('settings-view')).toHaveTextContent('byok');
+  });
+
+  it('renders title-only captures as incomplete instead of ready output', () => {
+    renderPopupWithExport('not_attempted', {
+      completenessStatus: 'incomplete_title_only',
+      overallScore: 20,
+      issues: [{ message: 'quality:title_only_capture', category: 'content' }],
+    });
+
+    expect(screen.getByText('Capture incomplete')).toBeInTheDocument();
+    expect(screen.getByText(/found the page title/i)).toBeInTheDocument();
+    expect(screen.queryByText('Offline output ready')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /copy md/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save md/i })).not.toBeInTheDocument();
+  });
+
+  it('renders metadata-only captures as incomplete instead of ready output', () => {
+    renderPopupWithExport('not_attempted', {
+      completenessStatus: 'incomplete_empty_body',
+      overallScore: 15,
+      issues: [{ message: 'quality:empty_body', category: 'content' }],
+    });
+
+    expect(screen.getByText('Capture incomplete')).toBeInTheDocument();
+    expect(screen.getByText(/only metadata/i)).toBeInTheDocument();
+    expect(screen.queryByText('Offline output ready')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /copy md/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save md/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('derivePopupOutcome for incomplete captures', () => {
+  it('should classify markdown with only title and metadata as incomplete, not ready', () => {
+    const input: PopupOutcomeInput = {
+      mode: 'offline',
+      hasContent: true,
+      processingStatus: 'complete',
+      qualityReport: {
+        completenessStatus: 'incomplete_title_only',
+        overallScore: 20,
+        issues: [{ message: 'quality:title_only_capture', category: 'content' }],
+      },
+    };
+
+    const outcome = derivePopupOutcome(input);
+
+    expect(outcome).not.toBeNull();
+    expect(outcome?.kind).not.toBe('ready_offline');
+    expect(outcome?.kind).not.toBe('ready_ai');
+    expect(outcome?.tone).toBe('error');
+    expect(outcome?.message).toMatch(/incomplete|not.*body|only.*title/i);
+  });
+
+  it('should classify metadata-only markdown (no body) as failed, not ready', () => {
+    const input: PopupOutcomeInput = {
+      mode: 'offline',
+      hasContent: true,
+      processingStatus: 'complete',
+      qualityReport: {
+        completenessStatus: 'incomplete_empty_body',
+        overallScore: 15,
+        issues: [{ message: 'quality:empty_body', category: 'content' }],
+      },
+    };
+
+    const outcome = derivePopupOutcome(input);
+
+    expect(outcome).not.toBeNull();
+    expect(outcome?.kind).toBe('failed');
+    expect(outcome?.message).toMatch(/incomplete|empty|no.*content/i);
+  });
+
+  it('should still classify valid markdown with body content as ready_offline', () => {
+    const input: PopupOutcomeInput = {
+      mode: 'offline',
+      hasContent: true,
+      processingStatus: 'complete',
+      qualityReport: {
+        completenessStatus: 'complete',
+        overallScore: 85,
+        issues: [],
+      },
+    };
+
+    const outcome = derivePopupOutcome(input);
+
+    expect(outcome).not.toBeNull();
+    expect(outcome?.kind).toBe('ready_offline');
+    expect(outcome?.tone).toBe('neutral');
   });
 });

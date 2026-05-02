@@ -379,6 +379,7 @@ export default function RefactoredPopup() {
     aiLockReason: state.aiLockReason,
     processingStatus: state.processing.status,
     processingMessage: state.processing.message,
+    qualityReport: state.exportData?.qualityReport,
   });
 
   const getOutcomeToneClass = (tone: PopupOutcomeTone): string => {
@@ -410,6 +411,7 @@ export default function RefactoredPopup() {
   };
 
   const shouldShowOutcomeBanner = Boolean(outcome && (hasContent || outcome.kind === 'failed'));
+  const shouldShowExportActions = Boolean(!outcome || outcome.primaryActions.length > 0);
 
   const shouldShowAiLockCard =
     state.mode === 'ai' &&
@@ -728,74 +730,78 @@ export default function RefactoredPopup() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-2">
-                  {renderPrimaryExportAction({
-                    actionId: 'copy_md',
-                    label: 'Copy MD',
-                    description: 'To clipboard',
-                    icon: <ClipboardCopy className="w-4 h-4" />,
-                    action: () => handleCopy(state.exportData!.markdown),
-                  })}
+                {shouldShowExportActions && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      {renderPrimaryExportAction({
+                        actionId: 'copy_md',
+                        label: 'Copy MD',
+                        description: 'To clipboard',
+                        icon: <ClipboardCopy className="w-4 h-4" />,
+                        action: () => handleCopy(state.exportData!.markdown),
+                      })}
 
-                  {renderPrimaryExportAction({
-                    actionId: 'save_md',
-                    label: 'Save MD',
-                    description: 'Download file',
-                    icon: <Download className="w-4 h-4" />,
-                    action: () => handleExport('md'),
-                  })}
-                </div>
+                      {renderPrimaryExportAction({
+                        actionId: 'save_md',
+                        label: 'Save MD',
+                        description: 'Download file',
+                        icon: <Download className="w-4 h-4" />,
+                        action: () => handleExport('md'),
+                      })}
+                    </div>
 
-                <button
-                  type="button"
-                  onClick={() => setShowExportDetails((value) => !value)}
-                  className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground active:scale-[0.98] transition-all"
-                >
-                  More exports
-                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showExportDetails ? 'rotate-180' : ''}`} />
-                </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowExportDetails((value) => !value)}
+                      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground active:scale-[0.98] transition-all"
+                    >
+                      More exports
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showExportDetails ? 'rotate-180' : ''}`} />
+                    </button>
 
-                {showExportDetails && (
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    {renderPrimaryExportAction({
-                      actionId: 'copy_json',
-                      label: 'Copy JSON',
-                      description: 'Structured data',
-                      icon: <FileJson className="w-4 h-4" />,
-                      action: () => handleCopy(JSON.stringify(state.exportData!.json, null, 2)),
-                    })}
-                    {renderPrimaryExportAction({
-                      actionId: 'raw_md',
-                      label: 'Raw MD',
-                      description: 'Markdown text',
-                      icon: <ClipboardCopy className="w-4 h-4" />,
-                      action: () => handleCopy(state.exportData!.markdown),
-                    })}
-                    {renderPrimaryExportAction({
-                      actionId: 'raw_json',
-                      label: 'Raw JSON',
-                      description: 'JSON payload',
-                      icon: <FileJson className="w-4 h-4" />,
-                      action: () => handleCopy(JSON.stringify(state.exportData!.json, null, 2)),
-                    })}
-                    {renderPrimaryExportAction({
-                      actionId: 'code_block',
-                      label: 'Code Block',
-                      description: 'Escaped Markdown',
-                      icon: <Code2 className="w-4 h-4" />,
-                      action: () => handleCopy(state.exportData!.markdown.replace(/`/g, '\\`')),
-                    })}
-                    {renderPrimaryExportAction({
-                      actionId: 'html',
-                      label: 'HTML',
-                      description: 'Rendered export',
-                      icon: <Globe className="w-4 h-4" />,
-                      action: () => {
-                        const html = state.exportData!.json.export?.html || '';
-                        return handleCopy(html);
-                      },
-                    })}
-                  </div>
+                    {showExportDetails && (
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        {renderPrimaryExportAction({
+                          actionId: 'copy_json',
+                          label: 'Copy JSON',
+                          description: 'Structured data',
+                          icon: <FileJson className="w-4 h-4" />,
+                          action: () => handleCopy(JSON.stringify(state.exportData!.json, null, 2)),
+                        })}
+                        {renderPrimaryExportAction({
+                          actionId: 'raw_md',
+                          label: 'Raw MD',
+                          description: 'Markdown text',
+                          icon: <ClipboardCopy className="w-4 h-4" />,
+                          action: () => handleCopy(state.exportData!.markdown),
+                        })}
+                        {renderPrimaryExportAction({
+                          actionId: 'raw_json',
+                          label: 'Raw JSON',
+                          description: 'JSON payload',
+                          icon: <FileJson className="w-4 h-4" />,
+                          action: () => handleCopy(JSON.stringify(state.exportData!.json, null, 2)),
+                        })}
+                        {renderPrimaryExportAction({
+                          actionId: 'code_block',
+                          label: 'Code Block',
+                          description: 'Escaped Markdown',
+                          icon: <Code2 className="w-4 h-4" />,
+                          action: () => handleCopy(state.exportData!.markdown.replace(/`/g, '\\`')),
+                        })}
+                        {renderPrimaryExportAction({
+                          actionId: 'html',
+                          label: 'HTML',
+                          description: 'Rendered export',
+                          icon: <Globe className="w-4 h-4" />,
+                          action: () => {
+                            const html = state.exportData!.json.export?.html || '';
+                            return handleCopy(html);
+                          },
+                        })}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -888,6 +894,7 @@ export default function RefactoredPopup() {
           hasContent: true,
           aiOutcome: lastAiOutcome as AIAttemptOutcome,
           aiFallbackError: aiFallbackInfo?.error,
+          qualityReport: state.exportData?.qualityReport,
         });
 
         const iconWrapClass =

@@ -270,6 +270,7 @@ describe('Offline Capabilities System', () => {
           readability: 75,
           completeness: 80,
         },
+        completenessStatus: 'complete' as const,
       };
       
       const summary = ContentQualityValidator.generateSummaryReport(mockReport);
