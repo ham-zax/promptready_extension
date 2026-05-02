@@ -1,5 +1,6 @@
 import type { ExportMetadata } from './types.js';
 import { normalizeInlineCodeSpacing } from './markdown-inline-code-normalizer.js';
+import { normalizeTechnicalMarkdownBlocks } from './markdown-technical-block-normalizer.js';
 
 export function buildCanonicalMetadata(
   sourceMetadata: Partial<ExportMetadata> | undefined,
@@ -65,13 +66,16 @@ export function canonicalizeDeliveredMarkdown(
   };
 
   let result = normalizeUnicodeWhitespace(markdown || '');
+  result = unwrapWholeDocumentMarkdownFence(result, warnings);
   // Strip ==highlights== as they are non-standard and can cause rendering issues
   result = result.replace(/==([^=\n]+)==/g, '$1');
   result = stripLeadingCitationBlock(result);
   result = sanitizeRiskyMarkdown(result, warnings);
   result = stripResidualUiNoiseLines(result, warnings);
   result = normalizeMarkdownSpacing(result);
+  result = normalizeTechnicalMarkdownBlocks(result, warnings);
   result = normalizeInlineCodeSpacing(result, warnings);
+  result = normalizeMarkdownSpacing(result);
   result = ensurePrimaryHeading(result, normalizedMetadata.title);
 
   if (!result || result.trim().length === 0) {
@@ -79,6 +83,36 @@ export function canonicalizeDeliveredMarkdown(
   }
 
   return insertCiteFirstBlock(result, normalizedMetadata);
+}
+
+export function unwrapWholeDocumentMarkdownFence(markdown: string, warnings: string[]): string {
+  if (!markdown) {
+    return markdown;
+  }
+
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+  let first = 0;
+  while (first < lines.length && lines[first].trim() === '') {
+    first++;
+  }
+  let last = lines.length - 1;
+  while (last >= first && lines[last].trim() === '') {
+    last--;
+  }
+
+  if (first >= last) {
+    return markdown;
+  }
+
+  if (!/^```\s*(?:markdown|md)\s*$/i.test(lines[first].trim())) {
+    return markdown;
+  }
+  if (lines[last].trim() !== '```') {
+    return markdown;
+  }
+
+  warnings.push('Unwrapped whole-document markdown fence');
+  return lines.slice(first + 1, last).join('\n');
 }
 
 function normalizeInputText(value: string): string {

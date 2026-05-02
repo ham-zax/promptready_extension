@@ -7,6 +7,8 @@ import { Storage } from '../lib/storage.js';
 import { ExportMetadata } from '../lib/types.js';
 import { resolveProcessingConfig } from '../lib/processing-profile-registry.js';
 import { normalizeInlineCodeSpacing } from '../lib/markdown-inline-code-normalizer.js';
+import { normalizeTechnicalMarkdownBlocks } from '../lib/markdown-technical-block-normalizer.js';
+import { unwrapWholeDocumentMarkdownFence } from '../lib/markdown-canonicalizer.js';
 import { CacheManager } from '../lib/cache-manager.js';
 import { PerformanceMetrics } from './performance-metrics.js';
 import { safeParseHTML, extractSemanticContent, removeUnwantedElements, extractTextContent, fixRelativeUrls } from '../lib/dom-utils.js';
@@ -2149,11 +2151,13 @@ export class OfflineModeManager {
         /(raw copy|copy-paste|raw input|selecting main content|contents\s*\[hide]|from wikipedia)/.test(normalizedBlock),
       ].filter(Boolean).length;
 
+      const programmingSignalText = normalizedBlock.replace(/&lt;\/?[a-z][^&]*&gt;/gi, ' ');
+      const programmingRawText = bodyLines.join('\n').replace(/&lt;\/?[a-z][^&]*&gt;/gi, ' ');
       const programmingSignalCount = [
-        /\b(import|export|function|const|let|var|class|interface|type)\b/.test(normalizedBlock),
-        /\b(fetch|curl|npm|pnpm|yarn|pip|python|node|typescript|javascript)\b/.test(normalizedBlock),
-        /\b(select(?:\s+\S+){1,40}\s+from|insert\s+into|update\s+\w+\s+set|delete\s+from|create\s+table)\b/.test(normalizedBlock),
-        /[{}`;$]|=>/.test(bodyLines.join('\n')),
+        /\b(import|export|function|const|let|var|class|interface|type)\b/.test(programmingSignalText),
+        /\b(fetch|curl|npm|pnpm|yarn|pip|python|node|typescript|javascript)\b/.test(programmingSignalText),
+        /\b(select(?:\s+\S+){1,40}\s+from|insert\s+into|update\s+\w+\s+set|delete\s+from|create\s+table)\b/.test(programmingSignalText),
+        /[{}`$]|=>/.test(programmingRawText),
       ].filter(Boolean).length;
 
       const previousLine = output.length > 0 ? output[output.length - 1].trim().toLowerCase() : '';
@@ -2167,7 +2171,7 @@ export class OfflineModeManager {
         /<\/?[a-z][^>]*>/i.test(bodyLines.join('\n')) ||
         /&lt;\/?[a-z][^&]*&gt;/i.test(bodyLines.join('\n'));
       const preserveIntentionalDemoBlock =
-        precededByRawLabel && hasComparisonContext && containsHtmlExample;
+        precededByRawLabel && hasComparisonContext && containsHtmlExample && uiSignalCount < 2;
 
       const hasNonLanguageFenceHeader = !!startFenceRaw && !languageLike(startFenceRaw);
       const shouldDropBlock =
@@ -4066,6 +4070,7 @@ export class OfflineModeManager {
     };
 
     let result = this.normalizeUnicodeWhitespace(markdown || '');
+    result = unwrapWholeDocumentMarkdownFence(result, warnings);
     result = result.replace(/==([^=\n]+)==/g, '$1');
     result = this.stripLeadingCitationBlock(result);
     result = this.sanitizeRiskyMarkdown(result, warnings);
@@ -4074,6 +4079,7 @@ export class OfflineModeManager {
     result = this.stripLowSignalMediaArtifacts(result, warnings);
     result = this.stripLeadingNavigationPrelude(result, warnings);
     result = this.normalizeMarkdownSpacing(result);
+    result = normalizeTechnicalMarkdownBlocks(result, warnings);
     result = this.repairInlineCodeFenceBoundaries(result, warnings);
     result = this.fenceEscapedHtmlSamples(result, warnings);
     // Fencing escaped HTML can itself introduce fresh fence boundaries;
@@ -4082,10 +4088,12 @@ export class OfflineModeManager {
     result = this.collapseFragmentedWordRuns(result, warnings);
     result = this.normalizeMergedTokenBoundaries(result, warnings);
     result = normalizeInlineCodeSpacing(result, warnings);
+    result = normalizeTechnicalMarkdownBlocks(result, warnings);
     result = this.repairInlineCodeFenceBoundaries(result, warnings);
     result = this.mergeSplitHeadings(result, warnings);
-    // Re-run line-level UI filtering after fence repair/token normalization,
-    // so noise that was previously glued to malformed fence blocks is removed.
+    // Re-run UI filtering after fence repair/token normalization, so noise that
+    // was previously glued to malformed fence blocks is removed.
+    result = this.stripUiNoiseCodeBlocks(result, warnings);
     result = this.stripResidualUiNoiseLines(result, warnings);
     result = this.stripTerminalFooterCluster(result, warnings);
     result = this.ensurePrimaryHeading(result, normalizedMetadata.title);
