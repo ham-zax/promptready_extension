@@ -578,6 +578,7 @@ describe('technical markdown fidelity', () => {
 
       expect(report.completenessStatus).toBe('incomplete_title_only');
       expect(report.overallScore).toBeLessThanOrEqual(20);
+      expect(report.passesThreshold).toBe(false);
       expect(report.metrics.completeness).toBeLessThan(50);
       const hasIncompleteWarning = report.issues.some(
         (issue) => issue.category === 'content' && /title.?only|empty.?body|metadata.?only/i.test(issue.message)
@@ -613,6 +614,7 @@ describe('technical markdown fidelity', () => {
 
       expect(report.completenessStatus).toBe('incomplete_empty_body');
       expect(report.overallScore).toBeLessThanOrEqual(25);
+      expect(report.passesThreshold).toBe(false);
       const hasIncompleteWarning = report.issues.some(
         (issue) => issue.category === 'content' && /title.?only|empty.?body|metadata.?only/i.test(issue.message)
       );
@@ -707,6 +709,34 @@ describe('technical markdown fidelity', () => {
       expect(report.completenessStatus).not.toBe('incomplete_empty_body');
       expect(report.completenessStatus).not.toBe('incomplete_title_only');
       expect(report.overallScore).toBeGreaterThan(45);
+    });
+
+    it('should not treat body blockquotes as citation metadata', () => {
+      const markdown = [
+        '> Source: [Example](https://example.com)',
+        '> Captured: 2026-05-02T15:29:15.467Z',
+        '> Hash: hash',
+        '',
+        '# Interview Notes',
+        '',
+        '> This quote is the main captured content and should count as body. It contains the actual captured substance from the page, not PromptReady citation metadata.',
+      ].join('\n');
+
+      const originalHtml = [
+        '<article>',
+        '<h1>Interview Notes</h1>',
+        '<blockquote>This quote is the main captured content and should count as body. It contains the actual captured substance from the page, not PromptReady citation metadata.</blockquote>',
+        '</article>',
+      ].join('');
+
+      const report = ContentQualityValidator.validate(markdown, originalHtml, {
+        totalTime: 150,
+        fallbacksUsed: [],
+        errors: [],
+      });
+
+      expect(report.completenessStatus).not.toBe('incomplete_empty_body');
+      expect(report.completenessStatus).not.toBe('incomplete_title_only');
     });
   });
 });

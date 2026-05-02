@@ -365,6 +365,20 @@ describe('Popup outcome rendering', () => {
     expect(screen.queryByRole('button', { name: /copy md/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /save md/i })).not.toBeInTheDocument();
   });
+
+  it('renders partial captures as degraded instead of neutral ready', () => {
+    renderPopupWithExport('not_attempted', {
+      completenessStatus: 'partial',
+      overallScore: 40,
+      issues: [{ message: 'quality:short_body', category: 'content' }],
+    });
+
+    expect(screen.getByText('Partial capture ready')).toBeInTheDocument();
+    expect(screen.getByText(/some page content may be missing/i)).toBeInTheDocument();
+    expect(screen.queryByText('Offline output ready')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy md/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save md/i })).toBeInTheDocument();
+  });
 });
 
 describe('derivePopupOutcome for incomplete captures', () => {
@@ -425,5 +439,26 @@ describe('derivePopupOutcome for incomplete captures', () => {
     expect(outcome).not.toBeNull();
     expect(outcome?.kind).toBe('ready_offline');
     expect(outcome?.tone).toBe('neutral');
+  });
+
+  it('should classify partial captures as degraded but exportable', () => {
+    const input: PopupOutcomeInput = {
+      mode: 'offline',
+      hasContent: true,
+      processingStatus: 'complete',
+      qualityReport: {
+        completenessStatus: 'partial',
+        overallScore: 40,
+        issues: [{ message: 'quality:short_body', category: 'content' }],
+      },
+    };
+
+    const outcome = derivePopupOutcome(input);
+
+    expect(outcome).not.toBeNull();
+    expect(outcome?.kind).toBe('ready_offline_degraded');
+    expect(outcome?.tone).toBe('degraded');
+    expect(outcome?.primaryActions).toEqual(['copy_md', 'save_md']);
+    expect(outcome?.title).toBe('Partial capture ready');
   });
 });

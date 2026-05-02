@@ -122,6 +122,18 @@ export function derivePopupOutcome(input: PopupOutcomeInput): PopupOutcomeViewMo
       };
     }
 
+    if (completenessStatus === 'partial') {
+      return {
+        kind: 'ready_offline_degraded',
+        title: 'Partial capture ready',
+        message: 'Some page content may be missing, but usable content was captured.',
+        tone: 'degraded',
+        primaryActions: ['copy_md', 'save_md'],
+        secondaryActions: ['view_details'],
+        details: input.qualityReport?.issues?.[0]?.message,
+      };
+    }
+
     if (input.mode === 'ai' && input.aiOutcome === 'success') {
       return {
         kind: 'ready_ai',

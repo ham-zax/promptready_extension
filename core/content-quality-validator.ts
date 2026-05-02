@@ -417,7 +417,7 @@ export class ContentQualityValidator {
    */
   private static calculateCompleteness(
     markdown: string,
-    originalHtml: string,
+    _originalHtml: string,
     processingStats: any,
     issues: QualityIssue[]
   ): { score: number; status: QualityReport['completenessStatus'] } {
@@ -557,24 +557,29 @@ export class ContentQualityValidator {
     hasMeaningfulPrimaryHeading: boolean;
   } {
     const lines = markdown.split('\n');
-    const bodyLines: string[] = [];
-    let inCitationBlock = false;
+    let contentStartIndex = 0;
     let citationChars = 0;
+
+    while (
+      contentStartIndex < lines.length &&
+      this.isCitationPreludeLine(lines[contentStartIndex])
+    ) {
+      citationChars += lines[contentStartIndex].length;
+      contentStartIndex += 1;
+    }
+
+    if (citationChars > 0) {
+      while (contentStartIndex < lines.length && lines[contentStartIndex].trim() === '') {
+        contentStartIndex += 1;
+      }
+    }
+
+    const contentLines = lines.slice(contentStartIndex);
+    const bodyLines: string[] = [];
     let primaryHeading = '';
     let skippedPrimaryHeading = false;
 
-    for (const line of lines) {
-      if (line.startsWith('> ')) {
-        inCitationBlock = true;
-        citationChars += line.length;
-        continue;
-      }
-      if (inCitationBlock && line === '') {
-        inCitationBlock = false;
-        continue;
-      }
-      if (inCitationBlock) continue;
-
+    for (const line of contentLines) {
       if (line.startsWith('# ')) {
         if (!skippedPrimaryHeading && bodyLines.length === 0) {
           primaryHeading = line.replace(/^#\s+/, '').trim();
@@ -616,6 +621,10 @@ export class ContentQualityValidator {
       navigationOnly: this.isNavigationOnly(bodyContent, paragraphCount),
       hasMeaningfulPrimaryHeading,
     };
+  }
+
+  private static isCitationPreludeLine(line: string): boolean {
+    return /^>\s*(Source|Captured|Published|Updated|By|Hash):\s*/i.test(line.trim());
   }
 
   private static countCodeChars(markdown: string): number {
