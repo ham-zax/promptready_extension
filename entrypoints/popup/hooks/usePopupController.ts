@@ -22,7 +22,7 @@ interface PopupState {
   remainingFreeByokStartsToday: number;
   apiKeyInput: string;
   processing: {
-    status: 'idle' | 'capturing' | 'cleaning' | 'processing' | 'structuring' | 'exporting' | 'complete' | 'error';
+    status: ProcessingStatus;
     message?: string;
     progress?: number;
   };
@@ -47,6 +47,38 @@ interface PopupState {
   settingsView: 'main' | 'byokChoice' | 'byokConfig';
   byokProvider: 'openrouter';
 }
+
+type ProcessingStatus =
+  | 'idle'
+  | 'capturing'
+  | 'cleaning'
+  | 'processing'
+  | 'structuring'
+  | 'exporting'
+  | 'complete'
+  | 'error'
+  | 'initialization'
+  | 'preprocessing'
+  | 'offline-baseline'
+  | 'ai-processing'
+  | 'byok-processing'
+  | 'postprocessing'
+  | 'fallback';
+
+const ACTIVE_PROCESSING_STATUSES = new Set<ProcessingStatus>([
+  'capturing',
+  'cleaning',
+  'processing',
+  'structuring',
+  'exporting',
+  'initialization',
+  'preprocessing',
+  'offline-baseline',
+  'ai-processing',
+  'byok-processing',
+  'postprocessing',
+  'fallback',
+]);
 
 type ProcessingCompletePayload = {
   markdown?: string;
@@ -596,11 +628,7 @@ export function usePopupController() {
   }, []);
 
   const isProcessing =
-    state.processing.status === 'capturing' ||
-    state.processing.status === 'cleaning' ||
-    state.processing.status === 'structuring' ||
-    state.processing.status === 'exporting' ||
-    state.processing.status === 'processing';
+    ACTIVE_PROCESSING_STATUSES.has(state.processing.status);
 
   const hasContent = !!state.exportData?.markdown;
 

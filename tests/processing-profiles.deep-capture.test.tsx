@@ -53,9 +53,14 @@ describe('ProcessingProfiles deep capture toggle', () => {
     const onSettingsChange = vi.fn();
     render(<ProcessingProfiles settings={makeSettings()} onSettingsChange={onSettingsChange} />);
 
-    expect(screen.getByRole('button', { name: /auto/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /clean markdown/i })).toBeInTheDocument();
-    expect(screen.queryByText(/content extraction/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/content strategy/i)).toHaveValue('auto');
+    expect(screen.getByLabelText(/output format/i)).toHaveValue('clean-markdown');
+    expect(screen.queryByRole('button', { name: /technical docs/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('checkbox', { name: /enable deep capture \(full-page only\)/i }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /advanced capture/i }));
     expect(
       screen.getByRole('checkbox', { name: /enable deep capture \(full-page only\)/i }),
     ).toBeInTheDocument();
@@ -75,7 +80,9 @@ describe('ProcessingProfiles deep capture toggle', () => {
 
     render(<ProcessingProfiles settings={settings} onSettingsChange={onSettingsChange} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /technical docs/i }));
+    fireEvent.change(screen.getByLabelText(/content strategy/i), {
+      target: { value: 'technical' },
+    });
 
     expect(onSettingsChange).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -97,7 +104,9 @@ describe('ProcessingProfiles deep capture toggle', () => {
     const onSettingsChange = vi.fn();
     render(<ProcessingProfiles settings={makeSettings()} onSettingsChange={onSettingsChange} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /obsidian/i }));
+    fireEvent.change(screen.getByLabelText(/output format/i), {
+      target: { value: 'obsidian' },
+    });
 
     expect(onSettingsChange).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -115,6 +124,8 @@ describe('ProcessingProfiles deep capture toggle', () => {
   it('updates capture policy when deep capture is toggled', () => {
     const onSettingsChange = vi.fn();
     render(<ProcessingProfiles settings={makeSettings()} onSettingsChange={onSettingsChange} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /advanced capture/i }));
 
     const checkbox = screen.getAllByRole('checkbox', {
       name: /enable deep capture \(full-page only\)/i,

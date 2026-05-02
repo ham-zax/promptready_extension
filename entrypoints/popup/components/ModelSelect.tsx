@@ -3,7 +3,7 @@ import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ChevronsUpDown, Check } from 'lucide-react';
+import { ChevronsUpDown, Check, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type Item = {
@@ -145,21 +145,24 @@ export function ModelSelect({ value, onChange, apiBase, freeOnly = false }: Mode
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center space-x-2">
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              role="combobox"
-              aria-expanded={open}
-              className="w-[260px] justify-between"
-            >
-              {showPlaceholder ? placeholder : selectedLabel}
-              <ChevronsUpDown className="opacity-50" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[320px] p-0">
+    <div className="w-full min-w-0 space-y-2">
+      <div className="flex w-full min-w-0 items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={open}
+                className="w-full min-w-0 justify-between gap-2 px-3"
+              >
+                <span className="min-w-0 flex-1 truncate text-left">
+                  {showPlaceholder ? placeholder : selectedLabel}
+                </span>
+                <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] p-0">
             <Command>
               <CommandInput
                 placeholder="Search models..."
@@ -178,8 +181,10 @@ export function ModelSelect({ value, onChange, apiBase, freeOnly = false }: Mode
                         value={`${m.name ?? m.id} ${m.id}`}
                         onSelect={() => handleSelect(m.id)}
                       >
-                        {m.isFree ? `${m.name || m.id} · free` : (m.name || m.id)}
-                        <Check className={cn('ml-auto', isSelected ? 'opacity-100' : 'opacity-0')} />
+                        <span className="min-w-0 flex-1 truncate">
+                          {m.isFree ? `${m.name || m.id} · free` : (m.name || m.id)}
+                        </span>
+                        <Check className={cn('ml-auto h-4 w-4 shrink-0', isSelected ? 'opacity-100' : 'opacity-0')} />
                       </CommandItem>
                     );
                   })}
@@ -189,23 +194,28 @@ export function ModelSelect({ value, onChange, apiBase, freeOnly = false }: Mode
                       value={query}
                       onSelect={() => handleSelect(query.trim())}
                     >
-                      {`Use "${query.trim()}"`}
-                      <Check className={cn('ml-auto', value === query.trim() ? 'opacity-100' : 'opacity-0')} />
+                      <span className="min-w-0 flex-1 truncate">{`Use "${query.trim()}"`}</span>
+                      <Check className={cn('ml-auto h-4 w-4 shrink-0', value === query.trim() ? 'opacity-100' : 'opacity-0')} />
                     </CommandItem>
                   )}
                 </CommandGroup>
               </CommandList>
             </Command>
-          </PopoverContent>
-        </Popover>
+            </PopoverContent>
+          </Popover>
+        </div>
         <button
+          type="button"
+          aria-label="Refresh OpenRouter models"
+          title="Refresh OpenRouter models"
           onClick={() => fetchModels(true)}
-          className="px-2 py-1 text-xs rounded border bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={loading}
         >
-          Refresh
+          <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
         </button>
-        {loading && <span className="text-xs text-muted-foreground">Fetching…</span>}
       </div>
+      {loading && <span className="block text-xs text-muted-foreground">Fetching models…</span>}
       {options.length === 0 && !loading && (
         <div>
           <span className="text-xs text-destructive">

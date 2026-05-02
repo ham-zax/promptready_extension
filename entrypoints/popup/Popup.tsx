@@ -308,7 +308,7 @@ export default function RefactoredPopup() {
     setIsProcessing(true);
     setProcessingComplete(false);
     setProcessingStep('initialization');
-    setProcessingStage(state.mode === 'ai' ? 'Preparing AI request...' : 'Capturing content...');
+    setProcessingStage(state.mode === 'ai' ? 'Preparing capture request...' : 'Capturing content...');
     setAutoCloseCountdown(null);
     setAiFallbackInfo(null);
     setLastAiOutcome('not_attempted');
@@ -355,15 +355,15 @@ export default function RefactoredPopup() {
       case 'initialization':
         return 'Capture request queued';
       case 'preprocessing':
-        return 'Cleaning and preparing content';
+        return 'Extracting page content';
       case 'offline-baseline':
-        return 'Preparing offline baseline';
+        return 'Preparing reliable Markdown baseline';
       case 'ai-processing':
-        return 'Sending AI request';
+        return 'Sending request to OpenRouter';
       case 'byok-processing':
-        return 'Waiting for AI response';
+        return 'Waiting for OpenRouter response';
       case 'postprocessing':
-        return 'Validating and finalizing output';
+        return 'Checking and finalizing Markdown';
       case 'fallback':
         return 'Continuing with offline capture';
       default:

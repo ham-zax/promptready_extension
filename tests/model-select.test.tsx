@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, waitFor, cleanup } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const browserMock = vi.hoisted(() => ({
@@ -46,6 +46,41 @@ describe('ModelSelect', () => {
           provider: 'openrouter',
           apiBase: 'https://openrouter.ai/api/v1',
           freeOnly: false,
+        },
+      });
+    });
+  });
+
+  it('keeps refresh accessible and inside the model row', async () => {
+    render(
+      <ModelSelect
+        value="nvidia/nemotron-3-nano-30b-a3b:free"
+        onChange={vi.fn()}
+        apiBase="https://openrouter.ai/api/v1"
+      />,
+    );
+
+    const trigger = screen.getByRole('combobox');
+    expect(trigger.className).toContain('min-w-0');
+    expect(trigger.className).not.toContain('w-[260px]');
+
+    const refresh = screen.getByRole('button', { name: /refresh openrouter models/i });
+    expect(refresh.className).toContain('shrink-0');
+
+    await waitFor(() => {
+      expect(refresh).not.toBeDisabled();
+    });
+
+    fireEvent.click(refresh);
+
+    await waitFor(() => {
+      expect(browserMock.runtime.sendMessage).toHaveBeenCalledWith({
+        type: 'FETCH_MODELS',
+        payload: {
+          provider: 'openrouter',
+          apiBase: 'https://openrouter.ai/api/v1',
+          freeOnly: false,
+          forceRefresh: true,
         },
       });
     });

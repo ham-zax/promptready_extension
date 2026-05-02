@@ -8,7 +8,7 @@ import {
   type ContentStrategyId,
   type OutputFormatId,
 } from '@/lib/processing-profile-registry';
-import { CheckCircle2, Circle, FileText, Info, Settings as SettingsIcon, Zap } from 'lucide-react';
+import { ChevronDown, Info, Settings as SettingsIcon, SlidersHorizontal, Zap } from 'lucide-react';
 
 interface ProcessingProfilesProps {
   settings: Settings;
@@ -58,40 +58,11 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
     });
   };
 
-  const renderChoiceButton = (
-    item: { id: string; name: string; description: string },
-    selected: boolean,
-    onClick: () => void
-  ) => (
-    <button
-      key={item.id}
-      type="button"
-      onClick={onClick}
-      className={`w-full text-left border rounded-lg p-3 transition-all active:scale-[0.98] ${
-        selected
-          ? 'border-brand-primary bg-brand-surface shadow-sm'
-          : 'border-border bg-card text-card-foreground hover:bg-accent hover:border-brand-border'
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 text-muted-foreground">
-          <FileText className="w-4 h-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-foreground">{item.name}</div>
-          <div className="text-xs text-muted-foreground mt-1 leading-snug">{item.description}</div>
-        </div>
-        {selected ? (
-          <CheckCircle2 className="w-5 h-5 text-brand-primary flex-shrink-0" />
-        ) : (
-          <Circle className="w-5 h-5 text-border flex-shrink-0" />
-        )}
-      </div>
-    </button>
-  );
+  const selectedStrategy = CONTENT_STRATEGIES.find((strategy) => strategy.id === normalized.contentStrategy) || CONTENT_STRATEGIES[0];
+  const selectedFormat = OUTPUT_FORMATS.find((format) => format.id === normalized.outputFormat) || OUTPUT_FORMATS[0];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
           <Zap className="w-5 h-5 text-brand-primary" />
@@ -100,70 +71,89 @@ export function ProcessingProfiles({ settings, onSettingsChange }: ProcessingPro
         <button
           type="button"
           onClick={() => setShowAdvanced(!showAdvanced)}
-          className="text-xs text-brand-primary hover:text-brand-primary/80 font-medium transition-colors"
+          aria-expanded={showAdvanced}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
         >
-          {showAdvanced ? 'Hide Advanced' : 'Advanced'}
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          {showAdvanced ? 'Hide advanced capture' : 'Advanced capture'}
         </button>
       </div>
 
-      <div className="space-y-3">
-        <div>
-          <h5 className="text-xs font-semibold text-foreground mb-2">Content Strategy</h5>
-          <div className="grid grid-cols-1 gap-2">
-            {CONTENT_STRATEGIES.map((strategy) =>
-              renderChoiceButton(
-                strategy,
-                normalized.contentStrategy === strategy.id,
-                () => handleStrategyChange(strategy.id as ContentStrategyId)
-              )
-            )}
+      <div className="grid grid-cols-1 gap-3">
+        <div className="space-y-1.5">
+          <label htmlFor="content-strategy" className="block text-xs font-semibold text-foreground">
+            Content strategy
+          </label>
+          <div className="relative">
+            <select
+              id="content-strategy"
+              value={normalized.contentStrategy}
+              onChange={(event) => handleStrategyChange(event.target.value as ContentStrategyId)}
+              className="h-9 w-full appearance-none rounded-md border border-border bg-background px-3 pr-9 text-sm font-medium text-foreground shadow-sm outline-none transition-colors hover:bg-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+            >
+              {CONTENT_STRATEGIES.map((strategy) => (
+                <option key={strategy.id} value={strategy.id}>
+                  {strategy.name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           </div>
+          <p className="text-xs text-muted-foreground leading-snug">{selectedStrategy.description}</p>
         </div>
 
-        <div>
-          <h5 className="text-xs font-semibold text-foreground mb-2">Output Format</h5>
-          <div className="grid grid-cols-1 gap-2">
-            {OUTPUT_FORMATS.map((format) =>
-              renderChoiceButton(
-                format,
-                normalized.outputFormat === format.id,
-                () => handleFormatChange(format.id as OutputFormatId)
-              )
-            )}
+        <div className="space-y-1.5">
+          <label htmlFor="output-format" className="block text-xs font-semibold text-foreground">
+            Output format
+          </label>
+          <div className="relative">
+            <select
+              id="output-format"
+              value={normalized.outputFormat}
+              onChange={(event) => handleFormatChange(event.target.value as OutputFormatId)}
+              className="h-9 w-full appearance-none rounded-md border border-border bg-background px-3 pr-9 text-sm font-medium text-foreground shadow-sm outline-none transition-colors hover:bg-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+            >
+              {OUTPUT_FORMATS.map((format) => (
+                <option key={format.id} value={format.id}>
+                  {format.name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           </div>
+          <p className="text-xs text-muted-foreground leading-snug">{selectedFormat.description}</p>
         </div>
-      </div>
-
-      <div className="bg-muted border border-border rounded-lg p-3">
-        <h6 className="text-xs font-semibold text-foreground mb-3">Capture Strategy</h6>
-        <label className="flex items-start space-x-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={settings.processing?.capturePolicy?.deepCaptureEnabled ?? false}
-            onChange={(e) => {
-              updateProcessing({
-                capturePolicy: {
-                  ...settings.processing?.capturePolicy,
-                  deepCaptureEnabled: e.target.checked,
-                } as NonNullable<Settings['processing']>['capturePolicy'],
-              });
-            }}
-            className="w-4 h-4 rounded border-border text-brand-primary focus:ring-brand-primary mt-0.5"
-          />
-          <div className="min-w-0">
-            <span className="text-sm text-foreground font-medium">Enable deep capture (full-page only)</span>
-            <p className="text-xs text-muted-foreground mt-1 leading-snug">
-              Performs bounded scroll-and-settle before snapshot selection. Selection captures remain exact and fast.
-            </p>
-          </div>
-        </label>
       </div>
 
       {showAdvanced && (
-        <div className="border-t border-border pt-4 space-y-4">
+        <div className="border-t border-border pt-3 space-y-3">
           <div className="flex items-center space-x-2">
             <SettingsIcon className="w-4 h-4 text-muted-foreground" />
-            <h5 className="font-medium text-sm text-foreground">Advanced Configuration</h5>
+            <h5 className="font-medium text-sm text-foreground">Advanced capture</h5>
+          </div>
+
+          <div className="bg-muted border border-border rounded-lg p-3">
+            <label className="flex items-start space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.processing?.capturePolicy?.deepCaptureEnabled ?? false}
+                onChange={(e) => {
+                  updateProcessing({
+                    capturePolicy: {
+                      ...settings.processing?.capturePolicy,
+                      deepCaptureEnabled: e.target.checked,
+                    } as NonNullable<Settings['processing']>['capturePolicy'],
+                  });
+                }}
+                className="w-4 h-4 rounded border-border text-brand-primary focus:ring-brand-primary mt-0.5"
+              />
+              <div className="min-w-0">
+                <span className="text-sm text-foreground font-medium">Enable deep capture (full-page only)</span>
+                <p className="text-xs text-muted-foreground mt-1 leading-snug">
+                  Performs bounded scroll-and-settle before snapshot selection. Selection captures remain exact and fast.
+                </p>
+              </div>
+            </label>
           </div>
 
           <div className="bg-muted border border-border rounded-lg p-3">

@@ -268,6 +268,34 @@ describe('usePopupController mode toggle guard', () => {
     expect(result.current.state.toast?.type).toBe('warning');
   });
 
+  it('keeps processing active for real pipeline progress stage ids', async () => {
+    let runtimeListener: ((message: any) => void) | undefined;
+    mocks.addListener.mockImplementation((listener: any) => {
+      runtimeListener = listener;
+    });
+
+    mocks.getSettings.mockResolvedValue(makeSettings());
+    const { result } = renderHook(() => usePopupController());
+
+    await waitFor(() => {
+      expect(result.current.state.processing.status).toBe('idle');
+    });
+
+    act(() => {
+      runtimeListener?.({
+        type: 'PROCESSING_PROGRESS',
+        payload: {
+          stage: 'offline-baseline',
+          message: 'Preparing offline Markdown baseline...',
+          progress: 20,
+        },
+      });
+    });
+
+    expect(result.current.state.processing.status).toBe('offline-baseline');
+    expect(result.current.isProcessing).toBe(true);
+  });
+
   it('shows warning toast when daily limit fallback is received', async () => {
     let runtimeListener: ((message: any) => void) | undefined;
     mocks.addListener.mockImplementation((listener: any) => {
