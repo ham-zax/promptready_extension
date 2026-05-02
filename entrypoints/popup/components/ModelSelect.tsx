@@ -27,15 +27,14 @@ interface ModelSelectProps {
   value: string;
   onChange: (value: string) => void;
   apiBase: string;
+  freeOnly?: boolean;
 }
 
-export function ModelSelect({ value, onChange, apiBase }: ModelSelectProps) {
+export function ModelSelect({ value, onChange, apiBase, freeOnly = false }: ModelSelectProps) {
   const [models, setModels] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  // Model list is always from local fallback; the freeOnly toggle is locked.
-  const freeOnly = true;
 
   // Tests run in an environment where `browser` may be undefined or missing runtime APIs.
   // Guard all runtime/storage interactions so unit tests do not throw.
@@ -131,7 +130,7 @@ export function ModelSelect({ value, onChange, apiBase }: ModelSelectProps) {
   const placeholder = loading
     ? 'Loading…'
     : (options.length
-      ? 'Select free OpenRouter model'
+      ? 'Select OpenRouter model'
       : 'No models available');
   const canUseManual = useMemo(() => {
     const q = query.trim().toLowerCase();

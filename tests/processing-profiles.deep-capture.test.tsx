@@ -18,6 +18,8 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
     privacy: { telemetryEnabled: false },
     processing: {
       profile: 'standard',
+      contentStrategy: 'auto',
+      outputFormat: 'clean-markdown',
       readabilityPreset: 'standard',
       turndownPreset: 'standard',
       capturePolicy: {
@@ -47,13 +49,67 @@ afterEach(() => {
 });
 
 describe('ProcessingProfiles deep capture toggle', () => {
-  it('shows deep capture toggle without opening advanced settings', () => {
+  it('shows simple strategy and format controls with advanced settings collapsed', () => {
     const onSettingsChange = vi.fn();
     render(<ProcessingProfiles settings={makeSettings()} onSettingsChange={onSettingsChange} />);
 
+    expect(screen.getByRole('button', { name: /auto/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /clean markdown/i })).toBeInTheDocument();
+    expect(screen.queryByText(/content extraction/i)).not.toBeInTheDocument();
     expect(
       screen.getByRole('checkbox', { name: /enable deep capture \(full-page only\)/i }),
     ).toBeInTheDocument();
+  });
+
+  it('updates content strategy without changing output format or capture policy', () => {
+    const onSettingsChange = vi.fn();
+    const settings = makeSettings({
+      processing: {
+        ...makeSettings().processing!,
+        capturePolicy: {
+          ...makeSettings().processing!.capturePolicy!,
+          deepCaptureEnabled: true,
+        },
+      },
+    });
+
+    render(<ProcessingProfiles settings={settings} onSettingsChange={onSettingsChange} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /technical docs/i }));
+
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        processing: expect.objectContaining({
+          profile: 'technical',
+          contentStrategy: 'technical',
+          outputFormat: 'clean-markdown',
+          readabilityPreset: 'technical-documentation',
+          turndownPreset: 'github',
+          capturePolicy: expect.objectContaining({
+            deepCaptureEnabled: true,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('updates output format without changing content strategy', () => {
+    const onSettingsChange = vi.fn();
+    render(<ProcessingProfiles settings={makeSettings()} onSettingsChange={onSettingsChange} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /obsidian/i }));
+
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        processing: expect.objectContaining({
+          profile: 'obsidian',
+          contentStrategy: 'auto',
+          outputFormat: 'obsidian',
+          readabilityPreset: 'standard',
+          turndownPreset: 'obsidian',
+        }),
+      }),
+    );
   });
 
   it('updates capture policy when deep capture is toggled', () => {

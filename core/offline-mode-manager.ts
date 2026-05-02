@@ -5,6 +5,7 @@ import { ReadabilityConfigManager } from './readability-config.js';
 import { MarkdownPostProcessor } from './post-processor.js';
 import { Storage } from '../lib/storage.js';
 import { ExportMetadata } from '../lib/types.js';
+import { resolveProcessingConfig } from '../lib/processing-profile-registry.js';
 import { CacheManager } from '../lib/cache-manager.js';
 import { PerformanceMetrics } from './performance-metrics.js';
 import { safeParseHTML, extractSemanticContent, removeUnwantedElements, extractTextContent, fixRelativeUrls } from '../lib/dom-utils.js';
@@ -2251,8 +2252,8 @@ export class OfflineModeManager {
         const altText = this.normalizeInputText(imageMatch[1] || '');
         const imageUrl = (imageMatch[2] || '').trim().toLowerCase();
         const looksLikeHashedAlt =
-          /^[A-Za-z0-9_+=/\-]{10,}$/.test(altText) ||
-          (/^[A-Za-z0-9_+=/\-]{12,}$/.test(altText.replace(/\s+/g, '')) && !/\s/.test(altText));
+          /^[A-Za-z0-9_+=/-]{10,}$/.test(altText) ||
+          (/^[A-Za-z0-9_+=/-]{12,}$/.test(altText.replace(/\s+/g, '')) && !/\s/.test(altText));
         const genericAlt = /^(image|photo|picture|logo|icon|avatar)$/i.test(altText);
         const socialIconAlt = /^(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share)$/i.test(altText);
         const inlineDataImage = this.isInlineDataImageValue(imageUrl);
@@ -2478,7 +2479,7 @@ export class OfflineModeManager {
       // - a non-URL/non-domain boundary before the prefix
       // - a domain with at least two dots, starting with a short label (1-2 chars) like "en."/"m."
       next = next.replace(
-        /(^|[^A-Za-z0-9/.:-])([A-Za-z]{3,}?)((?:[a-z0-9]{1,2}\.)+[A-Za-z0-9-]+\.[A-Za-z]{2,}(?:\/[^\s]*)?)/g,
+        /(^|[^A-Za-z0-9/.:-])([A-Za-z]{3,}?)((?:[a-z0-9]{1,2}\.)+[A-Za-z0-9-]+\.(?:com|org|net|io|dev|app|ai|edu|gov|co|uk|in|id|me|xyz|info)(?:\/[^\s]*)?)/g,
         '$1$2 $3'
       );
       next = next.replace(/([A-Za-z])(\d+\\\.\s+)/g, '$1 $2');
@@ -2495,6 +2496,54 @@ export class OfflineModeManager {
 
     if (changed) {
       warnings.push('Normalized merged token boundaries in markdown');
+    }
+
+    return output.join('\n');
+  }
+
+  private static normalizeInlineCodeSpacing(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let inFence = false;
+    let changed = false;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (/^```/.test(trimmed)) {
+        inFence = !inFence;
+        output.push(line);
+        continue;
+      }
+
+      if (inFence) {
+        output.push(line);
+        continue;
+      }
+
+      const next = line
+        .replace(/(^|[^`A-Za-z0-9_])([A-Z][A-Z0-9_]{2,})`(?=[A-Za-z])/g, '$1`$2` ')
+        .replace(/([A-Za-z0-9)\]])`(?=[^`\n]+`)/g, '$1 `')
+        .replace(/`([A-Za-z0-9_./:-][^`\n]*?)`(?=[A-Za-z0-9])/g, '`$1` ')
+        .replace(/`([^`\n]+)`,`/g, '`$1`, `')
+        .replace(/,`(?=[^`\n]+`)/g, ', `')
+        .replace(/`\s+([^`\n]*?)`/g, '`$1`')
+        .replace(/`([^`\n]*?)\s+`/g, '`$1`')
+        .replace(/, `\s+/g, ', `')
+        .replace(/\b(and|or) `\s+/g, '$1 `')
+        .replace(/`([A-Za-z0-9_./:-][^`\n]*?)`(?=[A-Za-z0-9])/g, '`$1` ');
+
+      if (next !== line) {
+        changed = true;
+      }
+      output.push(next);
+    }
+
+    if (changed) {
+      warnings.push('Normalized inline code spacing in markdown');
     }
 
     return output.join('\n');
@@ -2650,34 +2699,19 @@ export class OfflineModeManager {
       console.log(`[OfflineModeManager] Applied URL config rule: ${appliedRuleId}`);
     }
 
-    // Apply user processing profile overrides (when present). Defaults are treated as "auto".
+    // Apply user processing strategy/format overrides (when present). Defaults are treated as auto.
     const processing = actualSettings?.processing;
     if (processing && typeof processing === 'object') {
-      const profile = typeof (processing as any).profile === 'string'
-        ? String((processing as any).profile).trim().toLowerCase()
-        : '';
+      const resolvedProcessing = resolveProcessingConfig(processing as any);
 
-      const normalizedReadability = this.normalizeReadabilityPreset((processing as any).readabilityPreset);
+      const normalizedReadability = this.normalizeReadabilityPreset(resolvedProcessing.readabilityPreset);
       if (normalizedReadability) {
         baseConfig.readabilityPreset = normalizedReadability;
       }
 
       baseConfig.extractionTuning = normalizeExtractionTuning((processing as any).extractionTuning);
 
-      const turndownRaw = typeof (processing as any).turndownPreset === 'string'
-        ? String((processing as any).turndownPreset).trim()
-        : '';
-      const normalizedTurndown = this.normalizeTurndownPreset(turndownRaw || baseConfig.turndownPreset);
-
-      // If the user picked a non-default profile, always honor its markdown preset.
-      // For the "standard" profile, only override when the user chose a non-standard preset.
-      const shouldOverrideTurndown =
-        turndownRaw.length > 0 &&
-        (profile !== 'standard' || normalizedTurndown !== 'standard');
-
-      if (shouldOverrideTurndown) {
-        baseConfig.turndownPreset = normalizedTurndown;
-      }
+      baseConfig.turndownPreset = this.normalizeTurndownPreset(resolvedProcessing.turndownPreset);
     }
 
     return this.mergeConfig(baseConfig);
@@ -4089,6 +4123,7 @@ export class OfflineModeManager {
     result = this.repairInlineCodeFenceBoundaries(result, warnings);
     result = this.collapseFragmentedWordRuns(result, warnings);
     result = this.normalizeMergedTokenBoundaries(result, warnings);
+    result = this.normalizeInlineCodeSpacing(result, warnings);
     result = this.repairInlineCodeFenceBoundaries(result, warnings);
     result = this.mergeSplitHeadings(result, warnings);
     // Re-run line-level UI filtering after fence repair/token normalization,

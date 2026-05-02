@@ -22,7 +22,6 @@ declare const __PROMPTREADY_DEV_FORCE_DEVELOPER_MODE__: boolean | undefined;
 declare const __PROMPTREADY_USE_MOCK_MONETIZATION__: boolean | undefined;
 
 const DEV_DEFAULT_MONETIZATION_BASE = 'http://127.0.0.1:8788';
-const DEV_DEFAULT_BYOK_PROXY = 'http://127.0.0.1:8788/byok/proxy';
 const DEV_DEFAULT_TRAFILATURA_URL = 'http://127.0.0.1:8089';
 const PROD_DEFAULT_MONETIZATION_BASE = 'https://promptready.app';
 const PROD_DEFAULT_BYOK_PROXY = 'https://promptready.app/api/proxy';
@@ -137,7 +136,7 @@ export function getRuntimeProfile(): RuntimeProfile {
 
   const byokProxyUrl =
     readString('WXT_BYOK_PROXY_URL') ??
-    (isDevelopment ? DEV_DEFAULT_BYOK_PROXY : PROD_DEFAULT_BYOK_PROXY);
+    PROD_DEFAULT_BYOK_PROXY;
 
   const trafilaturaServiceUrl =
     readString('WXT_TRAFILATURA_URL') ??

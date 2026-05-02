@@ -18,6 +18,7 @@ import { ContentQualityValidator } from '../core/content-quality-validator.js';
 import { SessionMetricsStore } from '../core/metrics-session-store.js';
 import {
   fallbackOpenRouterFreeModelOptions,
+  selectOpenRouterModelOptions,
 } from '../lib/openrouter-models.js';
 
 export default defineBackground(() => {
@@ -421,6 +422,7 @@ export class EnhancedContentProcessor {
     result = this.sanitizeRiskyMarkdown(result, warnings);
     result = this.stripResidualUiNoiseLines(result, warnings);
     result = this.normalizeMarkdownSpacing(result);
+    result = this.normalizeInlineCodeSpacing(result, warnings);
     result = this.ensurePrimaryHeading(result, normalizedMetadata.title);
 
     if (!result || result.trim().length === 0) {
@@ -555,6 +557,54 @@ export class EnhancedContentProcessor {
       .replace(/\n{3,}/g, '\n\n')
       .replace(/^\s+$/gm, '')
       .trim();
+  }
+
+  private normalizeInlineCodeSpacing(markdown: string, warnings: string[]): string {
+    if (!markdown) {
+      return markdown;
+    }
+
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let inFence = false;
+    let changed = false;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (/^```/.test(trimmed)) {
+        inFence = !inFence;
+        output.push(line);
+        continue;
+      }
+
+      if (inFence) {
+        output.push(line);
+        continue;
+      }
+
+      const next = line
+        .replace(/(^|[^`A-Za-z0-9_])([A-Z][A-Z0-9_]{2,})`(?=[A-Za-z])/g, '$1`$2` ')
+        .replace(/([A-Za-z0-9)\]])`(?=[^`\n]+`)/g, '$1 `')
+        .replace(/`([A-Za-z0-9_./:-][^`\n]*?)`(?=[A-Za-z0-9])/g, '`$1` ')
+        .replace(/`([^`\n]+)`,`/g, '`$1`, `')
+        .replace(/,`(?=[^`\n]+`)/g, ', `')
+        .replace(/`\s+([^`\n]*?)`/g, '`$1`')
+        .replace(/`([^`\n]*?)\s+`/g, '`$1`')
+        .replace(/, `\s+/g, ', `')
+        .replace(/\b(and|or) `\s+/g, '$1 `')
+        .replace(/`([A-Za-z0-9_./:-][^`\n]*?)`(?=[A-Za-z0-9])/g, '`$1` ');
+
+      if (next !== line) {
+        changed = true;
+      }
+      output.push(next);
+    }
+
+    if (changed) {
+      warnings.push('Normalized inline code spacing in markdown');
+    }
+
+    return output.join('\n');
   }
 
   private normalizeHeadingForComparison(value: string): string {
@@ -788,6 +838,11 @@ export class EnhancedContentProcessor {
           console.log('Content script ready signal received from tab');
           break;
 
+        case 'COPY_COMPLETE':
+          // Content script sends this after clipboard fallback paths succeed/fail.
+          // Popup state is already updated by EXPORT_COMPLETE / PROCESSING_COMPLETE.
+          break;
+
         case 'FETCH_MODELS':
           await this.handleFetchModels(message);
           sendResponse({ success: true });
@@ -897,7 +952,31 @@ export class EnhancedContentProcessor {
       }
     }
 
-    // Use fallback model list (no direct fetch to OpenRouter)
+    try {
+      const apiBase = this.normalizeApiBase(payload?.apiBase);
+      const modelsUrl = `${apiBase}/models?output_modalities=text`;
+      const response = await fetch(modelsUrl);
+      if (!response.ok) {
+        throw new Error('OPENROUTER_MODELS_FETCH_NON_OK');
+      }
+
+      const payloadJson = await response.json();
+      const fetchedModels = selectOpenRouterModelOptions(payloadJson, { freeOnly }).map((model) => ({
+        id: model.id,
+        name: model.name,
+        isFree: model.isFree,
+        contextLength: model.contextLength,
+      }));
+
+      if (fetchedModels.length > 0) {
+        await this.writeCachedOpenRouterModels(cacheKey, fetchedModels);
+        await this.publishModelResults(fetchedModels, freeOnly);
+        return;
+      }
+    } catch {
+      console.warn('[OPENROUTER_MODELS_FETCH_FAILED] Using fallback model list.');
+    }
+
     const fallback = fallbackOpenRouterFreeModelOptions().map((model) => ({
       id: model.id,
       name: model.name,

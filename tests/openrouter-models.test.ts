@@ -42,21 +42,21 @@ describe('openrouter model normalization', () => {
     expect(result.some((model) => model.id === 'paid/a')).toBe(false);
   });
 
-  it('returns all models with free models sorted first and no duplicates', () => {
+  it('returns all models without injecting or prioritizing the free router', () => {
     const payload = {
       data: [
-        { id: 'paid/z', name: 'Paid Z', pricing: { prompt: '0.2', completion: '0.4' } },
-        { id: 'free/y:free', name: 'Free Y', pricing: { prompt: '0', completion: '0' } },
-        { id: 'free/y:free', name: 'Free Y Duplicate', pricing: { prompt: '0', completion: '0' } },
+        { id: 'free/y:free', name: 'Z Free', pricing: { prompt: '0', completion: '0' } },
+        { id: 'paid/a', name: 'A Paid', pricing: { prompt: '0.2', completion: '0.4' } },
+        { id: 'free/y:free', name: 'Z Free Duplicate', pricing: { prompt: '0', completion: '0' } },
       ],
     };
 
     const result = selectOpenRouterModelOptions(payload, { freeOnly: false });
 
-    expect(result[0]?.isFree).toBe(true);
+    expect(result[0]?.id).toBe('paid/a');
     expect(result.filter((model) => model.id === 'free/y:free')).toHaveLength(1);
-    expect(result.some((model) => model.id === 'paid/z')).toBe(true);
-    expect(result.some((model) => model.id === 'openrouter/free')).toBe(true);
+    expect(result.some((model) => model.id === 'free/y:free')).toBe(true);
+    expect(result.some((model) => model.id === 'openrouter/free')).toBe(false);
   });
 
   it('provides deterministic fallback free options', () => {

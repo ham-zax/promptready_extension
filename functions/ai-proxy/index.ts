@@ -138,7 +138,10 @@ function isOriginAllowed(origin: string | null, env: Env): boolean {
   const configured = parseAllowedOrigins(env);
   if (configured.length > 0) {
     if (configured.includes("*")) return true;
-    return configured.includes(origin);
+    return (
+      configured.includes(origin) ||
+      DEFAULT_ALLOWED_ORIGIN_PATTERNS.some((re) => re.test(origin))
+    );
   }
   return DEFAULT_ALLOWED_ORIGIN_PATTERNS.some((re) => re.test(origin));
 }
@@ -362,7 +365,7 @@ async function handleBYOKProxy(
       body: JSON.stringify({
         model,
         temperature,
-        max_tokens: maxTokens,
+        max_completion_tokens: maxTokens,
         messages: [{ role: "user", content: prompt }],
       }),
     });

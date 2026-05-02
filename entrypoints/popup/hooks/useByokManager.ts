@@ -30,7 +30,7 @@ export interface ByokActions {
 const DEFAULT_PROVIDERS = {
   openrouter: {
     apiBase: 'https://openrouter.ai/api/v1',
-    defaultModel: 'arcee-ai/trinity-large-preview:free',
+    defaultModel: '',
   },
 };
 
@@ -60,7 +60,7 @@ export function useByokManager(): ByokState & ByokActions {
             provider: 'openrouter',
             apiKey,
             apiBase: byokConfig.apiBase?.trim() || DEFAULT_PROVIDERS.openrouter.apiBase,
-            selectedModel: byokConfig.selectedByokModel || DEFAULT_PROVIDERS.openrouter.defaultModel,
+            selectedModel: byokConfig.selectedByokModel || byokConfig.model || DEFAULT_PROVIDERS.openrouter.defaultModel,
             hasApiKey: Boolean(apiKey),
           }));
         }
@@ -140,6 +140,15 @@ export function useByokManager(): ByokState & ByokActions {
       return false;
     }
 
+    if (!state.selectedModel.trim()) {
+      setState(prev => ({
+        ...prev,
+        isValid: false,
+        validationMessage: 'Please select an OpenRouter model',
+      }));
+      return false;
+    }
+
     setState(prev => ({
       ...prev,
       isValidationInProgress: true,
@@ -168,7 +177,7 @@ export function useByokManager(): ByokState & ByokActions {
       }));
       return false;
     }
-  }, [state.provider, state.apiKey, state.apiBase]);
+  }, [state.provider, state.apiKey, state.apiBase, state.selectedModel]);
 
   const saveConfiguration = useCallback(async () => {
     const isValid = state.isValid || await validateConfiguration();
@@ -182,8 +191,8 @@ export function useByokManager(): ByokState & ByokActions {
           provider: state.provider,
           apiKey: state.apiKey.trim(),
           apiBase: state.apiBase.trim(),
-          model: state.selectedModel,
-          selectedByokModel: state.selectedModel,
+          model: state.selectedModel.trim(),
+          selectedByokModel: state.selectedModel.trim(),
         },
       });
 

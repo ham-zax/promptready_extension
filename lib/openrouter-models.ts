@@ -113,9 +113,9 @@ function extractModelEntries(payload: unknown): unknown[] {
   return [];
 }
 
-function sortModelOptions(models: OpenRouterModelOption[]): OpenRouterModelOption[] {
+function sortModelOptions(models: OpenRouterModelOption[], freeFirst: boolean): OpenRouterModelOption[] {
   return models.sort((a, b) => {
-    if (a.isFree !== b.isFree) {
+    if (freeFirst && a.isFree !== b.isFree) {
       return a.isFree ? -1 : 1;
     }
 
@@ -150,7 +150,7 @@ export function selectOpenRouterModelOptions(
     }
   }
 
-  if (!deduped.has(FREE_ROUTER_OPTION.id)) {
+  if (options.freeOnly && !deduped.has(FREE_ROUTER_OPTION.id)) {
     deduped.set(FREE_ROUTER_OPTION.id, { ...FREE_ROUTER_OPTION });
   }
 
@@ -162,5 +162,5 @@ export function selectOpenRouterModelOptions(
     }
   }
 
-  return sortModelOptions(models);
+  return sortModelOptions(models, options.freeOnly === true);
 }

@@ -109,4 +109,58 @@ describe('storage monetization normalization', () => {
       countedSuccessIds: [],
     });
   });
+
+  it('normalizes legacy processing profiles into strategy and format fields', async () => {
+    await browser.storage.local.set({
+      [SETTINGS_KEY]: {
+        settingsSchemaVersion: 2,
+        mode: 'offline',
+        byok: {
+          provider: 'openrouter',
+          apiBase: 'https://openrouter.ai/api/v1',
+          apiKey: '',
+          selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+        },
+        privacy: { telemetryEnabled: false },
+        processing: {
+          profile: 'social',
+          readabilityPreset: 'social-media',
+          turndownPreset: 'minimal',
+          capturePolicy: {
+            settleTimeoutMs: 700,
+            quietWindowMs: 200,
+            deepCaptureEnabled: true,
+            maxScrollSteps: 6,
+            maxScrollDurationMs: 3500,
+            scrollStepDelayMs: 200,
+            minTextGainRatio: 0.3,
+            minHeadingGain: 3,
+          },
+          customOptions: {
+            preserveCodeBlocks: true,
+            includeImages: false,
+            preserveTables: true,
+            preserveLinks: true,
+          },
+        },
+      },
+    });
+
+    const settings = await Storage.getSettings();
+
+    expect(settings.processing).toMatchObject({
+      profile: 'social',
+      contentStrategy: 'thread',
+      outputFormat: 'clean-markdown',
+      readabilityPreset: 'forum-discussion',
+      turndownPreset: 'standard',
+      capturePolicy: expect.objectContaining({
+        deepCaptureEnabled: true,
+        settleTimeoutMs: 700,
+      }),
+      customOptions: expect.objectContaining({
+        includeImages: false,
+      }),
+    });
+  });
 });

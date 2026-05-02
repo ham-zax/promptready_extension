@@ -111,6 +111,47 @@ describe('EnhancedOffscreenProcessor AI provider normalization', () => {
     expect(result.warnings).toContain('ai_fallback:missing_openrouter_key');
   });
 
+  it('prefers the explicit selected BYOK model over the legacy model field', async () => {
+    byokSpy.mockResolvedValue({
+      content: '# selected model',
+      usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+    });
+
+    const processor = Object.create((EnhancedOffscreenProcessor as any).prototype) as any;
+    processor.sendProgress = vi.fn();
+    processor.sendComplete = vi.fn();
+    processor.generateStructuredExport = vi.fn().mockReturnValue({ version: '1.0' });
+    processor.processOfflineMode = vi.fn().mockResolvedValue({
+      exportMd: 'offline',
+      exportJson: { version: '1.0' },
+      metadata: {},
+      stats: {},
+      warnings: [],
+      originalHtml: '<p>offline</p>',
+    });
+
+    await processor.processAIMode(
+      '<article><h1>Title</h1><p>Body</p></article>',
+      'https://example.com',
+      'Title',
+      {} as any,
+      {
+        byok: {
+          provider: 'openrouter',
+          apiKey: 'sk-or-v1-test-key',
+          model: 'openrouter/free',
+          selectedByokModel: 'openai/gpt-5.2',
+        },
+      } as any,
+    );
+
+    expect(byokSpy).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ model: 'openai/gpt-5.2' }),
+      expect.any(Object),
+    );
+  });
+
   it('returns deterministic fallback trace when OpenRouter request fails', async () => {
     byokSpy.mockRejectedValue(new Error('network down'));
 

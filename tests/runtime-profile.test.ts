@@ -9,7 +9,7 @@ function makeProfile(overrides: Partial<RuntimeProfile> = {}): RuntimeProfile {
     enforceDeveloperMode: true,
     useMockMonetization: true,
     monetizationApiBase: 'http://127.0.0.1:8788',
-    byokProxyUrl: 'http://127.0.0.1:8788/byok/proxy',
+    byokProxyUrl: 'https://promptready.app/api/proxy',
     trafilaturaServiceUrl: 'http://127.0.0.1:8089',
     ...overrides,
   };

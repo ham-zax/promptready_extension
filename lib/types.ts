@@ -2,6 +2,7 @@
 // Based on PRD Section 14 (Machine-Readable Specs) and Architecture
 
 import type { ExtractionMode, ExtractionTuning } from '../core/domain/extraction/types.js';
+import type { ContentStrategyId, OutputFormatId } from './processing-profile-registry.js';
 
 // =============================================================================
 // Settings & Configuration
@@ -39,6 +40,8 @@ export interface Settings {
   // Processing profile configuration
   processing?: {
     profile: string; // Selected processing profile ID
+    contentStrategy?: ContentStrategyId; // Page/content extraction strategy
+    outputFormat?: OutputFormatId; // Target Markdown dialect/output destination
     readabilityPreset: string; // Readability extraction preset
     turndownPreset: string; // Markdown conversion preset
     extractionTuning?: ExtractionTuning;
@@ -206,6 +209,7 @@ export type AIAttemptOutcome =
   | 'success'
   | 'fallback_provider'
   | 'fallback_missing_key'
+  | 'fallback_missing_model'
   | 'fallback_request_failed'
   | 'fallback_daily_limit_reached'
   | 'fallback_cancelled';
@@ -213,6 +217,7 @@ export type AIAttemptOutcome =
 export type AIFallbackCode =
   | 'ai_fallback:provider_not_supported'
   | 'ai_fallback:missing_openrouter_key'
+  | 'ai_fallback:missing_openrouter_model'
   | 'ai_fallback:request_failed'
   | 'ai_fallback:daily_limit_reached'
   | 'ai_fallback:cancelled';

@@ -902,6 +902,36 @@ Paragraph two.
     expect(warnings).not.toContain('Merged one split heading line');
   });
 
+  it('normalizes technical-doc inline code and dotted identifiers without corrupting URLs', () => {
+    const warnings: string[] = [];
+    const input = [
+      '# Satori',
+      '',
+      'The installer writes managed client config and copies the first-party`satori-search`,`satori-navigation`, and`satori-indexing`skills.',
+      'MILVUS_TOKEN`is only needed for authenticated Milvus.',
+      'Scope filtering`scope=runtime`excludes docs/tests,`docs`targets documentation, and`mixed`includes everything.',
+      'The architecture page keeps the deeper system view: [open architecture.html](https://sato\u200Bri.hamza.my.id/architecture.html).',
+      'manage_index({ action: "reindex", path: <hin\u200Bts.reindex.args.path> })',
+    ].join('\n');
+
+    const output = OfflineModeManager.canonicalizeDeliveredMarkdown(input, {
+      title: 'Satori',
+      url: 'https://satori.hamza.my.id/',
+      capturedAt: '2026-05-02T02:00:28.709Z',
+      selectionHash: 'test-hash',
+    }, warnings);
+
+    expect(output).toContain('first-party `satori-search`, `satori-navigation`, and `satori-indexing` skills');
+    expect(output).toContain('`MILVUS_TOKEN` is only needed');
+    expect(output).toContain('Scope filtering `scope=runtime` excludes docs/tests, `docs` targets documentation, and `mixed` includes everything.');
+    expect(output).toContain('https://satori.hamza.my.id/architecture.html');
+    expect(output).toContain('<hints.reindex.args.path>');
+    expect(output).not.toContain('sato ri');
+    expect(output).not.toContain('hin ts');
+    expect(output).not.toContain('first-party`satori-search`');
+    expect(output).not.toContain('MILVUS_TOKEN`is');
+  });
+
   it('merges true split headings only when continuation is immediate next line', () => {
     const manager = OfflineModeManager as any;
     const warnings: string[] = [];

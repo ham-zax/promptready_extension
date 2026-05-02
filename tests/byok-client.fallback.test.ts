@@ -6,6 +6,7 @@ describe('BYOKClient', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   it('calls proxy URL directly with proxy payload when proxyUrl is provided', async () => {
@@ -90,5 +91,52 @@ describe('BYOKClient', () => {
       { proxyUrl: 'https://promptready.app/api/proxy' }
     )).rejects.toThrow();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports proxy URL and dev remediation when browser fetch fails before a response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    await expect(BYOKClient.makeRequest(
+      { prompt: 'hello', maxTokens: 10, temperature: 0 },
+      {
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-or-v1-test-key',
+        model: 'arcee-ai/trinity-large-preview:free',
+      },
+      { proxyUrl: 'http://127.0.0.1:8788/byok/proxy' }
+    )).rejects.toThrow(
+      'BYOK proxy network request failed for http://127.0.0.1:8788/byok/proxy',
+    );
+  });
+
+  it('allows long OpenRouter BYOK requests before timing out', async () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | undefined;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementationOnce((_input, init) => {
+      capturedSignal = init?.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        capturedSignal?.addEventListener('abort', () => {
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      });
+    });
+
+    const pending = BYOKClient.makeRequest(
+      { prompt: 'long page', maxTokens: 4000, temperature: 0.2 },
+      {
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-or-v1-test-key',
+        model: 'openai/gpt-5.2',
+      },
+      { proxyUrl: 'https://promptready.app/api/proxy' },
+    );
+    const timeoutExpectation = expect(pending).rejects.toThrow('BYOK request timed out');
+
+    await vi.advanceTimersByTimeAsync(89_999);
+    expect(capturedSignal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await timeoutExpectation;
   });
 });

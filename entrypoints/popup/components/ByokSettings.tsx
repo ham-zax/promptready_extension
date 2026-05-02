@@ -93,7 +93,7 @@ export function ByokSettings({
               </label>
               <ModelSelect
                 value={settings.byok.selectedByokModel || settings.byok.model || ''}
-                onChange={(v: string) => onSettingsChange({ byok: { ...settings.byok, selectedByokModel: v } })}
+                onChange={(v: string) => onSettingsChange({ byok: { ...settings.byok, model: v, selectedByokModel: v } })}
                 apiBase={settings.byok.apiBase}
               />
             </div>

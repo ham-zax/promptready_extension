@@ -76,7 +76,7 @@ describe('useByokManager', () => {
 
     expect(result.current.provider).toBe('openrouter');
     expect(result.current.apiBase).toBe('https://openrouter.ai/api/v1');
-    expect(result.current.selectedModel).toBe('arcee-ai/trinity-large-preview:free');
+    expect(result.current.selectedModel).toBe('');
     expect(result.current.isValid).toBe(false);
   });
 
@@ -98,6 +98,7 @@ describe('useByokManager', () => {
     act(() => {
       result.current.setApiKey('sk-or-v1-valid123');
       result.current.setProvider('openrouter');
+      result.current.setSelectedModel('openai/gpt-5.2');
     });
 
     await act(async () => {
@@ -109,8 +110,8 @@ describe('useByokManager', () => {
         provider: 'openrouter',
         apiKey: 'sk-or-v1-valid123',
         apiBase: 'https://openrouter.ai/api/v1',
-        model: 'arcee-ai/trinity-large-preview:free',
-        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+        model: 'openai/gpt-5.2',
+        selectedByokModel: 'openai/gpt-5.2',
       },
     });
   });
@@ -120,6 +121,7 @@ describe('useByokManager', () => {
 
     act(() => {
       result.current.setApiKey('  sk-or-v1-valid123\n');
+      result.current.setSelectedModel('openai/gpt-5.2');
     });
 
     await act(async () => {
@@ -131,8 +133,8 @@ describe('useByokManager', () => {
         provider: 'openrouter',
         apiKey: 'sk-or-v1-valid123',
         apiBase: 'https://openrouter.ai/api/v1',
-        model: 'arcee-ai/trinity-large-preview:free',
-        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+        model: 'openai/gpt-5.2',
+        selectedByokModel: 'openai/gpt-5.2',
       },
     });
   });

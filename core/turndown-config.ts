@@ -391,6 +391,50 @@ export class TurndownConfigManager {
         },
       ],
     },
+    {
+      name: 'notion',
+      description: 'Optimized for Notion import',
+      config: {
+        ...TurndownConfigManager.BASE_CONFIG,
+        linkStyle: 'inlined',
+        codeBlockStyle: 'fenced',
+      },
+      customRules: [],
+      enableGfm: true,
+      postProcessors: [
+        {
+          name: 'notionCleanup',
+          process: (markdown: string) => {
+            return markdown
+              .replace(/\n{3,}/g, '\n\n')
+              .replace(/[ \t]+$/gm, '')
+              .trim();
+          },
+        },
+      ],
+    },
+    {
+      name: 'academic',
+      description: 'Optimized for academic papers and citation-heavy content',
+      config: {
+        ...TurndownConfigManager.BASE_CONFIG,
+        linkStyle: 'inlined',
+        codeBlockStyle: 'fenced',
+      },
+      customRules: [],
+      enableGfm: true,
+      postProcessors: [
+        {
+          name: 'academicCleanup',
+          process: (markdown: string) => {
+            return markdown
+              .replace(/\n{3,}/g, '\n\n')
+              .replace(/[ \t]+$/gm, '')
+              .trim();
+          },
+        },
+      ],
+    },
   ];
 
   /**

@@ -78,7 +78,7 @@ export function UnifiedSettings({
       provider: 'openrouter',
       apiBase: 'https://openrouter.ai/api/v1',
       apiKey: '',
-      selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+      selectedByokModel: '',
       customPrompt: '',
     },
     privacy: { telemetryEnabled: false },
@@ -90,6 +90,8 @@ export function UnifiedSettings({
     },
     processing: {
       profile: 'standard',
+      contentStrategy: 'auto',
+      outputFormat: 'clean-markdown',
       readabilityPreset: 'standard',
       turndownPreset: 'standard',
       customOptions: {

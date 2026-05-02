@@ -51,6 +51,23 @@ describe('ai-proxy BYOK CORS', () => {
     expect(res.headers.get('Access-Control-Allow-Methods')).toContain('POST');
   });
 
+  it('keeps default extension origins allowed when ALLOWED_ORIGINS is configured', async () => {
+    const env = createEnv({ ALLOWED_ORIGINS: 'https://promptready.app' });
+    const extensionOrigin = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
+    const req = new Request('https://worker.test/api/proxy', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: extensionOrigin,
+        'Access-Control-Request-Method': 'POST',
+      },
+    });
+
+    const res = await worker.fetch(req, env, createCtx());
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(extensionOrigin);
+    expect(res.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+  });
+
   it('rejects OPTIONS preflight with missing Origin header (null origin) with 403', async () => {
     const env = createEnv();
     const req = new Request('https://worker.test/byok/proxy', {
@@ -94,6 +111,7 @@ describe('ai-proxy BYOK CORS', () => {
       },
       body: JSON.stringify({
         prompt: 'hello',
+        maxTokens: 123,
         settings: {
           apiBase: 'https://openrouter.ai/api/v1',
           model: 'arcee-ai/trinity-large-preview:free',
@@ -116,6 +134,7 @@ describe('ai-proxy BYOK CORS', () => {
       },
       body: JSON.stringify({
         prompt: 'hello',
+        maxTokens: 123,
         settings: {
           apiBase: 'https://openrouter.ai/api/v1',
           model: 'arcee-ai/trinity-large-preview:free',
@@ -140,6 +159,7 @@ describe('ai-proxy BYOK CORS', () => {
       },
       body: JSON.stringify({
         prompt: 'hello',
+        maxTokens: 123,
         settings: {
           apiBase: 'https://openrouter.ai/api/v1',
           model: 'arcee-ai/trinity-large-preview:free',
@@ -250,6 +270,7 @@ describe('ai-proxy BYOK CORS', () => {
       },
       body: JSON.stringify({
         prompt: 'hello',
+        maxTokens: 123,
         settings: {
           apiBase: 'https://openrouter.ai/api/v1',
           model: 'arcee-ai/trinity-large-preview:free',
@@ -285,6 +306,7 @@ describe('ai-proxy BYOK CORS', () => {
       },
       body: JSON.stringify({
         prompt: 'hello',
+        maxTokens: 123,
         settings: {
           apiBase: 'https://openrouter.ai/api/v1',
           model: 'arcee-ai/trinity-large-preview:free',
@@ -304,5 +326,8 @@ describe('ai-proxy BYOK CORS', () => {
     expect(options.headers.Authorization).toBe('Bearer sk-or-v1-env-test-key');
     expect(options.headers['HTTP-Referer']).toBe('https://promptready.app');
     expect(options.headers['X-Title']).toBe('PromptReady Extension');
+    const upstreamBody = JSON.parse(options.body as string);
+    expect(upstreamBody.max_completion_tokens).toBe(123);
+    expect(upstreamBody).not.toHaveProperty('max_tokens');
   });
 });

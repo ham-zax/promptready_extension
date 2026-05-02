@@ -2,6 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import { Settings } from '@/lib/types';
 import { validateApiKey } from '@/lib/api-validation';
 import { Globe, Bot } from 'lucide-react';
+import { ModelSelect } from './ModelSelect';
 
 interface SimplifiedByokSetupProps {
   settings: Settings;
@@ -40,6 +41,11 @@ export function SimplifiedByokSetup({
   const [apiKey, setApiKey] = useState(settings.byok?.apiKey || '');
   const latestApiKeyRef = useRef(settings.byok?.apiKey || '');
   const [apiBase] = useState('https://openrouter.ai/api/v1');
+  const [selectedModel, setSelectedModel] = useState(
+    settings.byok?.selectedByokModel ||
+      settings.byok?.model ||
+      '',
+  );
   const [isValidating, setIsValidating] = useState(false);
   const [validationStatus, setValidationStatus] = useState<{
     isValid: boolean;
@@ -100,6 +106,15 @@ export function SimplifiedByokSetup({
   const handleSave = async () => {
     // Always re-validate if the key has changed since last validation.
     const currentKey = apiKey.trim();
+    const currentModel = selectedModel.trim();
+    if (!currentModel) {
+      setValidationStatus({
+        isValid: false,
+        message: 'Please select an OpenRouter model before saving.',
+      });
+      return;
+    }
+
     const needsRevalidation = !validatedKey || validatedKey !== currentKey;
     const isValid = needsRevalidation ? await handleValidate() : validationStatus?.isValid;
     if (!isValid) {
@@ -107,15 +122,13 @@ export function SimplifiedByokSetup({
     }
 
     try {
-      const selectedModel = settings.byok?.selectedByokModel || 'arcee-ai/trinity-large-preview:free';
-
       await onSettingsChange({
         byok: {
           provider: 'openrouter',
           apiKey: currentKey,
           apiBase: 'https://openrouter.ai/api/v1',
-          model: selectedModel,
-          selectedByokModel: selectedModel,
+          model: currentModel,
+          selectedByokModel: currentModel,
         },
       });
 
@@ -185,6 +198,17 @@ export function SimplifiedByokSetup({
             value={apiBase}
             readOnly
             className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-600 cursor-not-allowed"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1.5">
+            Model
+          </label>
+          <ModelSelect
+            value={selectedModel}
+            onChange={setSelectedModel}
+            apiBase={apiBase}
           />
         </div>
 

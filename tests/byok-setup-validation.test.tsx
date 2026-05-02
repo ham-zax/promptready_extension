@@ -11,6 +11,30 @@ import { SimplifiedByokSetup } from '@/entrypoints/popup/components/SimplifiedBy
 import { Storage } from '@/lib/storage';
 import * as apiValidation from '@/lib/api-validation';
 
+vi.mock('@/entrypoints/popup/components/ModelSelect', async () => {
+  const React = await import('react');
+  return {
+    ModelSelect: ({
+      value,
+      onChange,
+      freeOnly,
+    }: {
+      value: string;
+      onChange: (value: string) => void;
+      freeOnly?: boolean;
+    }) => React.createElement(
+      'button',
+      {
+        type: 'button',
+        onClick: () => onChange('openai/gpt-5.2'),
+        'data-testid': 'mock-model-select',
+        'data-free-only': String(freeOnly),
+      },
+      value,
+    ),
+  };
+});
+
 // Mock Storage.updateSettings so we can assert it is/isn't called.
 vi.mock('@/lib/storage', () => ({
   Storage: {
@@ -25,8 +49,8 @@ const baseSettings: any = {
     provider: 'openrouter',
     apiKey: '',
     apiBase: 'https://openrouter.ai/api/v1',
-    model: 'arcee-ai/trinity-large-preview:free',
-    selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+    model: '',
+    selectedByokModel: '',
   },
 };
 
@@ -58,6 +82,7 @@ describe('SimplifiedByokSetup — stale validation save prevention', () => {
     const saveBtn = screen.getByRole('button', { name: 'Save API Key' });
 
     // Step 1: Enter a valid key and click Check Format.
+    fireEvent.click(screen.getByTestId('mock-model-select'));
     fireEvent.change(input, { target: { value: 'sk-or-v1-good-key-value' } });
 
     const checkBtn = screen.getByRole('button', { name: 'Check Format' });
@@ -104,6 +129,7 @@ describe('SimplifiedByokSetup — stale validation save prevention', () => {
     const saveBtn = screen.getByRole('button', { name: 'Save API Key' });
 
     // Enter valid key and validate.
+    fireEvent.click(screen.getByTestId('mock-model-select'));
     fireEvent.change(input, { target: { value: '  sk-or-v1-my-real-key\n' } });
     const checkBtn = screen.getByRole('button', { name: 'Check Format' });
     fireEvent.click(checkBtn);
@@ -124,6 +150,77 @@ describe('SimplifiedByokSetup — stale validation save prevention', () => {
     const savedCall = onSettingsChange.mock.calls[0][0];
     expect(savedCall.byok.apiKey).toBe('sk-or-v1-my-real-key');
     expect(Storage.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('lets the user choose an OpenRouter model before saving setup', async () => {
+    const onComplete = vi.fn();
+    const onSettingsChange = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SimplifiedByokSetup
+        settings={baseSettings}
+        onSettingsChange={onSettingsChange}
+        onComplete={onComplete}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Model')).toBeTruthy();
+    expect(screen.getByTestId('mock-model-select')).toHaveAttribute('data-free-only', 'undefined');
+
+    fireEvent.click(screen.getByTestId('mock-model-select'));
+    fireEvent.change(screen.getByPlaceholderText('sk-or-v1-...'), {
+      target: { value: 'sk-or-v1-my-real-key' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check Format' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Key format looks valid/i)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save API Key' }));
+
+    await waitFor(() => {
+      expect(onSettingsChange).toHaveBeenCalledTimes(1);
+    });
+
+    const savedCall = onSettingsChange.mock.calls[0][0];
+    expect(savedCall.byok.model).toBe('openai/gpt-5.2');
+    expect(savedCall.byok.selectedByokModel).toBe('openai/gpt-5.2');
+  });
+
+  it('does not save BYOK setup until a model is selected', async () => {
+    const onComplete = vi.fn();
+    const onSettingsChange = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SimplifiedByokSetup
+        settings={baseSettings}
+        onSettingsChange={onSettingsChange}
+        onComplete={onComplete}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('sk-or-v1-...'), {
+      target: { value: 'sk-or-v1-my-real-key' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check Format' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Key format looks valid/i)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save API Key' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Please select an OpenRouter model/i)).toBeTruthy();
+    });
+
+    expect(onSettingsChange).not.toHaveBeenCalled();
+    expect(onComplete).not.toHaveBeenCalled();
   });
 
   it('clears validation status on every keystroke', async () => {

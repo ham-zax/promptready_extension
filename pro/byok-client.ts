@@ -31,7 +31,7 @@ export interface BYOKResponse {
 }
 
 export class BYOKClient {
-  private static readonly TIMEOUT_MS = 30000; // 30 seconds
+  private static readonly TIMEOUT_MS = 90000; // OpenRouter/provider paths can exceed 30s on long captures.
 
   /**
    * Make a BYOK request with consent and safeguards
@@ -113,8 +113,20 @@ export class BYOKClient {
       return { content, usage };
     } catch (error) {
       clearTimeout(timeoutId);
-      if (error instanceof Error && error.name === 'AbortError') {
+      if (
+        error instanceof Error && error.name === 'AbortError' ||
+        Boolean(error && typeof error === 'object' && (error as { name?: unknown }).name === 'AbortError')
+      ) {
         throw new Error('BYOK request timed out');
+      }
+      if (
+        error instanceof TypeError &&
+        /failed to fetch/i.test(error.message)
+      ) {
+        throw new Error(
+          `BYOK proxy network request failed for ${options.proxyUrl}. ` +
+            'If this is a development extension build, run the local proxy on 127.0.0.1:8788 or set WXT_BYOK_PROXY_URL=https://promptready.app/api/proxy.',
+        );
       }
       throw error;
     }

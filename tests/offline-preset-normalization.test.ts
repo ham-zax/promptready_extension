@@ -57,5 +57,20 @@ describe('offline preset normalization', () => {
     expect(config.readabilityPreset).toBe('technical-documentation');
     expect(config.turndownPreset).toBe('github');
   });
-});
 
+  it('applies content strategy and output format independently of legacy profile', async () => {
+    const settings = {
+      processing: {
+        profile: 'standard',
+        contentStrategy: 'technical',
+        outputFormat: 'clean-markdown',
+        readabilityPreset: 'standard',
+        turndownPreset: 'standard',
+      },
+    };
+
+    const config = await OfflineModeManager.getOptimalConfig('https://satori.hamza.my.id/', settings);
+    expect(config.readabilityPreset).toBe('technical-documentation');
+    expect(config.turndownPreset).toBe('github');
+  });
+});

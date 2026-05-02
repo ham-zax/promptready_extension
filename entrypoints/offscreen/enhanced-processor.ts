@@ -334,7 +334,7 @@ export class EnhancedOffscreenProcessor {
       const providerNormalization = normalizeByokProvider(settings.byok?.provider);
       const provider = providerNormalization.canonicalProvider;
       const apiKey = settings.byok?.apiKey || '';
-      const model = settings.byok?.model || settings.byok?.selectedByokModel || 'arcee-ai/trinity-large-preview:free';
+      const model = (settings.byok?.selectedByokModel || settings.byok?.model || '').trim();
 
       const gateBlockedByDailyLimit =
         aiGate?.fallbackCode === 'ai_fallback:daily_limit_reached' ||
@@ -401,6 +401,28 @@ export class EnhancedOffscreenProcessor {
             aiAttempted: false,
             aiProvider: null,
             aiOutcome: 'fallback_missing_key',
+            fallbackCode: warningCode,
+            runId,
+          }
+        );
+        offlineResult.warnings = [...(offlineResult.warnings || []), warningCode];
+        return offlineResult;
+      }
+
+      if (!model) {
+        const warningCode: AIFallbackCode = 'ai_fallback:missing_openrouter_model';
+        console.warn('[AI Mode] Missing OpenRouter model. Falling back to offline mode.');
+        this.sendProgress('No OpenRouter model selected. Using offline mode...', 50, 'fallback');
+        const offlineResult = await this.processOfflineMode(
+          html,
+          url,
+          title,
+          config,
+          metadataHtml,
+          {
+            aiAttempted: false,
+            aiProvider: null,
+            aiOutcome: 'fallback_missing_model',
             fallbackCode: warningCode,
             runId,
           }

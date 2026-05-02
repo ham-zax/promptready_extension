@@ -69,7 +69,7 @@ export default defineContentScript({
           await new Promise((r) => setTimeout(r, 50));
         } catch (focusErr) {
           // focus may be blocked in some pages — that's fine; continue to attempt clipboard
-          console.warn('[BMAD_CLIPBOARD] window.focus() failed or was blocked:', focusErr);
+          console.info('[BMAD_CLIPBOARD] window.focus() failed or was blocked:', focusErr);
         }
 
         if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
@@ -94,7 +94,7 @@ export default defineContentScript({
             return String(e);
           }
         };
-        console.warn('[BMAD_CLIPBOARD] navigator.clipboard failed; proceeding to fallback.', toMsg(err));
+        console.info('[BMAD_CLIPBOARD] navigator.clipboard failed; proceeding to fallback.', toMsg(err));
       }
 
       // Tier 2: execCommand fallback

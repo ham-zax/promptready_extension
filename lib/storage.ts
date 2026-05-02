@@ -6,6 +6,7 @@ import { CapturePolicy, Settings, TelemetryEvent } from './types.js';
 import { getRuntimeProfile, type RuntimeProfile } from './runtime-profile.js';
 import { DEFAULT_EXTRACTION_TUNING, normalizeExtractionTuning } from '../core/domain/extraction/policies.js';
 import { normalizeByokProvider } from './byok-provider.js';
+import { normalizeProcessingSettings } from './processing-profile-registry.js';
 
 // =============================================================================
 // Storage Keys
@@ -98,9 +99,11 @@ function defaultByokUsageState(dayKey: string = toLocalDayKey()): NonNullable<Se
 function normalizeByokSettings(byok: unknown): Settings['byok'] {
   const source = (byok && typeof byok === 'object') ? (byok as Partial<Settings['byok']>) : {};
   const providerNormalization = normalizeByokProvider(source.provider);
+  const sourceSelectedModel = typeof source.selectedByokModel === 'string' ? source.selectedByokModel.trim() : '';
+  const sourceModel = typeof source.model === 'string' ? source.model.trim() : '';
   const selectedByokModel =
-    source.selectedByokModel ||
-    source.model ||
+    sourceSelectedModel ||
+    sourceModel ||
     DEFAULT_SETTINGS.byok.selectedByokModel;
 
   const customPrompt = typeof source.customPrompt === 'string' ? source.customPrompt : '';
@@ -115,7 +118,7 @@ function normalizeByokSettings(byok: unknown): Settings['byok'] {
     provider: providerNormalization.canonicalProvider,
     apiKey,
     apiBase,
-    model: source.model || selectedByokModel,
+    model: sourceModel || selectedByokModel,
     selectedByokModel,
     customPrompt,
   };
@@ -235,8 +238,8 @@ const DEFAULT_SETTINGS: Settings = {
     provider: 'openrouter',
     apiBase: 'https://openrouter.ai/api/v1',
     apiKey: '', // No demo key by default; users can add BYOK
-    model: 'arcee-ai/trinity-large-preview:free',
-    selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+    model: '',
+    selectedByokModel: '',
     customPrompt: '',
   },
   byokUnlock: defaultByokUnlockState(),
@@ -249,6 +252,8 @@ const DEFAULT_SETTINGS: Settings = {
   useReadability: true,
   processing: {
     profile: 'standard',
+    contentStrategy: 'auto',
+    outputFormat: 'clean-markdown',
     readabilityPreset: 'standard',
     turndownPreset: 'standard',
     extractionTuning: { ...DEFAULT_EXTRACTION_TUNING },
@@ -366,14 +371,11 @@ export class Storage {
         settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
       };
 
+      const normalizedProcessing = normalizeProcessingSettings(settings.processing as any);
       settings.processing = {
         ...DEFAULT_SETTINGS.processing,
         ...(settings.processing || {}),
-        profile: (settings.processing && settings.processing.profile) || DEFAULT_SETTINGS.processing!.profile,
-        readabilityPreset:
-          (settings.processing && settings.processing.readabilityPreset) || DEFAULT_SETTINGS.processing!.readabilityPreset,
-        turndownPreset:
-          (settings.processing && settings.processing.turndownPreset) || DEFAULT_SETTINGS.processing!.turndownPreset,
+        ...normalizedProcessing,
         extractionTuning: normalizeExtractionTuning((settings.processing as any)?.extractionTuning),
         capturePolicy: normalizeCapturePolicy((settings.processing as any)?.capturePolicy),
         customOptions: {
@@ -410,6 +412,7 @@ export class Storage {
 
       const byokUnlockChanged = JSON.stringify(stored.byokUnlock || {}) !== JSON.stringify(normalizedByokUnlock);
       const byokUsageChanged = JSON.stringify(stored.byokUsage || {}) !== JSON.stringify(normalizedByokUsage);
+      const processingChanged = JSON.stringify((stored as any).processing || {}) !== JSON.stringify(settings.processing || {});
 
       // Save migrated/sanitized settings when schema or normalization changes are detected.
       if (
@@ -420,7 +423,8 @@ export class Storage {
         userIdMissing ||
         hadLegacyMonetizationFields ||
         byokUnlockChanged ||
-        byokUsageChanged
+        byokUsageChanged ||
+        processingChanged
       ) {
         await browser.storage.local.set({
           [STORAGE_KEYS.SETTINGS]: settings,
@@ -458,6 +462,7 @@ export class Storage {
         ...(byokUsage || {}),
       });
 
+      const normalizedProcessing = normalizeProcessingSettings(processing || currentSettings.processing);
       const newSettings: Settings = {
         ...currentSettings,
         ...rest,
@@ -480,11 +485,7 @@ export class Storage {
         processing: {
           ...currentSettings.processing,
           ...(processing || {}),
-          profile: (processing && processing.profile) || currentSettings.processing!.profile,
-          readabilityPreset:
-            (processing && processing.readabilityPreset) || currentSettings.processing!.readabilityPreset,
-          turndownPreset:
-            (processing && processing.turndownPreset) || currentSettings.processing!.turndownPreset,
+          ...normalizedProcessing,
           extractionTuning: normalizeExtractionTuning((processing || {}).extractionTuning ?? currentSettings.processing?.extractionTuning),
           capturePolicy: normalizeCapturePolicy((processing || {}).capturePolicy ?? currentSettings.processing?.capturePolicy),
           customOptions: {

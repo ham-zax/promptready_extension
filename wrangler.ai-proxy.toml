@@ -1,19 +1,13 @@
 name = "ai-proxy"
 main = "functions/ai-proxy/index.ts"
 compatibility_date = "2024-03-20"
-
-[[services]]
-binding = "CREDIT_SERVICE"
-service = "credit-service"
-
-[[kv_namespaces]]
-binding = "BUDGET_KV"
-id = "placeholder_for_local_dev_2"
+routes = [
+  { pattern = "promptready.app/api/proxy", zone_name = "promptready.app" },
+  { pattern = "promptready.app/byok/proxy", zone_name = "promptready.app" },
+]
 
 [vars]
-SERVICE_SECRET = "local-secret-string"
-AI_API_KEY = "replace-me-for-local-dev"
-OPENROUTER_API_KEY = "replace-me-for-local-dev"
 OPENROUTER_HTTP_REFERER = "https://promptready.app"
 OPENROUTER_TITLE = "PromptReady Extension"
 ALLOWED_ORIGINS = "https://promptready.app,http://127.0.0.1:5173,http://localhost:5173"
+BYOK_ALLOWED_HOSTNAMES = "openrouter.ai"
