@@ -6,6 +6,7 @@ import { MarkdownPostProcessor } from './post-processor.js';
 import { Storage } from '../lib/storage.js';
 import { ExportMetadata } from '../lib/types.js';
 import { resolveProcessingConfig } from '../lib/processing-profile-registry.js';
+import { normalizeInlineCodeSpacing } from '../lib/markdown-inline-code-normalizer.js';
 import { CacheManager } from '../lib/cache-manager.js';
 import { PerformanceMetrics } from './performance-metrics.js';
 import { safeParseHTML, extractSemanticContent, removeUnwantedElements, extractTextContent, fixRelativeUrls } from '../lib/dom-utils.js';
@@ -2501,54 +2502,6 @@ export class OfflineModeManager {
     return output.join('\n');
   }
 
-  private static normalizeInlineCodeSpacing(markdown: string, warnings: string[]): string {
-    if (!markdown) {
-      return markdown;
-    }
-
-    const lines = markdown.split('\n');
-    const output: string[] = [];
-    let inFence = false;
-    let changed = false;
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (/^```/.test(trimmed)) {
-        inFence = !inFence;
-        output.push(line);
-        continue;
-      }
-
-      if (inFence) {
-        output.push(line);
-        continue;
-      }
-
-      const next = line
-        .replace(/(^|[^`A-Za-z0-9_])([A-Z][A-Z0-9_]{2,})`(?=[A-Za-z])/g, '$1`$2` ')
-        .replace(/([A-Za-z0-9)\]])`(?=[^`\n]+`)/g, '$1 `')
-        .replace(/`([A-Za-z0-9_./:-][^`\n]*?)`(?=[A-Za-z0-9])/g, '`$1` ')
-        .replace(/`([^`\n]+)`,`/g, '`$1`, `')
-        .replace(/,`(?=[^`\n]+`)/g, ', `')
-        .replace(/`\s+([^`\n]*?)`/g, '`$1`')
-        .replace(/`([^`\n]*?)\s+`/g, '`$1`')
-        .replace(/, `\s+/g, ', `')
-        .replace(/\b(and|or) `\s+/g, '$1 `')
-        .replace(/`([A-Za-z0-9_./:-][^`\n]*?)`(?=[A-Za-z0-9])/g, '`$1` ');
-
-      if (next !== line) {
-        changed = true;
-      }
-      output.push(next);
-    }
-
-    if (changed) {
-      warnings.push('Normalized inline code spacing in markdown');
-    }
-
-    return output.join('\n');
-  }
-
   private static ensurePrimaryHeading(markdown: string, title: string): string {
     const normalizedTitle = this.normalizeInputText(title);
     if (!normalizedTitle) {
@@ -4128,7 +4081,7 @@ export class OfflineModeManager {
     result = this.repairInlineCodeFenceBoundaries(result, warnings);
     result = this.collapseFragmentedWordRuns(result, warnings);
     result = this.normalizeMergedTokenBoundaries(result, warnings);
-    result = this.normalizeInlineCodeSpacing(result, warnings);
+    result = normalizeInlineCodeSpacing(result, warnings);
     result = this.repairInlineCodeFenceBoundaries(result, warnings);
     result = this.mergeSplitHeadings(result, warnings);
     // Re-run line-level UI filtering after fence repair/token normalization,

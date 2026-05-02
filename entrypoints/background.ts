@@ -20,6 +20,7 @@ import {
   fallbackOpenRouterFreeModelOptions,
   selectOpenRouterModelOptions,
 } from '../lib/openrouter-models.js';
+import { normalizeInlineCodeSpacing } from '../lib/markdown-inline-code-normalizer.js';
 
 export default defineBackground(() => {
   const runtimeProfile = getRuntimeProfile();
@@ -422,7 +423,7 @@ export class EnhancedContentProcessor {
     result = this.sanitizeRiskyMarkdown(result, warnings);
     result = this.stripResidualUiNoiseLines(result, warnings);
     result = this.normalizeMarkdownSpacing(result);
-    result = this.normalizeInlineCodeSpacing(result, warnings);
+    result = normalizeInlineCodeSpacing(result, warnings);
     result = this.ensurePrimaryHeading(result, normalizedMetadata.title);
 
     if (!result || result.trim().length === 0) {
@@ -557,54 +558,6 @@ export class EnhancedContentProcessor {
       .replace(/\n{3,}/g, '\n\n')
       .replace(/^\s+$/gm, '')
       .trim();
-  }
-
-  private normalizeInlineCodeSpacing(markdown: string, warnings: string[]): string {
-    if (!markdown) {
-      return markdown;
-    }
-
-    const lines = markdown.split('\n');
-    const output: string[] = [];
-    let inFence = false;
-    let changed = false;
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (/^```/.test(trimmed)) {
-        inFence = !inFence;
-        output.push(line);
-        continue;
-      }
-
-      if (inFence) {
-        output.push(line);
-        continue;
-      }
-
-      const next = line
-        .replace(/(^|[^`A-Za-z0-9_])([A-Z][A-Z0-9_]{2,})`(?=[A-Za-z])/g, '$1`$2` ')
-        .replace(/([A-Za-z0-9)\]])`(?=[^`\n]+`)/g, '$1 `')
-        .replace(/`([A-Za-z0-9_./:-][^`\n]*?)`(?=[A-Za-z0-9])/g, '`$1` ')
-        .replace(/`([^`\n]+)`,`/g, '`$1`, `')
-        .replace(/,`(?=[^`\n]+`)/g, ', `')
-        .replace(/`\s+([^`\n]*?)`/g, '`$1`')
-        .replace(/`([^`\n]*?)\s+`/g, '`$1`')
-        .replace(/, `\s+/g, ', `')
-        .replace(/\b(and|or) `\s+/g, '$1 `')
-        .replace(/`([A-Za-z0-9_./:-][^`\n]*?)`(?=[A-Za-z0-9])/g, '`$1` ');
-
-      if (next !== line) {
-        changed = true;
-      }
-      output.push(next);
-    }
-
-    if (changed) {
-      warnings.push('Normalized inline code spacing in markdown');
-    }
-
-    return output.join('\n');
   }
 
   private normalizeHeadingForComparison(value: string): string {
