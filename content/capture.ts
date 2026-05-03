@@ -558,14 +558,86 @@ export class ContentCapture {
   }
 
   private static createSanitizedSnapshot(): { html: string; textLength: number; headingCount: number } {
+    // PR5: Modern DOM Support - Full Page Capture Only
+    // Use recursive flattening to pierce open shadow roots and resolve slots
+    const flattened = this.flattenElement(document.body || document.documentElement);
     const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = document.body?.innerHTML || document.documentElement?.innerHTML || '';
+
+    // Move all children from the flattened root to our temp container
+    while (flattened.firstChild) {
+      tempDiv.appendChild(flattened.firstChild);
+    }
+
     this.removeUnwantedTags(tempDiv);
     this.fixRelativeUrls(tempDiv, window.location.href);
     const html = tempDiv.innerHTML;
     const textLength = (tempDiv.textContent || '').replace(/\s+/g, ' ').trim().length;
     const headingCount = tempDiv.querySelectorAll('h1,h2,h3,h4,h5,h6').length;
     return { html, textLength, headingCount };
+  }
+
+  /**
+   * Flattens a DOM tree by piercing open shadow roots and resolving slots.
+   * Creates a unified logical tree suitable for serialization.
+   *
+   * Includes WeakSet recursion guard to prevent infinite loops in complex projections.
+   * Note: This recursive traversal is currently used for full-page capture only.
+   */
+  private static flattenElement(
+    node: Node,
+    host?: Element,
+    seen: WeakSet<Node> = new WeakSet()
+  ): Node {
+    if (seen.has(node)) {
+      return document.createTextNode('');
+    }
+    seen.add(node);
+
+    if (node.nodeType === 3 || node.nodeType === 8) { // TEXT_NODE or COMMENT_NODE
+      return node.cloneNode(true);
+    }
+
+    if (node.nodeType !== 1) { // Not ELEMENT_NODE
+      return node.cloneNode(false);
+    }
+
+    const element = node as Element;
+
+    // Handle Slot Resolution
+    if (element.tagName.toUpperCase() === 'SLOT' && host) {
+      const slot = element as HTMLSlotElement;
+      const assignedNodes = typeof slot.assignedNodes === 'function'
+        ? slot.assignedNodes({ flatten: true })
+        : [];
+      const fragment = document.createDocumentFragment();
+
+      if (assignedNodes.length > 0) {
+        for (const assigned of assignedNodes) {
+          fragment.appendChild(this.flattenElement(assigned, undefined, seen));
+        }
+      } else {
+        // Shadow DOM fallback content
+        for (const child of Array.from(element.childNodes)) {
+          fragment.appendChild(this.flattenElement(child, host, seen));
+        }
+      }
+      return fragment;
+    }
+
+    const shadowRoot = (element as any).shadowRoot;
+    const clone = element.cloneNode(false) as Element;
+
+    if (shadowRoot) {
+      clone.setAttribute('data-pr-shadow-pierced', 'true');
+      for (const child of Array.from(shadowRoot.childNodes)) {
+        clone.appendChild(this.flattenElement(child as Node, element, seen)); // Pass element as host
+      }
+    } else {
+      for (const child of Array.from(element.childNodes)) {
+        clone.appendChild(this.flattenElement(child as Node, host, seen)); // Keep current host (if any)
+      }
+    }
+    return clone;
   }
 
   private static async captureDeepSnapshot(policy: CapturePolicy): Promise<{

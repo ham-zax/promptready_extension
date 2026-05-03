@@ -67,7 +67,7 @@ export class GenericExtractor {
           current = current.parentElement;
         }
         if (alreadyCaptured) continue;
-        
+
         const candidate = this.analyzeElement(el, `generic:${selector}`);
         if (candidate) {
           candidates.push(candidate);
@@ -84,7 +84,7 @@ export class GenericExtractor {
 
     // Clone to avoid modifying original during analysis
     const clone = el.cloneNode(true) as HTMLElement;
-    
+
     // Exclude noise from analysis
     for (const selector of this.NOISE_SELECTORS) {
       const noise = clone.querySelectorAll(selector);
