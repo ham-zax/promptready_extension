@@ -27,14 +27,14 @@ export class RedditShadowExtractor {
    * Main entry point for Reddit content extraction
    * Returns null if Reddit-specific extraction should not be used
    */
-  static extractContent(document: Document): RedditExtractionResult | null {
+  static extractContent(document: Document, url?: string): RedditExtractionResult | null {
     // Only apply to Reddit URLs
-    if (!this.isRedditPage(document)) {
+    if (!this.isRedditPage(document, url)) {
       return null;
     }
 
     console.log('[RedditExtractor] ✅ Detected Reddit page, using specialized extraction');
-    console.log('[RedditExtractor] URL:', document.location?.href || 'unknown');
+    console.log('[RedditExtractor] URL:', url || document.location?.href || 'unknown');
 
     const strategies = [
       this.strategyShadowDOMTraversal,
@@ -65,8 +65,8 @@ export class RedditShadowExtractor {
   /**
    * Check if this is a Reddit page
    */
-  private static isRedditPage(document: Document): boolean {
-    const url = document.location?.href || '';
+  private static isRedditPage(document: Document, fallbackUrl?: string): boolean {
+    const url = fallbackUrl || document.location?.href || '';
     return url.includes('reddit.com') || url.includes('redd.it');
   }
 

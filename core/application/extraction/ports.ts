@@ -5,6 +5,14 @@ export interface ExtractionCandidateInput {
   source: string;
   html: string;
   processingTimeMs?: number;
+  metrics?: {
+    charCount?: number;
+    paragraphCount?: number;
+    codeCharCount?: number;
+    linkDensity?: number;
+    confidence?: number;
+    warnings?: string[];
+  };
 }
 
 export interface RankedExtractionCandidate extends ExtractionCandidateInput {
@@ -14,6 +22,14 @@ export interface RankedExtractionCandidate extends ExtractionCandidateInput {
   retentionScore: number;
   boilerplatePenalty: number;
   processingTimeMs: number;
+  metrics?: {
+    charCount?: number;
+    paragraphCount?: number;
+    codeCharCount?: number;
+    linkDensity?: number;
+    confidence?: number;
+    warnings?: string[];
+  };
 }
 
 export interface SelectBestCandidateInput {

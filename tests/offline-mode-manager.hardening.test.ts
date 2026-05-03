@@ -277,16 +277,18 @@ describe('OfflineModeManager hardening regressions', () => {
 
     try {
       const fallbacksUsed: string[] = [];
+      const strategiesAttempted: string[] = [];
       const warnings: string[] = [];
       const resolved = await manager.resolveReadabilityCandidate(
         '<html><body><main><h1>Source Title</h1></main></body></html>',
         '<article><h1>Readability Candidate</h1><p>Primary body.</p></article>',
         fallbacksUsed,
+        strategiesAttempted,
         warnings,
         baseConfig
       );
 
-      expect(resolved).toContain('Ranked Fallback Winner');
+      expect(resolved.content).toContain('Ranked Fallback Winner');
       expect(fallbacksUsed).toContain('readability-ranked-fallback');
       expect(warnings.some((w) => /higher-quality fallback candidate/i.test(w))).toBe(true);
     } finally {

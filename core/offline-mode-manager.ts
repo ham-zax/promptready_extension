@@ -2,6 +2,8 @@
 // Integrates with the simplified popup UI and processing pipeline
 
 import { ReadabilityConfigManager } from './readability-config.js';
+import { GenericExtractor } from './generic-extractor.js';
+import { RedditShadowExtractor } from './reddit-shadow-extractor.js';
 import { MarkdownPostProcessor } from './post-processor.js';
 import { Storage } from '../lib/storage.js';
 import { ExportMetadata } from '../lib/types.js';
@@ -95,6 +97,9 @@ interface FallbackSelection {
 interface FallbackSelectionOptions {
   includeGracefulPipeline?: boolean;
   tuning?: ExtractionTuning;
+  strategiesAttempted?: string[];
+  fallbacksUsed?: string[];
+  url?: string;
 }
 
 export class OfflineModeManager {
@@ -471,16 +476,19 @@ export class OfflineModeManager {
           }
           const fallbackCountBeforeSelection = fallbacksUsed.length;
           extractedContent = extractionResult.content;
-          extractedContent = await this.resolveReadabilityCandidate(
+          const resolution = await this.resolveReadabilityCandidate(
             extractionHtml,
             extractedContent,
             fallbacksUsed,
+            strategiesAttempted,
             warnings,
-            config
+            config,
+            url
           );
-          strategyWinner = fallbacksUsed.length > fallbackCountBeforeSelection
+          extractedContent = resolution.content;
+          strategyWinner = resolution.source || (fallbacksUsed.length > fallbackCountBeforeSelection
             ? 'fallback-content-selection'
-            : 'readability';
+            : 'readability');
           console.log('[OfflineModeManager] Readability extraction successful');
 	        } else {
 	          throw new Error('No suitable Readability configuration found');
@@ -491,6 +499,9 @@ export class OfflineModeManager {
           this.recordStrategyAttempt(strategiesAttempted, 'fallback-content-selection');
           const fallbackSelection = await this.fallbackContentExtractionSelection(extractionHtml, [], {
             tuning: config.extractionTuning,
+            strategiesAttempted,
+            fallbacksUsed,
+            url,
           });
           extractedContent = fallbackSelection?.html || extractionHtml;
           this.recordFallback(fallbacksUsed, 'readability-fallback');
@@ -1667,11 +1678,13 @@ export class OfflineModeManager {
     extractionHtml: string,
     readabilityContent: string,
     fallbacksUsed: string[],
+    strategiesAttempted: string[],
     warnings: string[],
-    config: OfflineModeConfig
-  ): Promise<string> {
+    config: OfflineModeConfig,
+    url?: string
+  ): Promise<{ content: string; source?: string }> {
     if (!config.fallbacks.enableReadabilityFallback) {
-      return readabilityContent;
+      return { content: readabilityContent, source: 'readability' };
     }
 
     const selection = await this.fallbackContentExtractionSelection(extractionHtml, [
@@ -1682,9 +1695,12 @@ export class OfflineModeManager {
     ], {
       includeGracefulPipeline: false,
       tuning: config.extractionTuning,
+      strategiesAttempted,
+      fallbacksUsed,
+      url,
     });
     if (!selection || this.normalizeInputText(extractTextContent(selection.html)).length === 0) {
-      return readabilityContent;
+      return { content: readabilityContent, source: 'readability' };
     }
 
     if (selection.source === 'readability-primary') {
@@ -1692,7 +1708,7 @@ export class OfflineModeManager {
       if (coverageLow) {
         warnings.push('Readability extraction coverage low; retained readability candidate after quality ranking');
       }
-      return readabilityContent;
+      return { content: readabilityContent, source: 'readability' };
     }
 
     const fallbackCandidate = selection.html;
@@ -1712,19 +1728,20 @@ export class OfflineModeManager {
         this.recordFallback(fallbacksUsed, 'readability-ranked-fallback');
         warnings.push('Selected higher-quality fallback candidate over readability output');
       }
+      this.recordFallback(fallbacksUsed, `readability-fallback-source:${selection.source}`);
       if (typeof process !== 'undefined' && (process as any)?.env?.OFFLINE_DEBUG_CANDIDATES === '1') {
         console.log('[OfflineModeManager] Selected fallback candidate over readability', {
           source: selection.source,
         });
       }
-      return fallbackCandidate;
+      return { content: fallbackCandidate, source: selection.source };
     }
 
     if (coverageLow) {
       warnings.push('Readability extraction coverage low; retained readability candidate after quality check');
     }
 
-    return readabilityContent;
+    return { content: readabilityContent, source: 'readability' };
   }
 
   private static shouldAdoptFallbackCandidate(
@@ -2927,6 +2944,9 @@ export class OfflineModeManager {
       }
 
       const candidatePool: ExtractionCandidate[] = [];
+      const strategiesAttempted = options.strategiesAttempted || [];
+      const fallbacksUsed = options.fallbacksUsed || [];
+
       for (const candidate of seedCandidates) {
         if (!candidate || typeof candidate.html !== 'string') {
           continue;
@@ -2937,6 +2957,7 @@ export class OfflineModeManager {
         candidatePool.push({
           source: candidate.source || 'seed',
           html: this.sanitizeFallbackCandidateHtml(candidate.html),
+          metrics: candidate.metrics
         });
       }
       const primaryRoot = doc.querySelector('main, article, [role="main"], #content, .content, .main-content') as HTMLElement | null;
@@ -2945,6 +2966,63 @@ export class OfflineModeManager {
           source: 'primary-root',
           html: this.sanitizeFallbackCandidateHtml(primaryRoot.innerHTML)
         });
+      }
+
+      // TASK #13: Integrate site-specific extractors (Reddit) as adapters
+      const hostname = this.hostnameFromUrl(options.url);
+      const isRedditHost = /(^|\.)reddit\.com$/i.test(hostname) || /(^|\.)redd\.it$/i.test(hostname);
+      const isRedditPage =
+        isRedditHost ||
+        Boolean(doc.querySelector('shreddit-post, shreddit-comment-tree'));
+
+      if (isRedditPage) {
+        try {
+          this.recordStrategyAttempt(strategiesAttempted, 'reddit-adapter');
+          const redditResult = RedditShadowExtractor.extractContent(doc, options.url);
+          if (redditResult) {
+            // Task #13: Demote if incomplete (title-only or empty)
+            if (!this.isUsableAdapterContent(redditResult.content)) {
+              console.log('[OfflineModeManager] Reddit adapter returned incomplete content, demoting');
+              this.recordFallback(fallbacksUsed, 'reddit-adapter:incomplete');
+            } else {
+              candidatePool.push({
+                source: `reddit:${redditResult.metadata.strategy}`,
+                html: redditResult.content, // Reddit extractor returns pre-cleaned content
+                metrics: {
+                  charCount: redditResult.content.length,
+                  confidence: redditResult.metadata.qualityScore / 100
+                }
+              });
+            }
+          } else {
+            this.recordFallback(fallbacksUsed, 'reddit-adapter:null');
+          }
+        } catch (e) {
+          console.warn('[OfflineModeManager] Reddit extraction adapter failed:', e);
+          this.recordFallback(fallbacksUsed, 'reddit-adapter:error');
+        }
+      }
+
+      // TASK #11: Add generic selector-based body extraction pass
+      try {
+        this.recordStrategyAttempt(strategiesAttempted, 'generic-selector');
+        const genericCandidates = GenericExtractor.extractCandidates(doc);
+        for (const gc of genericCandidates) {
+          candidatePool.push({
+            source: gc.strategy,
+            html: this.sanitizeFallbackCandidateHtml(gc.content),
+            metrics: {
+              charCount: gc.charCount,
+              paragraphCount: gc.paragraphCount,
+              codeCharCount: gc.codeCharCount,
+              linkDensity: gc.linkDensity,
+              confidence: gc.confidence,
+              warnings: gc.warnings
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('[OfflineModeManager] Generic extraction failed:', e);
       }
 
       const feedCandidates = this.collectFeedCandidates(doc);
@@ -3064,8 +3142,24 @@ export class OfflineModeManager {
           this.normalizeInputText(extractTextContent(candidateHtml)).length,
         analyze: (sourceHtml, candidateHtml) =>
           this.analyzeExtractionCandidate(sourceHtml, candidateHtml),
-        score: (sourceHtml, candidateHtml, analysis) =>
-          this.computeCandidateSelectionScore(sourceHtml, candidateHtml, analysis, resolvedTuning),
+        score: (sourceHtml, candidateHtml, analysis) => {
+          let score = this.computeCandidateSelectionScore(sourceHtml, candidateHtml, analysis, resolvedTuning);
+          // Option B: Generic metrics participate in deterministic ranking
+          // Find the candidate matching this HTML to apply metrics
+          const candidate = candidatePool.find(c => this.sanitizeFallbackCandidateHtml(c.html) === candidateHtml || c.html === candidateHtml);
+          if (candidate?.source.startsWith('generic:')) {
+            if (candidate.metrics?.confidence !== undefined) {
+               // Give a significant bonus (up to +15) based on GenericExtractor confidence
+               score += candidate.metrics.confidence * 15;
+            }
+            if (candidate.source.includes('article') || candidate.source.includes('main')) {
+               score += 5; // Further preference for article/main
+            }
+          } else if (candidate?.source === 'body') {
+            score -= 10; // Penalize body fallback to encourage more specific semantic extraction
+          }
+          return Math.min(100, Math.max(0, score));
+        },
       });
 
       if (typeof process !== 'undefined' && (process as any)?.env?.OFFLINE_DEBUG_CANDIDATES === '1') {
@@ -3094,6 +3188,34 @@ export class OfflineModeManager {
         html: normalizedHtml,
       };
     }
+  }
+
+  private static hostnameFromUrl(value?: string): string {
+    if (!value) return '';
+    try {
+      return new URL(value).hostname.toLowerCase();
+    } catch {
+      return '';
+    }
+  }
+
+  private static isUsableAdapterContent(content: string): boolean {
+    const text = this.normalizeInputText(extractTextContent(content));
+    if (text.length < 40) return false;
+
+    const doc = safeParseHTML(content);
+    const blockCount = doc
+      ? Array.from(doc.querySelectorAll('p, li, blockquote, pre, code'))
+          .map((el) => this.normalizeInputText(el.textContent || ''))
+          .filter((block) => block.length >= 20).length
+      : 0;
+
+    const codeChars = doc
+      ? Array.from(doc.querySelectorAll('pre, code'))
+          .reduce((sum, el) => sum + this.normalizeInputText(el.textContent || '').length, 0)
+      : (content.match(/```[\s\S]*?```/g) || []).join('\n').length;
+
+    return text.length >= 120 || blockCount >= 1 || codeChars >= 80;
   }
 
   private static sanitizeFallbackCandidateHtml(candidateHtml: string): string {
@@ -3701,12 +3823,23 @@ export class OfflineModeManager {
       sourceTextLength = this.normalizeInputText(extractTextContent(originalHtml)).length;
       sourceHeadingCount = (originalHtml.match(/<h[1-6]/gi) || []).length;
     }
-    const markdownTextLength = this.normalizeInputText(markdown).length;
+    let measureMarkdown = markdown;
+    if (markdown.startsWith('> Source:')) {
+      measureMarkdown = this.stripLeadingCitationBlock(markdown);
+    }
+    const markdownTextLength = this.normalizeInputText(measureMarkdown).length;
     const textRetentionRatio = sourceTextLength > 0 ? markdownTextLength / sourceTextLength : 1;
 
     // Check content preservation using text retention (not raw HTML-size ratio)
-    if (markdownTextLength < 120) score -= 30;
-    else if (markdownTextLength < 240) score -= 15;
+    if (markdownTextLength < 80) {
+      score -= 50; // Short content is likely incomplete
+    }
+    else if (markdownTextLength < 160) {
+      score -= 25;
+    }
+    else if (markdownTextLength < 240) {
+      score -= 10;
+    }
     if (sourceTextLength > 0) {
       if (textRetentionRatio < 0.025) score -= 24;
       else if (textRetentionRatio < 0.05) score -= 12;

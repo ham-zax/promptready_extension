@@ -6,6 +6,14 @@ export interface ExtractionCandidate {
   source: string;
   html: string;
   processingTimeMs?: number;
+  metrics?: {
+    charCount?: number;
+    paragraphCount?: number;
+    codeCharCount?: number;
+    linkDensity?: number;
+    confidence?: number;
+    warnings?: string[];
+  };
 }
 
 export interface RankedExtractionCandidate extends ExtractionCandidate {
@@ -53,6 +61,7 @@ export function rankExtractionCandidates(input: CandidateRankingInput): Candidat
     score: entry.score,
     analysis: entry.analysis,
     processingTimeMs: entry.processingTimeMs,
+    metrics: entry.metrics,
   }));
 
   return {
@@ -65,6 +74,7 @@ export function rankExtractionCandidates(input: CandidateRankingInput): Candidat
           score: decision.selected.score,
           analysis: decision.selected.analysis,
           processingTimeMs: decision.selected.processingTimeMs,
+          metrics: decision.selected.metrics,
         } as RankedExtractionCandidate)
       : null,
     stateTrace: decision.stateTrace,

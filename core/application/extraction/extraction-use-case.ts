@@ -51,6 +51,7 @@ export function selectBestExtractionCandidate(
           source: candidate.source,
           html,
           textLength,
+          metrics: candidate.metrics,
           processingTimeMs:
             typeof candidate.processingTimeMs === 'number' && Number.isFinite(candidate.processingTimeMs)
               ? Math.max(0, candidate.processingTimeMs)
