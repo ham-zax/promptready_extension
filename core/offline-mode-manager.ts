@@ -31,6 +31,12 @@ import {
 import type { ExtractionTuning } from './domain/extraction/types.js';
 import type { PipelineConfig, PipelineResult } from './graceful-degradation-pipeline.js';
 import { SiteAdapterRegistry } from './site-adapters/registry.js';
+import {
+  buildRedditThreadCandidates,
+  parseRedditThreadFromJson,
+  type RedditThreadDiagnostics,
+  type RedditThreadCandidateSet,
+} from './site-adapters/reddit-thread.js';
 
 import { PageTypeProfiler, type PageTypeClassification, type PageTypeProfile } from './page-type-profiler.js';
 import type { QualityReport } from './content-quality-validator.js';
@@ -87,6 +93,7 @@ export interface OfflineProcessingResult {
     extractionDiagnostics?: {
       pageType?: PageTypeClassification;
       candidateTraces: ExtractionCandidateTrace[];
+      redditThread?: RedditThreadDiagnostics;
     };
   };
   warnings: string[];
@@ -116,6 +123,7 @@ interface FallbackSelection {
   html: string;
   candidateTraces?: ExtractionCandidateTrace[];
   pageType?: PageTypeClassification;
+  redditThread?: RedditThreadDiagnostics;
 }
 
 interface FallbackSelectionOptions {
@@ -385,6 +393,7 @@ export class OfflineModeManager {
     let strategyWinner: string | undefined;
     let candidateTraces: ExtractionCandidateTrace[] | undefined;
     let candidatePageType: PageTypeClassification | undefined;
+    let redditThreadDiagnostics: RedditThreadDiagnostics | undefined;
     let sessionId: string | null = null;
 
     try {
@@ -516,6 +525,7 @@ export class OfflineModeManager {
           extractedContent = resolution.content;
           candidateTraces = resolution.candidateTraces;
           candidatePageType = resolution.pageType;
+          redditThreadDiagnostics = resolution.redditThread;
           strategyWinner = resolution.source || (fallbacksUsed.length > fallbackCountBeforeSelection
             ? 'fallback-content-selection'
             : 'readability');
@@ -536,6 +546,7 @@ export class OfflineModeManager {
           extractedContent = fallbackSelection?.html || extractionHtml;
           candidateTraces = fallbackSelection?.candidateTraces;
           candidatePageType = fallbackSelection?.pageType;
+          redditThreadDiagnostics = fallbackSelection?.redditThread;
           this.recordFallback(fallbacksUsed, 'readability-fallback');
           if (fallbackSelection?.source) {
             this.recordFallback(fallbacksUsed, `readability-fallback-source:${fallbackSelection.source}`);
@@ -679,13 +690,14 @@ export class OfflineModeManager {
         });
         finalPageType = redditQualityRecovery.pageType;
         strategyWinner = redditQualityRecovery.source;
+        redditThreadDiagnostics = redditQualityRecovery.redditThread;
         candidateTraces = [
           ...(candidateTraces || []).map((trace) => ({
             ...trace,
             selected: false,
             rejectionReason: trace.rejectionReason || 'replaced_by_quality_gate_recovery',
           })),
-          redditQualityRecovery.trace,
+          ...redditQualityRecovery.traces,
         ];
       }
 
@@ -743,7 +755,13 @@ export class OfflineModeManager {
           qualityScore,
           strategiesAttempted,
           strategyWinner,
-          ...(candidateTraces && { extractionDiagnostics: { candidateTraces, pageType: finalPageType } }),
+          ...(candidateTraces && {
+            extractionDiagnostics: {
+              candidateTraces,
+              pageType: finalPageType,
+              ...(redditThreadDiagnostics && { redditThread: redditThreadDiagnostics }),
+            },
+          }),
         },
         warnings,
         errors,
@@ -1756,7 +1774,13 @@ export class OfflineModeManager {
     warnings: string[],
     config: OfflineModeConfig,
     url?: string
-  ): Promise<{ content: string; source?: string; candidateTraces?: ExtractionCandidateTrace[]; pageType?: PageTypeClassification }> {
+  ): Promise<{
+    content: string;
+    source?: string;
+    candidateTraces?: ExtractionCandidateTrace[];
+    pageType?: PageTypeClassification;
+    redditThread?: RedditThreadDiagnostics;
+  }> {
     if (!config.fallbacks.enableReadabilityFallback) {
       return { content: readabilityContent, source: 'readability' };
     }
@@ -1774,7 +1798,13 @@ export class OfflineModeManager {
       url,
     });
     if (!selection || this.normalizeInputText(extractTextContent(selection.html)).length === 0) {
-      return { content: readabilityContent, source: 'readability', candidateTraces: selection?.candidateTraces, pageType: selection?.pageType };
+      return {
+        content: readabilityContent,
+        source: 'readability',
+        candidateTraces: selection?.candidateTraces,
+        pageType: selection?.pageType,
+        redditThread: selection?.redditThread,
+      };
     }
 
     if (selection.source === 'readability-primary') {
@@ -1782,7 +1812,13 @@ export class OfflineModeManager {
       if (coverageLow) {
         warnings.push('Readability extraction coverage low; retained readability candidate after quality ranking');
       }
-      return { content: readabilityContent, source: 'readability', candidateTraces: selection.candidateTraces, pageType: selection.pageType };
+      return {
+        content: readabilityContent,
+        source: 'readability',
+        candidateTraces: selection.candidateTraces,
+        pageType: selection.pageType,
+        redditThread: selection.redditThread,
+      };
     }
 
     const fallbackCandidate = selection.html;
@@ -1796,6 +1832,7 @@ export class OfflineModeManager {
         source: selection.source,
         candidateTraces: selection.candidateTraces,
         pageType: selection.pageType,
+        redditThread: selection.redditThread,
       };
     }
 
@@ -1828,7 +1865,13 @@ export class OfflineModeManager {
           source: selection.source,
         });
       }
-      return { content: fallbackCandidate, source: selection.source, candidateTraces: selection.candidateTraces, pageType: selection.pageType };
+      return {
+        content: fallbackCandidate,
+        source: selection.source,
+        candidateTraces: selection.candidateTraces,
+        pageType: selection.pageType,
+        redditThread: selection.redditThread,
+      };
     }
 
     if (coverageLow) {
@@ -1851,7 +1894,13 @@ export class OfflineModeManager {
       });
     }
 
-    return { content: readabilityContent, source: 'readability', candidateTraces: finalTraces, pageType: selection.pageType };
+    return {
+      content: readabilityContent,
+      source: 'readability',
+      candidateTraces: finalTraces,
+      pageType: selection.pageType,
+      redditThread: selection.redditThread,
+    };
   }
 
   private static shouldAdoptFallbackCandidate(
@@ -3059,6 +3108,7 @@ export class OfflineModeManager {
       const candidatePool: ExtractionCandidate[] = [];
       const strategiesAttempted = options.strategiesAttempted || [];
       const fallbacksUsed = options.fallbacksUsed || [];
+      let redditThreadDiagnostics: RedditThreadDiagnostics | undefined;
 
       for (const candidate of seedCandidates) {
         if (!candidate || typeof candidate.html !== 'string') {
@@ -3172,10 +3222,11 @@ export class OfflineModeManager {
           this.recordFallback(fallbacksUsed, 'reddit-dom-body');
         }
 
-        const redditJsonCandidate = await this.fetchRedditJsonFallbackCandidate(doc, options.url);
-        if (redditJsonCandidate) {
+        const redditJsonThread = await this.fetchRedditJsonThreadFallback(doc, options.url);
+        if (redditJsonThread) {
           this.recordFallback(fallbacksUsed, 'reddit-json-fallback');
-          candidatePool.push(redditJsonCandidate);
+          candidatePool.push(...redditJsonThread.candidates);
+          redditThreadDiagnostics = redditJsonThread.diagnostics;
         }
       }
 
@@ -3326,6 +3377,12 @@ export class OfflineModeManager {
           const candidate = candidatePool.find(c => this.sanitizeFallbackCandidateHtml(c.html) === candidateHtml || c.html === candidateHtml);
           if (candidate?.source === 'reddit:dom-body') {
             score += 35;
+          } else if (candidate?.source === 'reddit:thread') {
+            score += 45;
+          } else if (candidate?.source === 'reddit:post') {
+            score += 0;
+          } else if (candidate?.source === 'reddit:comments') {
+            score += 18;
           } else if (candidate?.source.startsWith('adapter:')) {
             score += (candidate.metrics?.confidence ?? 0) * 8;
           } else if (candidate?.source.startsWith('generic:')) {
@@ -3420,6 +3477,9 @@ export class OfflineModeManager {
           html: ranking.selected.html,
           candidateTraces,
           pageType,
+          redditThread: redditThreadDiagnostics
+            ? { ...redditThreadDiagnostics, winner: ranking.selected.source }
+            : undefined,
         };
       }
 
@@ -3428,6 +3488,7 @@ export class OfflineModeManager {
         html: prepared.html || normalizedHtml,
         candidateTraces,
         pageType,
+        redditThread: redditThreadDiagnostics,
       };
     } catch (error) {
       console.warn('[OfflineModeManager] fallbackContentExtraction failed; returning normalized source HTML:', error);
@@ -3513,6 +3574,15 @@ export class OfflineModeManager {
     url?: string,
     options: { force?: boolean } = {}
   ): Promise<ExtractionCandidate | null> {
+    const thread = await this.fetchRedditJsonThreadFallback(doc, url, options);
+    return thread?.candidates.find((candidate) => candidate.source === 'reddit:thread') || null;
+  }
+
+  private static async fetchRedditJsonThreadFallback(
+    doc: Document,
+    url?: string,
+    options: { force?: boolean } = {}
+  ): Promise<RedditThreadCandidateSet | null> {
     const jsonUrl = this.buildRedditJsonUrl(url);
     if (!jsonUrl || (!options.force && !this.shouldAttemptRedditJsonFallback(doc))) {
       return null;
@@ -3540,28 +3610,21 @@ export class OfflineModeManager {
       }
 
       const payload = await response.json();
-      const extracted = this.extractRedditPostFromJson(payload);
-      if (!extracted) {
+      const thread = parseRedditThreadFromJson(payload);
+      if (!thread) {
         return null;
       }
 
-      const html = this.redditJsonPostToHtml(extracted.title, extracted.body, extracted.comments);
-      const bodyChars = this.normalizeInputText(extractTextContent(html)).length;
+      const candidateSet = buildRedditThreadCandidates(thread);
+      const threadCandidate = candidateSet.candidates.find((candidate) => candidate.source === 'reddit:thread');
+      const bodyChars = threadCandidate
+        ? this.normalizeInputText(extractTextContent(threadCandidate.html)).length
+        : 0;
       if (bodyChars < 120) {
         return null;
       }
 
-      return {
-        source: 'reddit-json',
-        html,
-        metrics: {
-          charCount: bodyChars,
-          paragraphCount: Math.max(1, extracted.body.split(/\n{2,}/).filter((part) => part.trim().length >= 20).length),
-          codeCharCount: 0,
-          linkDensity: 0,
-          confidence: 0.82,
-        },
-      };
+      return candidateSet;
     } catch {
       return null;
     } finally {
@@ -3654,7 +3717,8 @@ export class OfflineModeManager {
     html: string;
     source: string;
     pageType: PageTypeClassification;
-    trace: ExtractionCandidateTrace;
+    traces: ExtractionCandidateTrace[];
+    redditThread?: RedditThreadDiagnostics;
   } | null> {
     if (!this.shouldRecoverRedditJsonAfterIncompleteMarkdown(markdown, qualityReport, url)) {
       return null;
@@ -3665,8 +3729,9 @@ export class OfflineModeManager {
       return null;
     }
 
-    const candidate = await this.fetchRedditJsonFallbackCandidate(doc, url, { force: true });
-    if (!candidate) {
+    const candidateSet = await this.fetchRedditJsonThreadFallback(doc, url, { force: true });
+    const candidate = candidateSet?.candidates.find((entry) => entry.source === 'reddit:thread');
+    if (!candidateSet || !candidate) {
       return null;
     }
 
@@ -3687,29 +3752,32 @@ export class OfflineModeManager {
       confidence: 1,
       signals: ['reddit-json-quality-gate-recovery'],
     };
-    const charCount = candidate.metrics?.charCount ?? this.normalizeInputText(extractTextContent(candidate.html)).length;
-
     this.recordFallback(fallbacksUsed, 'quality-gate:reddit-shell');
     this.recordFallback(fallbacksUsed, 'reddit-json-fallback');
     this.recordFallback(fallbacksUsed, 'quality-gate-recovery:reddit-json');
-    warnings.push('Recovered Reddit post body from JSON after incomplete shell output');
+    warnings.push('Recovered Reddit full thread from JSON after incomplete shell output');
 
     return {
       markdown: canonicalMarkdown,
       html: candidate.html,
-      source: 'reddit-json',
+      source: candidate.source,
       pageType,
-      trace: {
-        source: 'reddit-json',
-        charCount,
-        paragraphCount: candidate.metrics?.paragraphCount,
-        codeCharCount: candidate.metrics?.codeCharCount,
-        linkDensity: candidate.metrics?.linkDensity,
-        confidence: candidate.metrics?.confidence,
-        score: 100,
-        selected: true,
+      traces: candidateSet.candidates.map((entry) => ({
+        source: entry.source,
+        charCount: entry.metrics?.charCount ?? this.normalizeInputText(extractTextContent(entry.html)).length,
+        paragraphCount: entry.metrics?.paragraphCount,
+        codeCharCount: entry.metrics?.codeCharCount,
+        linkDensity: entry.metrics?.linkDensity,
+        confidence: entry.metrics?.confidence,
+        score: entry.source === candidate.source ? 100 : 90,
+        selected: entry.source === candidate.source,
+        rejectionReason: entry.source === candidate.source ? undefined : 'outscored',
         profileApplied: pageType.profile,
-        profileScoreDelta: 25,
+        profileScoreDelta: entry.source === candidate.source ? 45 : 25,
+      })),
+      redditThread: {
+        ...candidateSet.diagnostics,
+        winner: candidate.source,
       },
     };
   }
@@ -3733,104 +3801,6 @@ export class OfflineModeManager {
     }
 
     return this.shouldAttemptRedditJsonFallback(doc);
-  }
-
-  private static extractRedditPostFromJson(payload: unknown): { title: string; body: string; comments: string[] } | null {
-    const listings = Array.isArray(payload) ? payload : [payload];
-    let post: { title: string; body: string } | null = null;
-    const comments: string[] = [];
-
-    for (const listing of listings) {
-      const children = (listing as any)?.data?.children;
-      if (!Array.isArray(children)) {
-        continue;
-      }
-
-      for (const child of children) {
-        const data = child?.data;
-        if (!data || typeof data !== 'object') {
-          continue;
-        }
-        const kind = typeof child?.kind === 'string' ? child.kind : '';
-        if (kind === 't3' || (!kind && typeof data.selftext === 'string')) {
-          const rawBody = typeof data.selftext === 'string'
-            ? data.selftext
-            : (typeof data.selftext_html === 'string' ? extractTextContent(data.selftext_html) : '');
-          const body = this.normalizeInputText(rawBody);
-          if (body.length < 120) {
-            continue;
-          }
-
-          post = {
-            title: typeof data.title === 'string' ? data.title : '',
-            body,
-          };
-          continue;
-        }
-
-        if (kind === 't1' && post) {
-          this.collectRedditJsonComments(child, comments);
-        }
-      }
-    }
-
-    return post ? { ...post, comments } : null;
-  }
-
-  private static collectRedditJsonComments(child: any, comments: string[], depth = 0): void {
-    if (comments.length >= 80 || depth > 4) {
-      return;
-    }
-
-    const data = child?.data;
-    if (!data || typeof data !== 'object') {
-      return;
-    }
-
-    const rawBody = typeof data.body === 'string'
-      ? data.body
-      : (typeof data.body_html === 'string' ? extractTextContent(data.body_html) : '');
-    const body = this.normalizeInputText(rawBody);
-    if (body.length >= 20 && !/^(\[deleted\]|\[removed\])$/i.test(body)) {
-      comments.push(body);
-    }
-
-    const replies = data.replies?.data?.children;
-    if (!Array.isArray(replies)) {
-      return;
-    }
-
-    for (const reply of replies) {
-      if (reply?.kind === 't1') {
-        this.collectRedditJsonComments(reply, comments, depth + 1);
-      }
-    }
-  }
-
-  private static redditJsonPostToHtml(title: string, body: string, comments: string[] = []): string {
-    const titleHtml = title.trim() ? `<h1>${this.escapeHtml(title.trim())}</h1>` : '';
-    const paragraphs = body
-      .split(/\n{2,}/)
-      .map((part) => this.normalizeInputText(part))
-      .filter((part) => part.length > 0)
-      .map((part) => `<p>${this.escapeHtml(part)}</p>`)
-      .join('\n');
-    const commentBlocks = comments
-      .map((comment) => `<blockquote>${this.escapeHtml(comment)}</blockquote>`)
-      .join('\n');
-    const commentsSection = commentBlocks
-      ? `<section data-pr-source="reddit-json-comments"><h2>Comments</h2>${commentBlocks}</section>`
-      : '';
-    return `<article data-pr-source="reddit-json">${titleHtml}${paragraphs}${commentsSection}</article>`;
-  }
-
-  private static escapeHtml(value: string): string {
-    return value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
   }
 
   private static computeProfileScoreDelta(
@@ -3869,8 +3839,14 @@ export class OfflineModeManager {
     }
 
     if (pageType.profile === 'forum') {
+      if (source === 'reddit:thread') {
+        return 45;
+      }
+      if (source === 'reddit:post') {
+        return 0;
+      }
       if (source.includes('comment')) {
-        return -20;
+        return source === 'reddit:comments' ? 10 : -20;
       }
       if (source.includes('reddit:dom-body')) {
         return 45;
