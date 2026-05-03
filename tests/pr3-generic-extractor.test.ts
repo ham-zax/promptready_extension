@@ -464,7 +464,7 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     expect(selectedTrace?.source).toBe('reddit:dom-body');
   });
 
-  it('does not record reddit-adapter:null for non-Reddit pages', async () => {
+  it('does not run the Reddit site adapter for non-Reddit pages', async () => {
     const html = `
       <!DOCTYPE html>
       <html>
@@ -491,8 +491,8 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.processingStats.strategiesAttempted || []).not.toContain('reddit-adapter');
-    expect(result.processingStats.fallbacksUsed).not.toContain('reddit-adapter:null');
+    expect(result.processingStats.strategiesAttempted || []).not.toContain('adapter:reddit');
+    expect(result.processingStats.fallbacksUsed).not.toContain('site-adapter:reddit:null');
     expect(result.processingStats.strategyWinner).toMatch(/generic|fallback-content-selection/);
   });
 
@@ -527,7 +527,7 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     expect(result.success).toBe(true);
     expect(result.markdown).toContain('This normal article body uses schema articleBody');
     expect(result.processingStats.fallbacksUsed).not.toContain('reddit-dom-body');
-    expect(result.processingStats.strategiesAttempted || []).not.toContain('reddit-adapter');
+    expect(result.processingStats.strategiesAttempted || []).not.toContain('adapter:reddit');
   });
 
   it('handles invalid URLs safely without crashing during fallback selection', async () => {
@@ -557,10 +557,10 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.processingStats.strategiesAttempted || []).not.toContain('reddit-adapter');
+    expect(result.processingStats.strategiesAttempted || []).not.toContain('adapter:reddit');
   });
 
-  it('does not trigger reddit-adapter for non-Reddit pages with slot="text-body"', async () => {
+  it('does not trigger Reddit site adapter for non-Reddit pages with slot="text-body"', async () => {
     const html = `
       <!DOCTYPE html>
       <html>
@@ -587,8 +587,8 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.processingStats.strategiesAttempted || []).not.toContain('reddit-adapter');
-    expect(result.processingStats.fallbacksUsed).not.toContain('reddit-adapter:null');
+    expect(result.processingStats.strategiesAttempted || []).not.toContain('adapter:reddit');
+    expect(result.processingStats.fallbacksUsed).not.toContain('site-adapter:reddit:null');
   });
 
   it('does not demote short but valid Reddit adapter content', async () => {
@@ -624,8 +624,8 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.processingStats.fallbacksUsed || []).not.toContain('reddit-adapter:incomplete');
-    expect(result.processingStats.strategiesAttempted).toContain('reddit-adapter');
+    expect(result.processingStats.fallbacksUsed || []).not.toContain('site-adapter:reddit:incomplete');
+    expect(result.processingStats.strategiesAttempted).toContain('adapter:reddit');
     expect(result.markdown).toContain('short but valid post');
   });
 
@@ -665,7 +665,7 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     expect(result.markdown).toContain('More substantial content');
     expect(result.processingStats.strategiesAttempted).toContain('generic-selector');
     expect(result.processingStats.strategyWinner).toMatch(/generic|fallback-content-selection/);
-    expect(result.processingStats.fallbacksUsed).toContain('reddit-adapter:null');
+    expect(result.processingStats.fallbacksUsed).toContain('site-adapter:reddit:null');
     expect(result.processingStats.qualityScore).toBeGreaterThan(45);
   });
 
@@ -735,7 +735,7 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
 
     expect(result.success).toBe(true);
     expect(result.markdown).toContain('Real Content Below');
-    expect(result.processingStats.fallbacksUsed).toContain('reddit-adapter:incomplete');
+    expect(result.processingStats.fallbacksUsed).toContain('site-adapter:reddit:incomplete');
     expect(result.processingStats.strategyWinner).toMatch(/generic|fallback-content-selection/);
   });
 

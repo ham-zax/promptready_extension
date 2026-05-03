@@ -3,7 +3,6 @@
 
 import { ReadabilityConfigManager } from './readability-config.js';
 import { GenericExtractor } from './generic-extractor.js';
-import { RedditShadowExtractor } from './reddit-shadow-extractor.js';
 import { MarkdownPostProcessor } from './post-processor.js';
 import { Storage } from '../lib/storage.js';
 import { ExportMetadata } from '../lib/types.js';
@@ -31,6 +30,7 @@ import {
 } from './domain/extraction/policies.js';
 import type { ExtractionTuning } from './domain/extraction/types.js';
 import type { PipelineConfig, PipelineResult } from './graceful-degradation-pipeline.js';
+import { SiteAdapterRegistry } from './site-adapters/registry.js';
 
 import { PageTypeProfiler, type PageTypeClassification, type PageTypeProfile } from './page-type-profiler.js';
 import type { QualityReport } from './content-quality-validator.js';
@@ -3124,44 +3124,52 @@ export class OfflineModeManager {
         }
       }
 
-      // TASK #13: Integrate site-specific extractors (Reddit) as adapters
       const hostname = this.hostnameFromUrl(options.url);
       const isRedditHost = /(^|\.)reddit\.com$/i.test(hostname) || /(^|\.)redd\.it$/i.test(hostname);
       const isRedditPage =
         isRedditHost ||
         Boolean(doc.querySelector('shreddit-post, shreddit-comment-tree'));
 
+      this.recordStrategyAttempt(strategiesAttempted, 'site-adapters');
+      const adapterCollection = SiteAdapterRegistry.collectCandidates(doc, options.url);
+      for (const adapterId of adapterCollection.matchedAdapterIds) {
+        this.recordStrategyAttempt(strategiesAttempted, `adapter:${adapterId}`);
+      }
+      for (const event of adapterCollection.events) {
+        this.recordFallback(fallbacksUsed, `site-adapter:${event.adapter}:${event.status}`);
+      }
+      for (const adapterCandidate of adapterCollection.candidates) {
+        const sanitizedAdapterHtml = this.sanitizeFallbackCandidateHtml(adapterCandidate.html, pageType);
+        if (!this.isUsableAdapterContent(sanitizedAdapterHtml)) {
+          const adapterId = adapterCandidate.diagnostics?.adapter || 'unknown';
+          this.recordFallback(fallbacksUsed, `site-adapter:${adapterId}:incomplete`);
+          continue;
+        }
+
+        const adapterTextLength = this.normalizeInputText(extractTextContent(sanitizedAdapterHtml)).length;
+        const adapterDoc = safeParseHTML(sanitizedAdapterHtml);
+        candidatePool.push({
+          source: adapterCandidate.source,
+          html: sanitizedAdapterHtml,
+          metrics: {
+            charCount: adapterTextLength,
+            paragraphCount: adapterDoc?.querySelectorAll('p, li, blockquote').length,
+            codeCharCount: adapterDoc
+              ? Array.from(adapterDoc.querySelectorAll('pre, code'))
+                  .reduce((sum, el) => sum + this.normalizeInputText(el.textContent || '').length, 0)
+              : 0,
+            linkDensity: 0,
+            confidence: adapterCandidate.confidence,
+            warnings: adapterCandidate.diagnostics?.warnings,
+          },
+        });
+      }
+
       if (isRedditPage) {
         const redditDomBody = this.extractRedditDomBodyCandidate(doc, pageType);
         if (redditDomBody) {
           candidatePool.push(redditDomBody);
           this.recordFallback(fallbacksUsed, 'reddit-dom-body');
-        }
-
-        try {
-          this.recordStrategyAttempt(strategiesAttempted, 'reddit-adapter');
-          const redditResult = RedditShadowExtractor.extractContent(doc, options.url);
-          if (redditResult) {
-            // Task #13: Demote if incomplete (title-only or empty)
-            if (!this.isUsableAdapterContent(redditResult.content)) {
-              console.log('[OfflineModeManager] Reddit adapter returned incomplete content, demoting');
-              this.recordFallback(fallbacksUsed, 'reddit-adapter:incomplete');
-            } else {
-              candidatePool.push({
-                source: `reddit:${redditResult.metadata.strategy}`,
-                html: redditResult.content, // Reddit extractor returns pre-cleaned content
-                metrics: {
-                  charCount: redditResult.content.length,
-                  confidence: redditResult.metadata.qualityScore / 100
-                }
-              });
-            }
-          } else {
-            this.recordFallback(fallbacksUsed, 'reddit-adapter:null');
-          }
-        } catch (e) {
-          console.warn('[OfflineModeManager] Reddit extraction adapter failed:', e);
-          this.recordFallback(fallbacksUsed, 'reddit-adapter:error');
         }
 
         const redditJsonCandidate = await this.fetchRedditJsonFallbackCandidate(doc, options.url);
@@ -3314,21 +3322,21 @@ export class OfflineModeManager {
           this.analyzeExtractionCandidate(sourceHtml, candidateHtml),
         score: (sourceHtml, candidateHtml, analysis) => {
           let score = this.computeCandidateSelectionScore(sourceHtml, candidateHtml, analysis, resolvedTuning);
-          // Option B: Generic metrics participate in deterministic ranking
-          // Find the candidate matching this HTML to apply metrics
+          // Find the candidate matching this HTML to apply metrics.
           const candidate = candidatePool.find(c => this.sanitizeFallbackCandidateHtml(c.html) === candidateHtml || c.html === candidateHtml);
           if (candidate?.source === 'reddit:dom-body') {
             score += 35;
+          } else if (candidate?.source.startsWith('adapter:')) {
+            score += (candidate.metrics?.confidence ?? 0) * 8;
           } else if (candidate?.source.startsWith('generic:')) {
             if (candidate.metrics?.confidence !== undefined) {
-               // Give a significant bonus (up to +15) based on GenericExtractor confidence
                score += candidate.metrics.confidence * 15;
             }
             if (candidate.source.includes('article') || candidate.source.includes('main')) {
-               score += 5; // Further preference for article/main
+               score += 5;
             }
           } else if (candidate?.source === 'body') {
-            score -= 10; // Penalize body fallback to encourage more specific semantic extraction
+            score -= 10;
           }
           if (candidate) {
             const scoreDelta = this.computeProfileScoreDelta(candidate, analysis, pageType);
@@ -3361,6 +3369,21 @@ export class OfflineModeManager {
           tracedEntries[tracedEntries.length - 1] = ranking.selected;
         } else {
           tracedEntries.push(ranking.selected);
+        }
+      }
+
+      const adapterTraceEntry = ranking.ranked.find((entry) => entry.source.startsWith('adapter:'));
+      if (
+        adapterTraceEntry &&
+        !tracedEntries.some((entry) => entry.source === adapterTraceEntry.source && entry.html === adapterTraceEntry.html)
+      ) {
+        if (tracedEntries.length >= 5) {
+          const replaceIndex = tracedEntries.findIndex((entry) =>
+            !ranking.selected || entry.source !== ranking.selected.source || entry.html !== ranking.selected.html
+          );
+          tracedEntries[replaceIndex >= 0 ? replaceIndex : tracedEntries.length - 1] = adapterTraceEntry;
+        } else {
+          tracedEntries.push(adapterTraceEntry);
         }
       }
 
