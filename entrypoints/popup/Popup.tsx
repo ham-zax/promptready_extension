@@ -843,7 +843,17 @@ export default function RefactoredPopup() {
                         <div>Pipeline: {state.exportData.pipelineUsed || 'standard'}</div>
                         <div>Chars: {(state.exportData.markdown || '').length}</div>
                         {state.exportData.stats && (
-                          <div>Stats: {JSON.stringify(state.exportData.stats)}</div>
+                          <div className="space-y-2 break-all">
+                            <div>Stats: {JSON.stringify(state.exportData.stats)}</div>
+                            {(state.exportData.stats as any).extractionDiagnostics?.candidateTraces && (
+                              <div className="border border-border rounded p-2 bg-muted/50 overflow-auto max-h-40 text-left mt-2">
+                                <div className="font-semibold mb-1 text-foreground">Candidate Traces</div>
+                                <pre className="text-[10px]">
+                                  {JSON.stringify((state.exportData.stats as any).extractionDiagnostics.candidateTraces, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
 

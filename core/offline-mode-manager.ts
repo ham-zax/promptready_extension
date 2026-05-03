@@ -53,6 +53,18 @@ export interface OfflineModeConfig {
   skipTurndown?: boolean; // NEW: Skip Turndown conversion if content is already markdown
 }
 
+export interface ExtractionCandidateTrace {
+  source: string;
+  charCount: number;
+  paragraphCount?: number;
+  codeCharCount?: number;
+  linkDensity?: number;
+  confidence?: number;
+  score: number;
+  selected: boolean;
+  rejectionReason?: string;
+}
+
 export interface OfflineProcessingResult {
   success: boolean;
   markdown: string;
@@ -66,6 +78,9 @@ export interface OfflineProcessingResult {
     qualityScore: number;
     strategiesAttempted?: string[];
     strategyWinner?: string;
+    extractionDiagnostics?: {
+      candidateTraces: ExtractionCandidateTrace[];
+    };
   };
   warnings: string[];
   errors: string[];
@@ -92,6 +107,7 @@ interface GracefulDegradationPipelineLike {
 interface FallbackSelection {
   source: string;
   html: string;
+  candidateTraces?: ExtractionCandidateTrace[];
 }
 
 interface FallbackSelectionOptions {
@@ -359,6 +375,7 @@ export class OfflineModeManager {
     let fallbacksUsed: string[] = [];
     const strategiesAttempted: string[] = [];
     let strategyWinner: string | undefined;
+    let candidateTraces: ExtractionCandidateTrace[] | undefined;
     let sessionId: string | null = null;
 
     try {
@@ -461,7 +478,7 @@ export class OfflineModeManager {
 	          }
 	          readabilityConfig = ReadabilityConfigManager.getConfigForUrl(url);
 	        }
-	
+
 	        if (readabilityConfig) {
 	          const doc = safeParseHTML(extractionHtml);
 	          if (!doc) {
@@ -486,6 +503,7 @@ export class OfflineModeManager {
             url
           );
           extractedContent = resolution.content;
+          candidateTraces = resolution.candidateTraces;
           strategyWinner = resolution.source || (fallbacksUsed.length > fallbackCountBeforeSelection
             ? 'fallback-content-selection'
             : 'readability');
@@ -504,6 +522,7 @@ export class OfflineModeManager {
             url,
           });
           extractedContent = fallbackSelection?.html || extractionHtml;
+          candidateTraces = fallbackSelection?.candidateTraces;
           this.recordFallback(fallbacksUsed, 'readability-fallback');
           if (fallbackSelection?.source) {
             this.recordFallback(fallbacksUsed, `readability-fallback-source:${fallbackSelection.source}`);
@@ -670,6 +689,7 @@ export class OfflineModeManager {
           qualityScore,
           strategiesAttempted,
           strategyWinner,
+          ...(candidateTraces && { extractionDiagnostics: { candidateTraces } }),
         },
         warnings,
         errors,
@@ -1074,7 +1094,7 @@ export class OfflineModeManager {
 	              (value as any).nodeValue = nextValue;
 	            }
 	          };
-	
+
 	          if (node.nodeType === TEXT_NODE) {
 	            const data = textData(node);
 	            if (!/\s$/.test(data)) {
@@ -1682,7 +1702,7 @@ export class OfflineModeManager {
     warnings: string[],
     config: OfflineModeConfig,
     url?: string
-  ): Promise<{ content: string; source?: string }> {
+  ): Promise<{ content: string; source?: string; candidateTraces?: ExtractionCandidateTrace[] }> {
     if (!config.fallbacks.enableReadabilityFallback) {
       return { content: readabilityContent, source: 'readability' };
     }
@@ -1700,7 +1720,7 @@ export class OfflineModeManager {
       url,
     });
     if (!selection || this.normalizeInputText(extractTextContent(selection.html)).length === 0) {
-      return { content: readabilityContent, source: 'readability' };
+      return { content: readabilityContent, source: 'readability', candidateTraces: selection?.candidateTraces };
     }
 
     if (selection.source === 'readability-primary') {
@@ -1708,7 +1728,7 @@ export class OfflineModeManager {
       if (coverageLow) {
         warnings.push('Readability extraction coverage low; retained readability candidate after quality ranking');
       }
-      return { content: readabilityContent, source: 'readability' };
+      return { content: readabilityContent, source: 'readability', candidateTraces: selection.candidateTraces };
     }
 
     const fallbackCandidate = selection.html;
@@ -1734,14 +1754,30 @@ export class OfflineModeManager {
           source: selection.source,
         });
       }
-      return { content: fallbackCandidate, source: selection.source };
+      return { content: fallbackCandidate, source: selection.source, candidateTraces: selection.candidateTraces };
     }
 
     if (coverageLow) {
       warnings.push('Readability extraction coverage low; retained readability candidate after quality check');
     }
 
-    return { content: readabilityContent, source: 'readability' };
+    const finalTraces = selection.candidateTraces?.map(t => ({
+      ...t,
+      selected: t.source === 'readability-primary',
+      rejectionReason: t.source === 'readability-primary' ? undefined : (t.selected ? 'rejected_by_adoption_check' : t.rejectionReason)
+    })) || [];
+
+    if (!finalTraces.some(t => t.source === 'readability-primary')) {
+      finalTraces.push({
+        source: 'readability-primary',
+        charCount: this.normalizeInputText(extractTextContent(readabilityContent)).length,
+        score: 100, // Implied winner score
+        selected: true,
+        rejectionReason: undefined,
+      });
+    }
+
+    return { content: readabilityContent, source: 'readability', candidateTraces: finalTraces };
   }
 
   private static shouldAdoptFallbackCandidate(
@@ -2793,23 +2829,23 @@ export class OfflineModeManager {
    * Process content in chunks for large documents
    */
   static async processLargeContent(
-    html: string, 
-    url: string, 
+    html: string,
+    url: string,
     title: string,
     config?: Partial<OfflineModeConfig>
   ): Promise<OfflineProcessingResult> {
     const finalConfig = this.mergeConfig(config);
-    
+
     if (html.length <= finalConfig.performance.chunkSize) {
       return this.processContent(html, url, title, finalConfig);
     }
 
     console.log('[OfflineModeManager] Processing large content in chunks...');
-    
+
     // Split content into chunks
     const chunks = this.splitIntoChunks(html, finalConfig.performance.chunkSize);
     const results: OfflineProcessingResult[] = [];
-    
+
     for (let i = 0; i < chunks.length; i++) {
       console.log(`[OfflineModeManager] Processing chunk ${i + 1}/${chunks.length}`);
       const chunkResult = await this.processContent(chunks[i], url, `${title} (Part ${i + 1})`, finalConfig);
@@ -3170,16 +3206,56 @@ export class OfflineModeManager {
         })));
       }
 
+      const tracedEntries = ranking.ranked.slice(0, 5);
+
+      if (
+        ranking.selected &&
+        !tracedEntries.some((entry) => entry.source === ranking.selected!.source && entry.html === ranking.selected!.html)
+      ) {
+        if (tracedEntries.length >= 5) {
+          tracedEntries[tracedEntries.length - 1] = ranking.selected;
+        } else {
+          tracedEntries.push(ranking.selected);
+        }
+      }
+
+      const candidateTraces: ExtractionCandidateTrace[] = tracedEntries.map((entry) => {
+        const isSelected = ranking.selected ? (ranking.selected.source === entry.source && ranking.selected.html === entry.html) : false;
+        const trace: ExtractionCandidateTrace = {
+          source: entry.source,
+          charCount: entry.metrics?.charCount ?? entry.textLength,
+          paragraphCount: entry.metrics?.paragraphCount,
+          codeCharCount: entry.metrics?.codeCharCount,
+          linkDensity: entry.metrics?.linkDensity,
+          confidence: entry.metrics?.confidence,
+          score: entry.score,
+          selected: isSelected,
+        };
+
+        if (!isSelected) {
+          if (entry.textLength < minLengthThreshold) {
+            trace.rejectionReason = 'below_length_threshold';
+          } else if (entry.score <= 0) {
+            trace.rejectionReason = 'zero_score';
+          } else {
+            trace.rejectionReason = 'outscored';
+          }
+        }
+        return trace;
+      });
+
       if (ranking.selected) {
         return {
           source: ranking.selected.source,
           html: ranking.selected.html,
+          candidateTraces,
         };
       }
 
       return {
         source: 'prepared-html',
         html: prepared.html || normalizedHtml,
+        candidateTraces,
       };
     } catch (error) {
       console.warn('[OfflineModeManager] fallbackContentExtraction failed; returning normalized source HTML:', error);
@@ -3315,7 +3391,7 @@ export class OfflineModeManager {
       if (node.nodeType === Node.ELEMENT_NODE) {
         const element = node as Element;
         const tagName = element.tagName.toLowerCase();
-        
+
         switch (tagName) {
           case 'h1':
             markdown += `# ${element.textContent}\n\n`;
@@ -4160,7 +4236,7 @@ export class OfflineModeManager {
     const combinedMarkdown = results.map(r => r.markdown).join('\n\n---\n\n');
     const combinedWarnings = results.flatMap(r => r.warnings);
     const combinedErrors = results.flatMap(r => r.errors);
-    
+
     const totalStats = results.reduce((acc, r) => ({
       totalTime: acc.totalTime + r.processingStats.totalTime,
       readabilityTime: acc.readabilityTime + r.processingStats.readabilityTime,

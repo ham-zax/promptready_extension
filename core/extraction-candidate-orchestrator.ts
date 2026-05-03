@@ -64,19 +64,21 @@ export function rankExtractionCandidates(input: CandidateRankingInput): Candidat
     metrics: entry.metrics,
   }));
 
+  const selected = decision.selected
+    ? ranked.find(r => r.source === decision.selected!.source && r.html === decision.selected!.html) ?? ({
+        source: decision.selected.source,
+        html: decision.selected.html,
+        textLength: decision.selected.textLength,
+        score: decision.selected.score,
+        analysis: decision.selected.analysis,
+        processingTimeMs: decision.selected.processingTimeMs,
+        metrics: decision.selected.metrics,
+      } as RankedExtractionCandidate)
+    : null;
+
   return {
     ranked,
-    selected: decision.selected
-      ? ({
-          source: decision.selected.source,
-          html: decision.selected.html,
-          textLength: decision.selected.textLength,
-          score: decision.selected.score,
-          analysis: decision.selected.analysis,
-          processingTimeMs: decision.selected.processingTimeMs,
-          metrics: decision.selected.metrics,
-        } as RankedExtractionCandidate)
-      : null,
+    selected,
     stateTrace: decision.stateTrace,
     errorCode: decision.errorCode,
   };
