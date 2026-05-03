@@ -190,6 +190,77 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     expect(result.processingStats.qualityScore).toBeGreaterThanOrEqual(60);
   });
 
+  it('rescues incomplete Reddit shell markdown with forced JSON recovery after quality scoring', async () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Title only</title></head>
+        <body>
+          <main>
+            <h1>Title only</h1>
+            <a href="#left-sidebar-container">Skip to Navigation</a>
+            <a href="#right-sidebar-container">Skip to Right Sidebar</a>
+            <section class="post-shell">
+              ${'Hydrated shell text that is long enough to suppress the normal shell-only JSON candidate path. '.repeat(10)}
+            </section>
+          </main>
+        </body>
+      </html>
+    `;
+    const url = 'https://www.reddit.com/r/ClaudeAI/comments/1t1o43w/post_slug/';
+    const config = {
+      ...baseConfig,
+      fallbacks: {
+        ...baseConfig.fallbacks,
+        enableReadabilityFallback: false,
+      },
+    };
+
+    vi.spyOn(ReadabilityConfigManager, 'extractContent').mockResolvedValue({
+      content: `
+        <h1>Title only</h1>
+        <p>Skip to Navigation Skip to Right Sidebar</p>
+      `,
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ([
+        {
+          data: {
+            children: [
+              {
+                kind: 't3',
+                data: {
+                  title: 'Title only',
+                  selftext: "Was hitting my weekly Pro limit by Wednesday every single week. Built a simple pattern using cheap model delegation. Results after 3 weeks: Haven't hit limits once. Kimi total spend: $0.38.",
+                },
+              },
+            ],
+          },
+        },
+      ]),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await OfflineModeManager.processContent(html, url, 'Title only', config);
+
+    expect(result.markdown).toContain('Was hitting my weekly Pro limit');
+    expect(result.markdown).toContain('Kimi total spend');
+    expect(result.markdown).not.toContain('Skip to Navigation');
+    expect(result.processingStats.strategyWinner).toBe('reddit-json');
+    expect(result.processingStats.fallbacksUsed).toContain('quality-gate:reddit-shell');
+    expect(result.processingStats.fallbacksUsed).toContain('quality-gate-recovery:reddit-json');
+    expect(result.processingStats.extractionDiagnostics?.candidateTraces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'reddit-json',
+          selected: true,
+        }),
+      ])
+    );
+    expect(result.processingStats.qualityScore).toBeGreaterThanOrEqual(60);
+  });
+
   it('extracts Reddit post body from schema articleBody DOM before shell candidates', async () => {
     const html = `
       <!DOCTYPE html>

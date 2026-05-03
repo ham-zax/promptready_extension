@@ -652,7 +652,32 @@ export class OfflineModeManager {
            finalPageType = { profile: winnerTrace.profileApplied, confidence: 1, signals: [] };
          }
       }
-      const qualityScore = this.assessQuality(processedMarkdown, extractionHtml, warnings, errors, finalPageType);
+      let qualityScore = this.assessQuality(processedMarkdown, extractionHtml, warnings, errors, finalPageType);
+      const redditQualityRecovery = await this.recoverRedditJsonAfterIncompleteMarkdown(
+        processedMarkdown,
+        extractionHtml,
+        url,
+        metadata,
+        config,
+        qualityScore,
+        warnings,
+        fallbacksUsed
+      );
+      if (redditQualityRecovery) {
+        processedMarkdown = redditQualityRecovery.markdown;
+        extractedContent = redditQualityRecovery.html;
+        qualityScore = this.assessQuality(processedMarkdown, extractionHtml, warnings, errors, redditQualityRecovery.pageType);
+        finalPageType = redditQualityRecovery.pageType;
+        strategyWinner = redditQualityRecovery.source;
+        candidateTraces = [
+          ...(candidateTraces || []).map((trace) => ({
+            ...trace,
+            selected: false,
+            rejectionReason: trace.rejectionReason || 'replaced_by_quality_gate_recovery',
+          })),
+          redditQualityRecovery.trace,
+        ];
+      }
 
       const totalTime = Date.now() - startTime;
 
@@ -3450,9 +3475,13 @@ export class OfflineModeManager {
     return null;
   }
 
-  private static async fetchRedditJsonFallbackCandidate(doc: Document, url?: string): Promise<ExtractionCandidate | null> {
+  private static async fetchRedditJsonFallbackCandidate(
+    doc: Document,
+    url?: string,
+    options: { force?: boolean } = {}
+  ): Promise<ExtractionCandidate | null> {
     const jsonUrl = this.buildRedditJsonUrl(url);
-    if (!jsonUrl || !this.shouldAttemptRedditJsonFallback(doc)) {
+    if (!jsonUrl || (!options.force && !this.shouldAttemptRedditJsonFallback(doc))) {
       return null;
     }
 
@@ -3552,6 +3581,98 @@ export class OfflineModeManager {
       });
 
     return !hasVisiblePostBody;
+  }
+
+  private static shouldRecoverRedditJsonAfterIncompleteMarkdown(
+    markdown: string,
+    qualityScore: number,
+    url?: string
+  ): boolean {
+    if (!this.buildRedditJsonUrl(url)) {
+      return false;
+    }
+
+    const normalized = this.normalizeInputText(markdown);
+    const hasRedditShellNoise =
+      /skip to navigation/i.test(normalized) ||
+      /skip to right sidebar/i.test(normalized);
+    const looksIncomplete = qualityScore <= 25 || normalized.length < 500;
+
+    return hasRedditShellNoise && looksIncomplete;
+  }
+
+  private static async recoverRedditJsonAfterIncompleteMarkdown(
+    markdown: string,
+    extractionHtml: string,
+    url: string,
+    metadata: ExportMetadata,
+    config: OfflineModeConfig,
+    qualityScore: number,
+    warnings: string[],
+    fallbacksUsed: string[]
+  ): Promise<{
+    markdown: string;
+    html: string;
+    source: string;
+    pageType: PageTypeClassification;
+    trace: ExtractionCandidateTrace;
+  } | null> {
+    if (!this.shouldRecoverRedditJsonAfterIncompleteMarkdown(markdown, qualityScore, url)) {
+      return null;
+    }
+
+    const doc = safeParseHTML(extractionHtml);
+    if (!doc) {
+      return null;
+    }
+
+    const candidate = await this.fetchRedditJsonFallbackCandidate(doc, url, { force: true });
+    if (!candidate) {
+      return null;
+    }
+
+    const TurndownConfigManager = await this.getTurndownConfigManager();
+    if (!TurndownConfigManager) {
+      return null;
+    }
+
+    const turndownPreset = this.normalizeTurndownPreset(config.turndownPreset);
+    const recoveredMarkdown = await TurndownConfigManager.convert(candidate.html, turndownPreset);
+    const canonicalMarkdown = this.canonicalizeDeliveredMarkdown(
+      this.normalizeUnicodeWhitespace(recoveredMarkdown),
+      metadata,
+      warnings
+    );
+    const pageType: PageTypeClassification = {
+      profile: 'forum',
+      confidence: 1,
+      signals: ['reddit-json-quality-gate-recovery'],
+    };
+    const charCount = candidate.metrics?.charCount ?? this.normalizeInputText(extractTextContent(candidate.html)).length;
+
+    this.recordFallback(fallbacksUsed, 'quality-gate:reddit-shell');
+    this.recordFallback(fallbacksUsed, 'reddit-json-fallback');
+    this.recordFallback(fallbacksUsed, 'quality-gate-recovery:reddit-json');
+    warnings.push('Recovered Reddit post body from JSON after incomplete shell output');
+
+    return {
+      markdown: canonicalMarkdown,
+      html: candidate.html,
+      source: 'reddit-json',
+      pageType,
+      trace: {
+        source: 'reddit-json',
+        charCount,
+        paragraphCount: candidate.metrics?.paragraphCount,
+        codeCharCount: candidate.metrics?.codeCharCount,
+        linkDensity: candidate.metrics?.linkDensity,
+        confidence: candidate.metrics?.confidence,
+        score: 100,
+        selected: true,
+        profileApplied: pageType.profile,
+        profileScoreDelta: 25,
+      },
+    };
   }
 
   private static shouldBypassCacheForRedditShellSnapshot(html: string, url?: string): boolean {
