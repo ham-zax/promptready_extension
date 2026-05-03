@@ -13,6 +13,7 @@ import { normalizeTechnicalMarkdownBlocks } from '../lib/markdown-technical-bloc
 import { unwrapWholeDocumentMarkdownFence } from '../lib/markdown-canonicalizer.js';
 import { CacheManager } from '../lib/cache-manager.js';
 import { PerformanceMetrics } from './performance-metrics.js';
+import { ContentQualityValidator } from './content-quality-validator.js';
 import { safeParseHTML, extractSemanticContent, removeUnwantedElements, extractTextContent, fixRelativeUrls } from '../lib/dom-utils.js';
 import {
   computeCandidateSelectionScore as computeCandidateSelectionPolicyScore,
@@ -32,6 +33,7 @@ import type { ExtractionTuning } from './domain/extraction/types.js';
 import type { PipelineConfig, PipelineResult } from './graceful-degradation-pipeline.js';
 
 import { PageTypeProfiler, type PageTypeClassification, type PageTypeProfile } from './page-type-profiler.js';
+import type { QualityReport } from './content-quality-validator.js';
 
 export interface OfflineModeConfig {
   readabilityPreset?: string;
@@ -653,13 +655,18 @@ export class OfflineModeManager {
          }
       }
       let qualityScore = this.assessQuality(processedMarkdown, extractionHtml, warnings, errors, finalPageType);
+      let qualityReport = ContentQualityValidator.validate(processedMarkdown, extractionHtml, {
+        fallbacksUsed,
+        errors,
+      });
+      qualityScore = Math.min(qualityScore, qualityReport.overallScore);
       const redditQualityRecovery = await this.recoverRedditJsonAfterIncompleteMarkdown(
         processedMarkdown,
         extractionHtml,
         url,
         metadata,
         config,
-        qualityScore,
+        qualityReport,
         warnings,
         fallbacksUsed
       );
@@ -667,6 +674,11 @@ export class OfflineModeManager {
         processedMarkdown = redditQualityRecovery.markdown;
         extractedContent = redditQualityRecovery.html;
         qualityScore = this.assessQuality(processedMarkdown, extractionHtml, warnings, errors, redditQualityRecovery.pageType);
+        qualityReport = ContentQualityValidator.validate(processedMarkdown, extractionHtml, {
+          fallbacksUsed,
+          errors,
+        });
+        qualityScore = Math.min(qualityScore, qualityReport.overallScore);
         finalPageType = redditQualityRecovery.pageType;
         strategyWinner = redditQualityRecovery.source;
         candidateTraces = [
@@ -3512,7 +3524,7 @@ export class OfflineModeManager {
         return null;
       }
 
-      const html = this.redditJsonPostToHtml(extracted.title, extracted.body);
+      const html = this.redditJsonPostToHtml(extracted.title, extracted.body, extracted.comments);
       const bodyChars = this.normalizeInputText(extractTextContent(html)).length;
       if (bodyChars < 120) {
         return null;
@@ -3585,7 +3597,7 @@ export class OfflineModeManager {
 
   private static shouldRecoverRedditJsonAfterIncompleteMarkdown(
     markdown: string,
-    qualityScore: number,
+    qualityReport: QualityReport,
     url?: string
   ): boolean {
     if (!this.buildRedditJsonUrl(url)) {
@@ -3596,9 +3608,15 @@ export class OfflineModeManager {
     const hasRedditShellNoise =
       /skip to navigation/i.test(normalized) ||
       /skip to right sidebar/i.test(normalized);
-    const looksIncomplete = qualityScore <= 25 || normalized.length < 500;
+    const qualityLooksIncomplete =
+      qualityReport.overallScore <= 25 ||
+      !qualityReport.passesThreshold ||
+      qualityReport.completenessStatus === 'incomplete_title_only' ||
+      qualityReport.completenessStatus === 'incomplete_empty_body' ||
+      qualityReport.completenessStatus === 'incomplete_navigation_only' ||
+      normalized.length < 500;
 
-    return hasRedditShellNoise && looksIncomplete;
+    return hasRedditShellNoise || qualityLooksIncomplete;
   }
 
   private static async recoverRedditJsonAfterIncompleteMarkdown(
@@ -3607,7 +3625,7 @@ export class OfflineModeManager {
     url: string,
     metadata: ExportMetadata,
     config: OfflineModeConfig,
-    qualityScore: number,
+    qualityReport: QualityReport,
     warnings: string[],
     fallbacksUsed: string[]
   ): Promise<{
@@ -3617,7 +3635,7 @@ export class OfflineModeManager {
     pageType: PageTypeClassification;
     trace: ExtractionCandidateTrace;
   } | null> {
-    if (!this.shouldRecoverRedditJsonAfterIncompleteMarkdown(markdown, qualityScore, url)) {
+    if (!this.shouldRecoverRedditJsonAfterIncompleteMarkdown(markdown, qualityReport, url)) {
       return null;
     }
 
@@ -3696,8 +3714,11 @@ export class OfflineModeManager {
     return this.shouldAttemptRedditJsonFallback(doc);
   }
 
-  private static extractRedditPostFromJson(payload: unknown): { title: string; body: string } | null {
+  private static extractRedditPostFromJson(payload: unknown): { title: string; body: string; comments: string[] } | null {
     const listings = Array.isArray(payload) ? payload : [payload];
+    let post: { title: string; body: string } | null = null;
+    const comments: string[] = [];
+
     for (const listing of listings) {
       const children = (listing as any)?.data?.children;
       if (!Array.isArray(children)) {
@@ -3710,29 +3731,62 @@ export class OfflineModeManager {
           continue;
         }
         const kind = typeof child?.kind === 'string' ? child.kind : '';
-        if (kind && kind !== 't3') {
+        if (kind === 't3' || (!kind && typeof data.selftext === 'string')) {
+          const rawBody = typeof data.selftext === 'string'
+            ? data.selftext
+            : (typeof data.selftext_html === 'string' ? extractTextContent(data.selftext_html) : '');
+          const body = this.normalizeInputText(rawBody);
+          if (body.length < 120) {
+            continue;
+          }
+
+          post = {
+            title: typeof data.title === 'string' ? data.title : '',
+            body,
+          };
           continue;
         }
 
-        const rawBody = typeof data.selftext === 'string'
-          ? data.selftext
-          : (typeof data.selftext_html === 'string' ? extractTextContent(data.selftext_html) : '');
-        const body = this.normalizeInputText(rawBody);
-        if (body.length < 120) {
-          continue;
+        if (kind === 't1' && post) {
+          this.collectRedditJsonComments(child, comments);
         }
-
-        return {
-          title: typeof data.title === 'string' ? data.title : '',
-          body,
-        };
       }
     }
 
-    return null;
+    return post ? { ...post, comments } : null;
   }
 
-  private static redditJsonPostToHtml(title: string, body: string): string {
+  private static collectRedditJsonComments(child: any, comments: string[], depth = 0): void {
+    if (comments.length >= 80 || depth > 4) {
+      return;
+    }
+
+    const data = child?.data;
+    if (!data || typeof data !== 'object') {
+      return;
+    }
+
+    const rawBody = typeof data.body === 'string'
+      ? data.body
+      : (typeof data.body_html === 'string' ? extractTextContent(data.body_html) : '');
+    const body = this.normalizeInputText(rawBody);
+    if (body.length >= 20 && !/^(\[deleted\]|\[removed\])$/i.test(body)) {
+      comments.push(body);
+    }
+
+    const replies = data.replies?.data?.children;
+    if (!Array.isArray(replies)) {
+      return;
+    }
+
+    for (const reply of replies) {
+      if (reply?.kind === 't1') {
+        this.collectRedditJsonComments(reply, comments, depth + 1);
+      }
+    }
+  }
+
+  private static redditJsonPostToHtml(title: string, body: string, comments: string[] = []): string {
     const titleHtml = title.trim() ? `<h1>${this.escapeHtml(title.trim())}</h1>` : '';
     const paragraphs = body
       .split(/\n{2,}/)
@@ -3740,7 +3794,13 @@ export class OfflineModeManager {
       .filter((part) => part.length > 0)
       .map((part) => `<p>${this.escapeHtml(part)}</p>`)
       .join('\n');
-    return `<article data-pr-source="reddit-json">${titleHtml}${paragraphs}</article>`;
+    const commentBlocks = comments
+      .map((comment) => `<blockquote>${this.escapeHtml(comment)}</blockquote>`)
+      .join('\n');
+    const commentsSection = commentBlocks
+      ? `<section data-pr-source="reddit-json-comments"><h2>Comments</h2>${commentBlocks}</section>`
+      : '';
+    return `<article data-pr-source="reddit-json">${titleHtml}${paragraphs}${commentsSection}</article>`;
   }
 
   private static escapeHtml(value: string): string {

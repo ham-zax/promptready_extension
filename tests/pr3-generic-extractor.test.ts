@@ -150,7 +150,13 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
       </html>
     `;
     const url = 'https://www.reddit.com/r/ClaudeAI/comments/1t1o43w/i_gave_claude_code_a_002call_coworker_and_stopped/';
-    const redditBody = 'Was hitting my weekly Pro limit by Wednesday, so I built a small coworker setup that handles cheap calls while Claude Code keeps the important work. The setup uses a simple command bridge, a budget guard, and repeatable prompts so the expensive model only sees the decisions that need it.';
+    const redditBody = [
+      'Was hitting my weekly Pro limit by Wednesday, so I built a small coworker setup that handles cheap calls while Claude Code keeps the important work.',
+      'The setup uses a simple command bridge, a budget guard, and repeatable prompts so the expensive model only sees the decisions that need it.',
+      'After three weeks the capture stayed reliable, documentation edits got cheaper, and the expensive model stopped wasting tokens on mechanical reading.',
+      'The important detail is that the routing rules live in the project instructions, so Claude can decide when a bulk-read helper is appropriate without handing off architecture decisions.',
+      'I also added a budget guard and a short summary format so the delegated work comes back as compact context instead of another giant transcript.',
+    ].join('\n\n');
 
     vi.spyOn(ReadabilityConfigManager, 'extractContent').mockResolvedValue({
       content: '<h1>I gave Claude Code a $0.02/call coworker and stopped hitting Pro limits</h1>',
@@ -232,7 +238,13 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
                 kind: 't3',
                 data: {
                   title: 'Title only',
-                  selftext: "Was hitting my weekly Pro limit by Wednesday every single week. Built a simple pattern using cheap model delegation. Results after 3 weeks: Haven't hit limits once. Kimi total spend: $0.38.",
+                  selftext: [
+                    'Was hitting my weekly Pro limit by Wednesday every single week. Built a simple pattern using cheap model delegation.',
+                    "Results after 3 weeks: Haven't hit limits once. Kimi total spend: $0.38.",
+                    'The useful part is that the expensive model keeps planning while the cheaper model handles repetitive context-heavy work.',
+                    'That means Claude still owns the implementation decisions, review, and tradeoffs, while the cheap model only summarizes large files and drafts mechanical boilerplate.',
+                    'The recovery path should therefore produce a complete Reddit post body, not a title-only shell with sidebar navigation links.',
+                  ].join('\n\n'),
                 },
               },
             ],
@@ -258,6 +270,78 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
         }),
       ])
     );
+    expect(result.processingStats.qualityScore).toBeGreaterThanOrEqual(60);
+  });
+
+  it('rescues the long Reddit title and skip-navigation shell output shape', async () => {
+    const url = 'https://www.reddit.com/r/ClaudeAI/comments/1t1o43w/i_gave_claude_code_a_002call_coworker_and_stopped/';
+    const title = "I gave Claude Code a $0.02/call coworker and stopped hitting Pro limits — here's the full setup : r/ClaudeAI";
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>${title}</title></head>
+        <body>
+          <main>
+            <h1>${title}</h1>
+            <a href="#left-sidebar-container">Skip to Navigation</a>
+            <a href="#right-sidebar-container">Skip to Right Sidebar</a>
+            <section>${'Large hydrated Reddit shell text that is not actual post body. '.repeat(40)}</section>
+          </main>
+        </body>
+      </html>
+    `;
+
+    vi.spyOn(ReadabilityConfigManager, 'extractContent').mockResolvedValue({
+      content: `
+        <h1>${title}</h1>
+        <p>${title}</p>
+        <p><a href="${url}#left-sidebar-container">Skip to Navigation</a> <a href="${url}#right-sidebar-container">Skip to Right Sidebar</a></p>
+      `,
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ([
+        {
+          data: {
+            children: [
+              {
+                kind: 't3',
+                data: {
+                  title,
+                  selftext: [
+                    'Was hitting my weekly Pro limit by Wednesday every single week. Tried compact, Sonnet for simple tasks, and tighter prompts, but the workflow still burned through context too quickly.',
+                    'Built a simple pattern using cheap model delegation for bulk reading, boilerplate generation, and mechanical edits. Claude Code keeps the planning and review work while the cheap model handles repetitive context-heavy steps.',
+                    'Results after 3 weeks: I have not hit limits once, Kimi total spend is $0.38, and documentation updates went from 5000 tokens to 200 tokens.',
+                  ].join('\\n\\n'),
+                },
+              },
+            ],
+          },
+        },
+        {
+          data: {
+            children: [
+              {
+                kind: 't1',
+                data: {
+                  body: 'This is a useful top-level comment that should be preserved separately from the main post.',
+                },
+              },
+            ],
+          },
+        },
+      ]),
+    }));
+
+    const result = await OfflineModeManager.processContent(html, url, title, baseConfig);
+
+    expect(result.markdown).toContain('Was hitting my weekly Pro limit');
+    expect(result.markdown).toContain('documentation updates went from 5000 tokens');
+    expect(result.markdown).toContain('## Comments');
+    expect(result.markdown).toContain('This is a useful top-level comment');
+    expect(result.markdown).not.toContain('Skip to Navigation');
+    expect(result.processingStats.strategyWinner).toBe('reddit-json');
+    expect(result.processingStats.fallbacksUsed).toContain('quality-gate-recovery:reddit-json');
     expect(result.processingStats.qualityScore).toBeGreaterThanOrEqual(60);
   });
 
