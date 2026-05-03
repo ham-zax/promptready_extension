@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { safeParseHTML } from '../lib/dom-utils';
 import { OfflineModeManager } from '../core/offline-mode-manager';
 import { RedditShadowExtractor } from '../core/reddit-shadow-extractor';
 import { ReadabilityConfigManager } from '../core/readability-config';
@@ -31,7 +32,162 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
   };
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('normalizes Reddit JSON fallback URLs deterministically', () => {
+    const buildUrl = (OfflineModeManager as any).buildRedditJsonUrl.bind(OfflineModeManager);
+
+    expect(buildUrl('https://www.reddit.com/r/test/comments/abc/post_slug'))
+      .toBe('https://www.reddit.com/r/test/comments/abc/post_slug/.json');
+    expect(buildUrl('https://www.reddit.com/r/test/comments/abc/post_slug/'))
+      .toBe('https://www.reddit.com/r/test/comments/abc/post_slug/.json');
+    expect(buildUrl('https://www.reddit.com/r/test/comments/abc/post_slug/.json'))
+      .toBe('https://www.reddit.com/r/test/comments/abc/post_slug/.json');
+    expect(buildUrl('https://www.reddit.com/r/test/comments/abc/post_slug/?utm_source=x#comments'))
+      .toBe('https://www.reddit.com/r/test/comments/abc/post_slug/.json');
+    expect(buildUrl('https://www.reddit.com/r/test/')).toBeNull();
+    expect(buildUrl('https://example.com/r/test/comments/abc/post_slug/')).toBeNull();
+  });
+
+  it('aborts Reddit JSON fallback fetches that exceed the bounded timeout', async () => {
+    vi.useFakeTimers();
+    const html = `
+      <h1>Title only</h1>
+      <a href="#left-sidebar-container">Skip to Navigation</a>
+      <a href="#right-sidebar-container">Skip to Right Sidebar</a>
+    `;
+    const doc = safeParseHTML(html);
+    if (!doc) throw new Error('fixture parse failed');
+    let abortSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      abortSignal = init?.signal as AbortSignal | undefined;
+      return new Promise((_resolve, reject) => {
+        abortSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const candidatePromise = (OfflineModeManager as any).fetchRedditJsonFallbackCandidate(
+      doc,
+      'https://www.reddit.com/r/test/comments/abc/post_slug/'
+    );
+    await vi.advanceTimersByTimeAsync(2600);
+
+    await expect(candidatePromise).resolves.toBeNull();
+    expect(abortSignal?.aborted).toBe(true);
+  });
+
+  it('does not let stale cached Reddit shell output bypass JSON recovery', async () => {
+    await OfflineModeManager.clearCache();
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Reddit Shell</title></head>
+        <body>
+          <h1>Reddit Shell</h1>
+          <a href="#left-sidebar-container">Skip to Navigation</a>
+          <a href="#right-sidebar-container">Skip to Right Sidebar</a>
+        </body>
+      </html>
+    `;
+    const url = 'https://www.reddit.com/r/test/comments/cachecase/post_slug/';
+    const cacheConfig = {
+      ...baseConfig,
+      performance: {
+        ...baseConfig.performance,
+        enableCaching: true,
+      },
+    };
+
+    vi.spyOn(ReadabilityConfigManager, 'extractContent').mockResolvedValue({
+      content: '<h1>Reddit Shell</h1>',
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+    const stale = await OfflineModeManager.processContent(html, url, 'Reddit Shell', cacheConfig);
+    expect(stale.markdown).not.toContain('Recovered body from Reddit JSON');
+
+    vi.restoreAllMocks();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ([
+        {
+          data: {
+            children: [
+              {
+                kind: 't3',
+                data: {
+                  title: 'Reddit Shell',
+                  selftext: 'Recovered body from Reddit JSON with enough detail to prove the stale shell cache was bypassed and the fallback ran during the second processing attempt.',
+                },
+              },
+            ],
+          },
+        },
+      ]),
+    }));
+    vi.spyOn(ReadabilityConfigManager, 'extractContent').mockResolvedValue({
+      content: '<h1>Reddit Shell</h1>',
+    });
+
+    const recovered = await OfflineModeManager.processContent(html, url, 'Reddit Shell', cacheConfig);
+    expect(recovered.markdown).toContain('Recovered body from Reddit JSON');
+    expect(recovered.processingStats.fallbacksUsed).toContain('reddit-json-fallback');
+  });
+
+  it('recovers Reddit post body from same-page JSON when captured snapshot is only title and skip navigation', async () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>I gave Claude Code a $0.02/call coworker and stopped hitting Pro limits</title></head>
+        <body>
+          <h1>I gave Claude Code a $0.02/call coworker and stopped hitting Pro limits — here's the full setup : r/ClaudeAI</h1>
+          <a href="#left-sidebar-container">Skip to Navigation</a>
+          <a href="#right-sidebar-container">Skip to Right Sidebar</a>
+        </body>
+      </html>
+    `;
+    const url = 'https://www.reddit.com/r/ClaudeAI/comments/1t1o43w/i_gave_claude_code_a_002call_coworker_and_stopped/';
+    const redditBody = 'Was hitting my weekly Pro limit by Wednesday, so I built a small coworker setup that handles cheap calls while Claude Code keeps the important work. The setup uses a simple command bridge, a budget guard, and repeatable prompts so the expensive model only sees the decisions that need it.';
+
+    vi.spyOn(ReadabilityConfigManager, 'extractContent').mockResolvedValue({
+      content: '<h1>I gave Claude Code a $0.02/call coworker and stopped hitting Pro limits</h1>',
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ([
+        {
+          data: {
+            children: [
+              {
+                kind: 't3',
+                data: {
+                  title: 'I gave Claude Code a $0.02/call coworker and stopped hitting Pro limits',
+                  selftext: redditBody,
+                },
+              },
+            ],
+          },
+        },
+      ]),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await OfflineModeManager.processContent(
+      html,
+      url,
+      'I gave Claude Code a $0.02/call coworker and stopped hitting Pro limits',
+      baseConfig
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(`${url}.json`, expect.objectContaining({ method: 'GET' }));
+    expect(result.markdown).toContain('Was hitting my weekly Pro limit by Wednesday');
+    expect(result.markdown).not.toContain('Skip to Navigation');
+    expect(result.processingStats.fallbacksUsed).toContain('reddit-json-fallback');
+    expect(result.processingStats.strategyWinner).toMatch(/reddit-json|fallback-content-selection/);
+    expect(result.processingStats.qualityScore).toBeGreaterThanOrEqual(60);
   });
 
   it('does not record reddit-adapter:null for non-Reddit pages', async () => {

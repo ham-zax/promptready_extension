@@ -15,6 +15,8 @@ export interface CandidateAnalysis {
   repeatedItemBlocks: number;
   formLikeBlocks: number;
   containsVectorNoise: boolean;
+  tableCount?: number;
+  listCount?: number;
 }
 
 export interface CandidateScoreInput {

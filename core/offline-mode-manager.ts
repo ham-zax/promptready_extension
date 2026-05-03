@@ -31,6 +31,8 @@ import {
 import type { ExtractionTuning } from './domain/extraction/types.js';
 import type { PipelineConfig, PipelineResult } from './graceful-degradation-pipeline.js';
 
+import { PageTypeProfiler, type PageTypeClassification, type PageTypeProfile } from './page-type-profiler.js';
+
 export interface OfflineModeConfig {
   readabilityPreset?: string;
   turndownPreset: string;
@@ -63,6 +65,8 @@ export interface ExtractionCandidateTrace {
   score: number;
   selected: boolean;
   rejectionReason?: string;
+  profileApplied?: PageTypeProfile;
+  profileScoreDelta?: number;
 }
 
 export interface OfflineProcessingResult {
@@ -79,6 +83,7 @@ export interface OfflineProcessingResult {
     strategiesAttempted?: string[];
     strategyWinner?: string;
     extractionDiagnostics?: {
+      pageType?: PageTypeClassification;
       candidateTraces: ExtractionCandidateTrace[];
     };
   };
@@ -108,6 +113,7 @@ interface FallbackSelection {
   source: string;
   html: string;
   candidateTraces?: ExtractionCandidateTrace[];
+  pageType?: PageTypeClassification;
 }
 
 interface FallbackSelectionOptions {
@@ -376,6 +382,7 @@ export class OfflineModeManager {
     const strategiesAttempted: string[] = [];
     let strategyWinner: string | undefined;
     let candidateTraces: ExtractionCandidateTrace[] | undefined;
+    let candidatePageType: PageTypeClassification | undefined;
     let sessionId: string | null = null;
 
     try {
@@ -402,8 +409,10 @@ export class OfflineModeManager {
       try {
       console.log('[OfflineModeManager] Starting offline processing...');
 
+      const bypassCacheForRedditShellSnapshot = this.shouldBypassCacheForRedditShellSnapshot(cacheSourceHtml, url);
+
       // Check cache first
-      if (config.performance.enableCaching) {
+      if (config.performance.enableCaching && !bypassCacheForRedditShellSnapshot) {
         const cacheKey = await this.generateCacheKey(cacheSourceHtml, url, config);
 
         // Track cache retrieval time
@@ -504,6 +513,7 @@ export class OfflineModeManager {
           );
           extractedContent = resolution.content;
           candidateTraces = resolution.candidateTraces;
+          candidatePageType = resolution.pageType;
           strategyWinner = resolution.source || (fallbacksUsed.length > fallbackCountBeforeSelection
             ? 'fallback-content-selection'
             : 'readability');
@@ -523,6 +533,7 @@ export class OfflineModeManager {
           });
           extractedContent = fallbackSelection?.html || extractionHtml;
           candidateTraces = fallbackSelection?.candidateTraces;
+          candidatePageType = fallbackSelection?.pageType;
           this.recordFallback(fallbacksUsed, 'readability-fallback');
           if (fallbackSelection?.source) {
             this.recordFallback(fallbacksUsed, `readability-fallback-source:${fallbackSelection.source}`);
@@ -633,7 +644,15 @@ export class OfflineModeManager {
       processedMarkdown = this.canonicalizeDeliveredMarkdown(processedMarkdown, metadata, warnings);
 
       // Step 5: Quality assessment
-      const qualityScore = this.assessQuality(processedMarkdown, extractionHtml, warnings, errors);
+      let finalPageType: PageTypeClassification | undefined = candidatePageType;
+      if (candidateTraces && candidateTraces.length > 0) {
+         // The winning trace has the profile applied
+         const winnerTrace = candidateTraces.find(t => t.selected);
+         if (!finalPageType && winnerTrace && winnerTrace.profileApplied) {
+           finalPageType = { profile: winnerTrace.profileApplied, confidence: 1, signals: [] };
+         }
+      }
+      const qualityScore = this.assessQuality(processedMarkdown, extractionHtml, warnings, errors, finalPageType);
 
       const totalTime = Date.now() - startTime;
 
@@ -689,14 +708,14 @@ export class OfflineModeManager {
           qualityScore,
           strategiesAttempted,
           strategyWinner,
-          ...(candidateTraces && { extractionDiagnostics: { candidateTraces } }),
+          ...(candidateTraces && { extractionDiagnostics: { candidateTraces, pageType: finalPageType } }),
         },
         warnings,
         errors,
       };
 
       // Cache the result
-      if (config.performance.enableCaching) {
+      if (config.performance.enableCaching && !bypassCacheForRedditShellSnapshot) {
         const cacheKey = await this.generateCacheKey(cacheSourceHtml, url, config);
         await CacheManager.set(cacheKey, result, this.DEFAULT_CACHE_TTL_HOURS);
       }
@@ -1702,7 +1721,7 @@ export class OfflineModeManager {
     warnings: string[],
     config: OfflineModeConfig,
     url?: string
-  ): Promise<{ content: string; source?: string; candidateTraces?: ExtractionCandidateTrace[] }> {
+  ): Promise<{ content: string; source?: string; candidateTraces?: ExtractionCandidateTrace[]; pageType?: PageTypeClassification }> {
     if (!config.fallbacks.enableReadabilityFallback) {
       return { content: readabilityContent, source: 'readability' };
     }
@@ -1720,7 +1739,7 @@ export class OfflineModeManager {
       url,
     });
     if (!selection || this.normalizeInputText(extractTextContent(selection.html)).length === 0) {
-      return { content: readabilityContent, source: 'readability', candidateTraces: selection?.candidateTraces };
+      return { content: readabilityContent, source: 'readability', candidateTraces: selection?.candidateTraces, pageType: selection?.pageType };
     }
 
     if (selection.source === 'readability-primary') {
@@ -1728,11 +1747,15 @@ export class OfflineModeManager {
       if (coverageLow) {
         warnings.push('Readability extraction coverage low; retained readability candidate after quality ranking');
       }
-      return { content: readabilityContent, source: 'readability', candidateTraces: selection.candidateTraces };
+      return { content: readabilityContent, source: 'readability', candidateTraces: selection.candidateTraces, pageType: selection.pageType };
     }
 
     const fallbackCandidate = selection.html;
     const coverageLow = this.shouldFallbackForCoverage(readabilityContent, extractionHtml);
+    const profilePreferredFallback =
+      selection.pageType?.profile === 'forum' &&
+      selection.source.startsWith('generic:') &&
+      !selection.source.includes('comment');
     const shouldAdopt = this.shouldAdoptFallbackCandidate(
       extractionHtml,
       readabilityContent,
@@ -1740,10 +1763,13 @@ export class OfflineModeManager {
       config.extractionTuning
     );
 
-    if (coverageLow || shouldAdopt) {
+    if (coverageLow || shouldAdopt || profilePreferredFallback) {
       if (coverageLow) {
         this.recordFallback(fallbacksUsed, 'readability-low-coverage-fallback');
         warnings.push('Readability extraction coverage low; used fallback content extraction');
+      } else if (profilePreferredFallback) {
+        this.recordFallback(fallbacksUsed, 'readability-profile-fallback');
+        warnings.push('Selected profile-specific fallback candidate over readability output');
       } else {
         this.recordFallback(fallbacksUsed, 'readability-ranked-fallback');
         warnings.push('Selected higher-quality fallback candidate over readability output');
@@ -1754,7 +1780,7 @@ export class OfflineModeManager {
           source: selection.source,
         });
       }
-      return { content: fallbackCandidate, source: selection.source, candidateTraces: selection.candidateTraces };
+      return { content: fallbackCandidate, source: selection.source, candidateTraces: selection.candidateTraces, pageType: selection.pageType };
     }
 
     if (coverageLow) {
@@ -1777,7 +1803,7 @@ export class OfflineModeManager {
       });
     }
 
-    return { content: readabilityContent, source: 'readability', candidateTraces: finalTraces };
+    return { content: readabilityContent, source: 'readability', candidateTraces: finalTraces, pageType: selection.pageType };
   }
 
   private static shouldAdoptFallbackCandidate(
@@ -1928,6 +1954,8 @@ export class OfflineModeManager {
       repeatedItemBlocks: this.countRepeatedItemBlocks(candidateRoot),
       formLikeBlocks: this.countFormLikeBlocks(candidateRoot),
       containsVectorNoise: /<path d=|stroke-width=|transform="translate\(|<\/svg>/i.test(candidateHtml),
+      tableCount: candidateRoot.querySelectorAll('table').length,
+      listCount: candidateRoot.querySelectorAll('ul, ol').length,
     };
   }
 
@@ -2979,6 +3007,7 @@ export class OfflineModeManager {
         }
       }
 
+      const pageType = PageTypeProfiler.classify(doc, options.url);
       const candidatePool: ExtractionCandidate[] = [];
       const strategiesAttempted = options.strategiesAttempted || [];
       const fallbacksUsed = options.fallbacksUsed || [];
@@ -2992,7 +3021,7 @@ export class OfflineModeManager {
         }
         candidatePool.push({
           source: candidate.source || 'seed',
-          html: this.sanitizeFallbackCandidateHtml(candidate.html),
+          html: this.sanitizeFallbackCandidateHtml(candidate.html, pageType),
           metrics: candidate.metrics
         });
       }
@@ -3000,8 +3029,51 @@ export class OfflineModeManager {
       if (primaryRoot && this.normalizeInputText(primaryRoot.textContent || '').length > 120) {
         candidatePool.push({
           source: 'primary-root',
-          html: this.sanitizeFallbackCandidateHtml(primaryRoot.innerHTML)
+          html: this.sanitizeFallbackCandidateHtml(primaryRoot.innerHTML, pageType)
         });
+      }
+
+      if (pageType.profile === 'forum') {
+        const mainPostSelectors = '.post, [class*="post"], [slot="text-body"], article, main';
+        for (const post of Array.from(doc.querySelectorAll(mainPostSelectors)) as HTMLElement[]) {
+          const classAndId = `${post.className || ''} ${post.id || ''}`.toLowerCase();
+          if (/(comment|reply)/.test(classAndId)) {
+            continue;
+          }
+
+          const sanitizedPost = this.sanitizeFallbackCandidateHtml(post.innerHTML, pageType);
+          const textLength = this.normalizeInputText(extractTextContent(sanitizedPost)).length;
+          if (textLength >= 50) {
+            candidatePool.push({
+              source: 'generic:forum-main',
+              html: sanitizedPost,
+              metrics: {
+                charCount: textLength,
+                paragraphCount: 1,
+                codeCharCount: 0,
+                linkDensity: this.calculateLinkDensity(post),
+                confidence: 0.65,
+              },
+            });
+          }
+        }
+
+        for (const comment of Array.from(doc.querySelectorAll('.comment, [class*="comment"], [id*="comment"], .reply, [class*="reply"]')) as HTMLElement[]) {
+          const textLength = this.normalizeInputText(comment.textContent || '').length;
+          if (textLength >= 10) {
+            candidatePool.push({
+              source: 'generic:forum-comment',
+              html: this.sanitizeFallbackCandidateHtml(comment.innerHTML),
+              metrics: {
+                charCount: textLength,
+                paragraphCount: 1,
+                codeCharCount: 0,
+                linkDensity: this.calculateLinkDensity(comment),
+                confidence: 0.2,
+              },
+            });
+          }
+        }
       }
 
       // TASK #13: Integrate site-specific extractors (Reddit) as adapters
@@ -3037,6 +3109,12 @@ export class OfflineModeManager {
           console.warn('[OfflineModeManager] Reddit extraction adapter failed:', e);
           this.recordFallback(fallbacksUsed, 'reddit-adapter:error');
         }
+
+        const redditJsonCandidate = await this.fetchRedditJsonFallbackCandidate(doc, options.url);
+        if (redditJsonCandidate) {
+          this.recordFallback(fallbacksUsed, 'reddit-json-fallback');
+          candidatePool.push(redditJsonCandidate);
+        }
       }
 
       // TASK #11: Add generic selector-based body extraction pass
@@ -3046,7 +3124,7 @@ export class OfflineModeManager {
         for (const gc of genericCandidates) {
           candidatePool.push({
             source: gc.strategy,
-            html: this.sanitizeFallbackCandidateHtml(gc.content),
+            html: this.sanitizeFallbackCandidateHtml(gc.content, pageType),
             metrics: {
               charCount: gc.charCount,
               paragraphCount: gc.paragraphCount,
@@ -3065,7 +3143,7 @@ export class OfflineModeManager {
       candidatePool.push(
         ...feedCandidates.map((candidate) => ({
           source: candidate.source,
-          html: this.sanitizeFallbackCandidateHtml(candidate.html)
+          html: this.sanitizeFallbackCandidateHtml(candidate.html, pageType)
         }))
       );
 
@@ -3084,7 +3162,7 @@ export class OfflineModeManager {
               : pruned.innerHTML;
             candidatePool.push({
               source: 'scoring-engine',
-              html: this.sanitizeFallbackCandidateHtml(scoringHtml)
+              html: this.sanitizeFallbackCandidateHtml(scoringHtml, pageType)
             });
           }
         }
@@ -3113,7 +3191,7 @@ export class OfflineModeManager {
             ) {
               candidatePool.push({
                 source: `graceful-pipeline:${pipelineResult.stage}`,
-                html: this.sanitizeFallbackCandidateHtml(pipelineResult.content),
+                html: this.sanitizeFallbackCandidateHtml(pipelineResult.content, pageType),
               });
             }
           }
@@ -3127,7 +3205,7 @@ export class OfflineModeManager {
       if (semanticContent) {
         candidatePool.push({
           source: 'semantic',
-          html: this.sanitizeFallbackCandidateHtml(semanticContent)
+          html: this.sanitizeFallbackCandidateHtml(semanticContent, pageType)
         });
       }
 
@@ -3162,13 +3240,15 @@ export class OfflineModeManager {
         this.cleanupEmptyContainers(body);
         candidatePool.push({
           source: 'body',
-          html: this.sanitizeFallbackCandidateHtml(body.innerHTML)
+          html: this.sanitizeFallbackCandidateHtml(body.innerHTML, pageType)
         });
       }
 
       const sourceTextLength = this.normalizeInputText(extractTextContent(prepared.html)).length;
       const resolvedTuning = normalizeExtractionTuning(options.tuning);
       const minLengthThreshold = deriveMinCandidateLengthThreshold(sourceTextLength, resolvedTuning);
+      const profileScoreDeltas = new Map<string, number>();
+      const profileScoreKey = (source: string, candidateHtml: string): string => `${source}\u0000${candidateHtml}`;
 
       const ranking = rankExtractionCandidates({
         sourceHtml: prepared.html,
@@ -3193,6 +3273,15 @@ export class OfflineModeManager {
             }
           } else if (candidate?.source === 'body') {
             score -= 10; // Penalize body fallback to encourage more specific semantic extraction
+          }
+          if (candidate) {
+            const scoreDelta = this.computeProfileScoreDelta(candidate, analysis, pageType);
+            score += scoreDelta;
+            profileScoreDeltas.set(profileScoreKey(candidate.source, candidateHtml), scoreDelta);
+            candidate.metrics = {
+              ...(candidate.metrics || {}),
+              _profileScoreDelta: scoreDelta,
+            } as any;
           }
           return Math.min(100, Math.max(0, score));
         },
@@ -3230,6 +3319,8 @@ export class OfflineModeManager {
           confidence: entry.metrics?.confidence,
           score: entry.score,
           selected: isSelected,
+          profileApplied: pageType.profile,
+          profileScoreDelta: profileScoreDeltas.get(profileScoreKey(entry.source, entry.html)) ?? (entry.metrics as any)?._profileScoreDelta,
         };
 
         if (!isSelected) {
@@ -3249,6 +3340,7 @@ export class OfflineModeManager {
           source: ranking.selected.source,
           html: ranking.selected.html,
           candidateTraces,
+          pageType,
         };
       }
 
@@ -3256,6 +3348,7 @@ export class OfflineModeManager {
         source: 'prepared-html',
         html: prepared.html || normalizedHtml,
         candidateTraces,
+        pageType,
       };
     } catch (error) {
       console.warn('[OfflineModeManager] fallbackContentExtraction failed; returning normalized source HTML:', error);
@@ -3294,7 +3387,249 @@ export class OfflineModeManager {
     return text.length >= 120 || blockCount >= 1 || codeChars >= 80;
   }
 
-  private static sanitizeFallbackCandidateHtml(candidateHtml: string): string {
+  private static async fetchRedditJsonFallbackCandidate(doc: Document, url?: string): Promise<ExtractionCandidate | null> {
+    const jsonUrl = this.buildRedditJsonUrl(url);
+    if (!jsonUrl || !this.shouldAttemptRedditJsonFallback(doc)) {
+      return null;
+    }
+
+    const fetchImpl = globalThis.fetch;
+    if (typeof fetchImpl !== 'function') {
+      return null;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+
+    try {
+      const response = await fetchImpl(jsonUrl, {
+        method: 'GET',
+        credentials: 'omit',
+        headers: {
+          accept: 'application/json',
+        },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = await response.json();
+      const extracted = this.extractRedditPostFromJson(payload);
+      if (!extracted) {
+        return null;
+      }
+
+      const html = this.redditJsonPostToHtml(extracted.title, extracted.body);
+      const bodyChars = this.normalizeInputText(extractTextContent(html)).length;
+      if (bodyChars < 120) {
+        return null;
+      }
+
+      return {
+        source: 'reddit-json',
+        html,
+        metrics: {
+          charCount: bodyChars,
+          paragraphCount: Math.max(1, extracted.body.split(/\n{2,}/).filter((part) => part.trim().length >= 20).length),
+          codeCharCount: 0,
+          linkDensity: 0,
+          confidence: 0.82,
+        },
+      };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private static buildRedditJsonUrl(url?: string): string | null {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname.toLowerCase();
+      const isRedditHost =
+        hostname === 'reddit.com' ||
+        hostname.endsWith('.reddit.com') ||
+        hostname === 'redd.it' ||
+        hostname.endsWith('.redd.it');
+      if (!isRedditHost || !/\/comments\//i.test(parsed.pathname)) {
+        return null;
+      }
+
+      parsed.search = '';
+      parsed.hash = '';
+      parsed.pathname = parsed.pathname.endsWith('.json')
+        ? parsed.pathname
+        : `${parsed.pathname.replace(/\/?$/, '/')}.json`;
+      return parsed.href;
+    } catch {
+      return null;
+    }
+  }
+
+  private static shouldAttemptRedditJsonFallback(doc: Document): boolean {
+    const bodyText = this.normalizeInputText(doc.body?.textContent || '');
+    const shellOnly =
+      /skip to navigation/i.test(bodyText) ||
+      /skip to right sidebar/i.test(bodyText) ||
+      bodyText.length < 500;
+    if (!shellOnly) {
+      return false;
+    }
+
+    const hasVisiblePostBody = Array.from(doc.querySelectorAll('[slot="text-body"], shreddit-post-text-body, shreddit-post, article, main, [class*="post"]'))
+      .some((node) => {
+        const text = this.normalizeInputText(node.textContent || '')
+          .replace(/skip to navigation/gi, '')
+          .replace(/skip to right sidebar/gi, '')
+          .trim();
+        return text.length >= 500;
+      });
+
+    return !hasVisiblePostBody;
+  }
+
+  private static shouldBypassCacheForRedditShellSnapshot(html: string, url?: string): boolean {
+    if (!this.buildRedditJsonUrl(url)) {
+      return false;
+    }
+
+    const doc = safeParseHTML(html);
+    if (!doc || !doc.body) {
+      return false;
+    }
+
+    const bodyText = this.normalizeInputText(doc.body.textContent || '');
+    const hasShellSkipLinks =
+      /skip to navigation/i.test(bodyText) ||
+      /skip to right sidebar/i.test(bodyText);
+    if (!hasShellSkipLinks) {
+      return false;
+    }
+
+    return this.shouldAttemptRedditJsonFallback(doc);
+  }
+
+  private static extractRedditPostFromJson(payload: unknown): { title: string; body: string } | null {
+    const listings = Array.isArray(payload) ? payload : [payload];
+    for (const listing of listings) {
+      const children = (listing as any)?.data?.children;
+      if (!Array.isArray(children)) {
+        continue;
+      }
+
+      for (const child of children) {
+        const data = child?.data;
+        if (!data || typeof data !== 'object') {
+          continue;
+        }
+        const kind = typeof child?.kind === 'string' ? child.kind : '';
+        if (kind && kind !== 't3') {
+          continue;
+        }
+
+        const rawBody = typeof data.selftext === 'string'
+          ? data.selftext
+          : (typeof data.selftext_html === 'string' ? extractTextContent(data.selftext_html) : '');
+        const body = this.normalizeInputText(rawBody);
+        if (body.length < 120) {
+          continue;
+        }
+
+        return {
+          title: typeof data.title === 'string' ? data.title : '',
+          body,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  private static redditJsonPostToHtml(title: string, body: string): string {
+    const titleHtml = title.trim() ? `<h1>${this.escapeHtml(title.trim())}</h1>` : '';
+    const paragraphs = body
+      .split(/\n{2,}/)
+      .map((part) => this.normalizeInputText(part))
+      .filter((part) => part.length > 0)
+      .map((part) => `<p>${this.escapeHtml(part)}</p>`)
+      .join('\n');
+    return `<article data-pr-source="reddit-json">${titleHtml}${paragraphs}</article>`;
+  }
+
+  private static escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private static computeProfileScoreDelta(
+    candidate: ExtractionCandidate,
+    analysis: CandidateAnalysis | undefined,
+    pageType: PageTypeClassification
+  ): number {
+    const source = candidate.source.toLowerCase();
+    const paragraphCount = candidate.metrics?.paragraphCount || 0;
+    const codeCharCount = candidate.metrics?.codeCharCount ?? this.countHtmlCodeChars(candidate.html);
+    const linkDensity = candidate.metrics?.linkDensity || 0;
+
+    if (pageType.profile === 'article') {
+      let delta = 0;
+      delta += paragraphCount >= 4 ? 8 : 0;
+      delta += linkDensity < 0.25 ? 6 : 0;
+      delta -= linkDensity > 0.55 ? 12 : 0;
+      if (source.includes('sidebar') || source.includes('comment')) {
+        delta -= 15;
+      }
+      return delta;
+    }
+
+    if (pageType.profile === 'documentation') {
+      let delta = 0;
+      delta += codeCharCount >= 120 ? 10 : 0;
+      delta -= linkDensity > 0.75 ? 8 : 0;
+      return delta;
+    }
+
+    if (pageType.profile === 'code-heavy') {
+      let delta = 0;
+      delta += codeCharCount >= 200 ? 15 : 0;
+      delta += codeCharCount >= 800 ? 10 : 0;
+      return delta;
+    }
+
+    if (pageType.profile === 'forum') {
+      if (source.includes('comment')) {
+        return -20;
+      }
+      if (source.includes('reddit-json')) {
+        return 25;
+      }
+      if (source.includes('forum-main')) {
+        return 25;
+      }
+      if (source === 'readability-primary' || source === 'body' || source === 'primary-root') {
+        return -30;
+      }
+      return 0;
+    }
+
+    if (pageType.profile === 'product') {
+      let delta = 0;
+      delta += (analysis?.tableCount || 0) > 0 ? 8 : 0;
+      delta += (analysis?.listCount || 0) >= 4 ? 6 : 0;
+      return delta;
+    }
+
+    return 0;
+  }
+
+  private static sanitizeFallbackCandidateHtml(candidateHtml: string, pageType?: PageTypeClassification): string {
     const doc = safeParseHTML(candidateHtml);
     if (!doc || !doc.body) {
       return candidateHtml;
@@ -3315,6 +3650,16 @@ export class OfflineModeManager {
       '[role="contentinfo"]',
       '[role="search"]'
     ]);
+    if (pageType?.profile === 'forum') {
+      removeUnwantedElements(doc.body, [
+        '.comment',
+        '[class*="comment"]',
+        '[id*="comment"]',
+        '.reply',
+        '[class*="reply"]',
+        '[id*="reply"]',
+      ]);
+    }
     this.removeVisualNoiseElements(doc.body);
     this.cleanupEmptyContainers(doc.body);
     return doc.body.innerHTML;
@@ -3861,7 +4206,13 @@ export class OfflineModeManager {
   /**
    * Assess the quality of processed markdown
    */
-  private static assessQuality(markdown: string, originalHtml: string, warnings: string[], errors: string[]): number {
+  private static assessQuality(
+    markdown: string,
+    originalHtml: string,
+    warnings: string[],
+    errors: string[],
+    pageType?: PageTypeClassification
+  ): number {
     let score = 100;
 
     // Penalize for errors and warnings
@@ -3885,12 +4236,14 @@ export class OfflineModeManager {
     // rather than the entire HTML document (which includes chrome we *want* to remove).
     let sourceTextLength = 0;
     let sourceHeadingCount = 0;
+    let sourceCodeCharCount = 0;
     try {
       const sourceDoc = safeParseHTML(originalHtml);
       if (sourceDoc && sourceDoc.body) {
         const root = this.selectCoverageRoot(sourceDoc);
         sourceTextLength = this.normalizeInputText(root.textContent || '').length;
         sourceHeadingCount = root.querySelectorAll('h1, h2, h3, h4, h5, h6').length;
+        sourceCodeCharCount = Array.from(root.querySelectorAll('pre, code')).reduce((sum, el) => sum + (el.textContent || '').length, 0);
       }
     } catch {
       // fall back to string-based extraction below
@@ -3904,18 +4257,35 @@ export class OfflineModeManager {
       measureMarkdown = this.stripLeadingCitationBlock(markdown);
     }
     const markdownTextLength = this.normalizeInputText(measureMarkdown).length;
+    const capturedCodeCharCount = this.countMarkdownCodeChars(measureMarkdown);
     const textRetentionRatio = sourceTextLength > 0 ? markdownTextLength / sourceTextLength : 1;
 
-    // Check content preservation using text retention (not raw HTML-size ratio)
+    // Profile-Aware Completeness Thresholds
+    const profile = pageType?.profile || 'generic';
+    let completenessPenalty = 0;
+
     if (markdownTextLength < 80) {
-      score -= 50; // Short content is likely incomplete
+      completenessPenalty = 50;
+    } else if (markdownTextLength < 160) {
+      completenessPenalty = 25;
+    } else if (markdownTextLength < 240) {
+      completenessPenalty = 10;
     }
-    else if (markdownTextLength < 160) {
-      score -= 25;
+
+    // Exempt technical content from short-body penalties if code is substantial
+    if (profile === 'code-heavy' || profile === 'documentation') {
+      if (
+        capturedCodeCharCount >= 160 ||
+        (markdownTextLength >= 120 && capturedCodeCharCount >= 80 && sourceCodeCharCount >= capturedCodeCharCount)
+      ) {
+        completenessPenalty = Math.min(completenessPenalty, 5); // Max 5 penalty for code snippets
+      }
+    } else if (profile === 'product' && markdownTextLength >= 140) {
+      completenessPenalty = Math.min(completenessPenalty, 10);
     }
-    else if (markdownTextLength < 240) {
-      score -= 10;
-    }
+
+    score -= completenessPenalty;
+
     if (sourceTextLength > 0) {
       if (textRetentionRatio < 0.025) score -= 24;
       else if (textRetentionRatio < 0.05) score -= 12;
@@ -3960,6 +4330,27 @@ export class OfflineModeManager {
     }
 
     return Math.max(0, Math.min(100, score));
+  }
+
+  private static countMarkdownCodeChars(markdown: string): number {
+    const fencedBlocks = markdown.match(/```[\s\S]*?```/g) || [];
+    return fencedBlocks.reduce((total, block) => {
+      const withoutFence = block
+        .replace(/^```[^\n]*\n?/, '')
+        .replace(/```$/, '');
+      return total + this.normalizeInputText(withoutFence).length;
+    }, 0);
+  }
+
+  private static countHtmlCodeChars(html: string): number {
+    const doc = safeParseHTML(html);
+    if (!doc || !doc.body) {
+      return 0;
+    }
+    return Array.from(doc.body.querySelectorAll('pre, code')).reduce(
+      (sum, el) => sum + this.normalizeInputText(el.textContent || '').length,
+      0
+    );
   }
 
   /**

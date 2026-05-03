@@ -114,6 +114,8 @@ export class GenericExtractor {
 
     // Simple confidence score (Deterministic scoring as per TASK #12)
     let confidence = 0.5;
+    const isShadowPierced = !!el.closest('[data-pr-shadow-pierced]');
+
     if (charCount > 500) confidence += 0.1;
     if (charCount > 2000) confidence += 0.1;
     if (paragraphCount > 3) confidence += 0.1;
@@ -122,9 +124,10 @@ export class GenericExtractor {
     if (linkDensity < 0.2) confidence += 0.1;
     if (linkDensity > 0.6) confidence -= 0.2;
     if (strategy.includes('article') || strategy.includes('main')) confidence += 0.2;
+    if (isShadowPierced) confidence += 0.1; // Bonus for modern DOM content
 
     return {
-      strategy,
+      strategy: isShadowPierced ? `${strategy}:shadow-pierced` : strategy,
       content: clone.innerHTML,
       charCount,
       paragraphCount,

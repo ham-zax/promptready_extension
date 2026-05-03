@@ -289,6 +289,7 @@ export class ContentCapture {
       const metadataHtml = this.captureMetadataHtml();
 
       const settle = await this.waitForDomSettle(policy);
+      const redditHydration = await this.waitForMeaningfulRedditBody();
       const initialSnapshot = this.createSanitizedSnapshot();
       const initialScrollHeight = this.getDocumentScrollHeight();
 
@@ -326,6 +327,10 @@ export class ContentCapture {
         }
       } else {
         deepUsedReason = 'deep-capture-disabled-by-policy';
+      }
+
+      if (redditHydration.relevant) {
+        deepUsedReason = `reddit-hydration(waitedMs=${redditHydration.waitedMs},timedOut=${redditHydration.timedOut});${deepUsedReason}`;
       }
 
       const html = deepSnapshot.html;
@@ -557,6 +562,120 @@ export class ContentCapture {
     }
   }
 
+  private static isRedditUrl(): boolean {
+    try {
+      const hostname = window.location.hostname.toLowerCase();
+      return hostname === 'reddit.com' || hostname.endsWith('.reddit.com') || hostname === 'redd.it' || hostname.endsWith('.redd.it');
+    } catch {
+      return false;
+    }
+  }
+
+  private static getNormalizedBodyText(): string {
+    return (document.body?.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  private static hasMeaningfulRedditBody(): boolean {
+    const bodyText = this.getNormalizedBodyText();
+    const textBody = Array.from(document.querySelectorAll('[slot="text-body"], shreddit-post-text-body'))
+      .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim())
+      .find((text) => text.length >= 120);
+    if (textBody) {
+      return true;
+    }
+
+    const postText = Array.from(document.querySelectorAll('shreddit-post, article, main, [data-testid*="post"], [class*="post"]'))
+      .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim())
+      .find((text) => {
+        const withoutShellLinks = text
+          .replace(/skip to navigation/gi, '')
+          .replace(/skip to right sidebar/gi, '')
+          .trim();
+        return withoutShellLinks.length >= 500;
+      });
+    if (postText) {
+      return true;
+    }
+
+    return bodyText.length >= 900 && !/skip to navigation/i.test(bodyText);
+  }
+
+  private static async waitForMeaningfulRedditBody(): Promise<{ relevant: boolean; waitedMs: number; timedOut: boolean }> {
+    if (!this.isRedditUrl()) {
+      return { relevant: false, waitedMs: 0, timedOut: false };
+    }
+
+    const start = Date.now();
+    const logSnapshot = (phase: string): void => {
+      try {
+        const rawText = this.getNormalizedBodyText();
+        console.log('[CaptureDebug] reddit body snapshot', {
+          phase,
+          textLength: rawText.length,
+          hasShredditPost: !!document.querySelector('shreddit-post'),
+          hasTextBodySlot: !!document.querySelector('[slot="text-body"], shreddit-post-text-body'),
+          hasArticle: !!document.querySelector('article'),
+          hasSkipNavigation: /skip to navigation/i.test(rawText),
+        });
+      } catch {
+        // Diagnostics must not affect capture.
+      }
+    };
+
+    logSnapshot('before-hydration-wait');
+    if (this.hasMeaningfulRedditBody()) {
+      logSnapshot('already-meaningful');
+      return { relevant: true, waitedMs: Date.now() - start, timedOut: false };
+    }
+
+    const timeoutMs = 2500;
+    const pollMs = 100;
+
+    const timedOut = await new Promise<boolean>((resolve) => {
+      let observer: MutationObserver | null = null;
+      let intervalId: ReturnType<typeof setInterval> | null = null;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+      const finish = (timeout: boolean): void => {
+        if (observer) {
+          observer.disconnect();
+          observer = null;
+        }
+        if (intervalId !== null) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        resolve(timeout);
+      };
+
+      const check = (): void => {
+        if (this.hasMeaningfulRedditBody()) {
+          finish(false);
+        }
+      };
+
+      if (typeof MutationObserver !== 'undefined' && document.documentElement) {
+        observer = new MutationObserver(check);
+        observer.observe(document.documentElement, {
+          subtree: true,
+          childList: true,
+          characterData: true,
+        });
+      }
+
+      intervalId = setInterval(check, pollMs);
+      timeoutId = setTimeout(() => finish(true), timeoutMs);
+      check();
+    });
+
+    logSnapshot(timedOut ? 'hydration-wait-timeout' : 'hydration-wait-complete');
+    return { relevant: true, waitedMs: Date.now() - start, timedOut };
+  }
+
   private static createSanitizedSnapshot(): { html: string; textLength: number; headingCount: number } {
     // PR5: Modern DOM Support - Full Page Capture Only
     // Use recursive flattening to pierce open shadow roots and resolve slots
@@ -624,7 +743,7 @@ export class ContentCapture {
       return fragment;
     }
 
-    const shadowRoot = (element as any).shadowRoot;
+    const shadowRoot = (element as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
     const clone = element.cloneNode(false) as Element;
 
     if (shadowRoot) {
