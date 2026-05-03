@@ -659,7 +659,6 @@ export class OfflineModeManager {
         fallbacksUsed,
         errors,
       });
-      qualityScore = Math.min(qualityScore, qualityReport.overallScore);
       const redditQualityRecovery = await this.recoverRedditJsonAfterIncompleteMarkdown(
         processedMarkdown,
         extractionHtml,
@@ -678,7 +677,6 @@ export class OfflineModeManager {
           fallbacksUsed,
           errors,
         });
-        qualityScore = Math.min(qualityScore, qualityReport.overallScore);
         finalPageType = redditQualityRecovery.pageType;
         strategyWinner = redditQualityRecovery.source;
         candidateTraces = [
