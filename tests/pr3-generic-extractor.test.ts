@@ -190,6 +190,125 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     expect(result.processingStats.qualityScore).toBeGreaterThanOrEqual(60);
   });
 
+  it('extracts Reddit post body from schema articleBody DOM before shell candidates', async () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Title only</title></head>
+        <body>
+          <main id="main-content">
+            <reddit-skip-to-sidebar>
+              <a href="#left-sidebar-container">Skip to Navigation</a>
+              <a href="#right-sidebar-container">Skip to Right Sidebar</a>
+            </reddit-skip-to-sidebar>
+
+            <shreddit-post post-title="Title only">
+              <h1 slot="title">Title only</h1>
+
+              <shreddit-post-text-body slot="text-body">
+                <div slot="text-body">
+                  <div id="t3_test-post-rtjson-content" property="schema:articleBody">
+                    <p>Was hitting my weekly Pro limit by Wednesday every single week.</p>
+                    <p>Built a simple pattern using cheap model delegation.</p>
+                    <ol>
+                      <li><p>Haven't hit limits once</p></li>
+                      <li><p>Kimi total spend: $0.38</p></li>
+                    </ol>
+                  </div>
+                </div>
+              </shreddit-post-text-body>
+            </shreddit-post>
+          </main>
+        </body>
+      </html>
+    `;
+
+    vi.spyOn(ReadabilityConfigManager, 'extractContent').mockResolvedValue({
+      content: '<h1>Title only</h1>',
+    });
+
+    const result = await OfflineModeManager.processContent(
+      html,
+      'https://www.reddit.com/r/ClaudeAI/comments/1t1o43w/post_slug/',
+      'Title only',
+      baseConfig
+    );
+
+    expect(result.markdown).toContain('Was hitting my weekly Pro limit');
+    expect(result.markdown).toContain('Kimi total spend');
+    expect(result.markdown).toContain('0.38');
+    expect(result.markdown).not.toContain('Skip to Navigation');
+    expect(result.processingStats.fallbacksUsed).toContain('reddit-dom-body');
+    expect(result.processingStats.extractionDiagnostics?.candidateTraces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'reddit:dom-body',
+          selected: true,
+        }),
+      ])
+    );
+  });
+
+  it('adopts reddit:dom-body over readability shell in final output', async () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Title only</title></head>
+        <body>
+          <main id="main-content">
+            <reddit-skip-to-sidebar>
+              <a href="#left-sidebar-container">Skip to Navigation</a>
+              <a href="#right-sidebar-container">Skip to Right Sidebar</a>
+            </reddit-skip-to-sidebar>
+
+            <shreddit-post post-title="Title only">
+              <h1 slot="title">Title only</h1>
+
+              <shreddit-post-text-body slot="text-body">
+                <div slot="text-body">
+                  <div id="t3_test-post-rtjson-content" property="schema:articleBody">
+                    <p>Was hitting my weekly Pro limit by Wednesday every single week.</p>
+                    <p>Built a simple pattern using cheap model delegation.</p>
+                    <ol>
+                      <li><p>Haven't hit limits once</p></li>
+                      <li><p>Kimi total spend: $0.38</p></li>
+                    </ol>
+                  </div>
+                </div>
+              </shreddit-post-text-body>
+            </shreddit-post>
+          </main>
+        </body>
+      </html>
+    `;
+
+    vi.spyOn(ReadabilityConfigManager, 'extractContent').mockResolvedValue({
+      content: `
+        <h1>Title only</h1>
+        <p>${'Skip to Navigation Skip to Right Sidebar '.repeat(20)}</p>
+      `,
+    });
+
+    const result = await OfflineModeManager.processContent(
+      html,
+      'https://www.reddit.com/r/ClaudeAI/comments/1t1o43w/post_slug/',
+      'Title only',
+      baseConfig
+    );
+
+    expect(result.markdown).toContain('Was hitting my weekly Pro limit');
+    expect(result.markdown).toContain('Kimi total spend');
+    expect(result.markdown).toContain('0.38');
+    expect(result.markdown).not.toContain('Skip to Navigation');
+    expect(result.processingStats.strategyWinner).toBe('reddit:dom-body');
+    expect(result.processingStats.fallbacksUsed).toContain('reddit-dom-body');
+    expect(result.processingStats.fallbacksUsed).toContain('readability-ranked-fallback');
+    expect(result.processingStats.fallbacksUsed).toContain('readability-fallback-source:reddit:dom-body');
+
+    const selectedTrace = result.processingStats.extractionDiagnostics?.candidateTraces.find(t => t.selected);
+    expect(selectedTrace?.source).toBe('reddit:dom-body');
+  });
+
   it('does not record reddit-adapter:null for non-Reddit pages', async () => {
     const html = `
       <!DOCTYPE html>
@@ -220,6 +339,40 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     expect(result.processingStats.strategiesAttempted || []).not.toContain('reddit-adapter');
     expect(result.processingStats.fallbacksUsed).not.toContain('reddit-adapter:null');
     expect(result.processingStats.strategyWinner).toMatch(/generic|fallback-content-selection/);
+  });
+
+  it('does not record reddit-dom-body for non-Reddit schema articleBody pages', async () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Article</title></head>
+        <body>
+          <main>
+            <article>
+              <div property="schema:articleBody">
+                <p>${'This normal article body uses schema articleBody without being a Reddit page. '.repeat(10)}</p>
+              </div>
+            </article>
+          </main>
+        </body>
+      </html>
+    `;
+
+    vi.spyOn(ReadabilityConfigManager, 'extractContent').mockResolvedValue({
+      content: '',
+    });
+
+    const result = await OfflineModeManager.processContent(
+      html,
+      'https://example.com/schema-article',
+      'Article',
+      baseConfig
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.markdown).toContain('This normal article body uses schema articleBody');
+    expect(result.processingStats.fallbacksUsed).not.toContain('reddit-dom-body');
+    expect(result.processingStats.strategiesAttempted || []).not.toContain('reddit-adapter');
   });
 
   it('handles invalid URLs safely without crashing during fallback selection', async () => {

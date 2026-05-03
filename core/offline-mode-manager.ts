@@ -1751,6 +1751,19 @@ export class OfflineModeManager {
     }
 
     const fallbackCandidate = selection.html;
+    if (selection.source === 'reddit:dom-body') {
+      this.recordFallback(fallbacksUsed, 'readability-ranked-fallback');
+      this.recordFallback(fallbacksUsed, 'readability-fallback-source:reddit:dom-body');
+      warnings.push('Selected Reddit article body DOM over readability shell output');
+
+      return {
+        content: fallbackCandidate,
+        source: selection.source,
+        candidateTraces: selection.candidateTraces,
+        pageType: selection.pageType,
+      };
+    }
+
     const coverageLow = this.shouldFallbackForCoverage(readabilityContent, extractionHtml);
     const profilePreferredFallback =
       selection.pageType?.profile === 'forum' &&
@@ -3084,6 +3097,12 @@ export class OfflineModeManager {
         Boolean(doc.querySelector('shreddit-post, shreddit-comment-tree'));
 
       if (isRedditPage) {
+        const redditDomBody = this.extractRedditDomBodyCandidate(doc, pageType);
+        if (redditDomBody) {
+          candidatePool.push(redditDomBody);
+          this.recordFallback(fallbacksUsed, 'reddit-dom-body');
+        }
+
         try {
           this.recordStrategyAttempt(strategiesAttempted, 'reddit-adapter');
           const redditResult = RedditShadowExtractor.extractContent(doc, options.url);
@@ -3263,7 +3282,9 @@ export class OfflineModeManager {
           // Option B: Generic metrics participate in deterministic ranking
           // Find the candidate matching this HTML to apply metrics
           const candidate = candidatePool.find(c => this.sanitizeFallbackCandidateHtml(c.html) === candidateHtml || c.html === candidateHtml);
-          if (candidate?.source.startsWith('generic:')) {
+          if (candidate?.source === 'reddit:dom-body') {
+            score += 35;
+          } else if (candidate?.source.startsWith('generic:')) {
             if (candidate.metrics?.confidence !== undefined) {
                // Give a significant bonus (up to +15) based on GenericExtractor confidence
                score += candidate.metrics.confidence * 15;
@@ -3385,6 +3406,48 @@ export class OfflineModeManager {
       : (content.match(/```[\s\S]*?```/g) || []).join('\n').length;
 
     return text.length >= 120 || blockCount >= 1 || codeChars >= 80;
+  }
+
+  private static extractRedditDomBodyCandidate(
+    doc: Document,
+    pageType?: PageTypeClassification
+  ): ExtractionCandidate | null {
+    const selectors = [
+      'shreddit-post [property="schema:articleBody"]',
+      'shreddit-post [id$="-post-rtjson-content"]',
+      'shreddit-post-text-body [property="schema:articleBody"]',
+      'shreddit-post-text-body [slot="text-body"]',
+    ];
+
+    for (const selector of selectors) {
+      const el = doc.querySelector(selector) as HTMLElement | null;
+      if (!el) {
+        continue;
+      }
+
+      const text = this.normalizeInputText(el.textContent || '');
+      if (text.length < 80) {
+        continue;
+      }
+
+      const codeCharCount = Array.from(el.querySelectorAll('pre, code'))
+        .reduce((sum, node) => sum + this.normalizeInputText(node.textContent || '').length, 0);
+      const html = this.sanitizeFallbackCandidateHtml(el.innerHTML, pageType);
+
+      return {
+        source: 'reddit:dom-body',
+        html,
+        metrics: {
+          charCount: text.length,
+          paragraphCount: el.querySelectorAll('p, li, blockquote').length,
+          codeCharCount,
+          linkDensity: this.calculateLinkDensity(el),
+          confidence: 0.95,
+        },
+      };
+    }
+
+    return null;
   }
 
   private static async fetchRedditJsonFallbackCandidate(doc: Document, url?: string): Promise<ExtractionCandidate | null> {
@@ -3606,6 +3669,9 @@ export class OfflineModeManager {
     if (pageType.profile === 'forum') {
       if (source.includes('comment')) {
         return -20;
+      }
+      if (source.includes('reddit:dom-body')) {
+        return 45;
       }
       if (source.includes('reddit-json')) {
         return 25;
