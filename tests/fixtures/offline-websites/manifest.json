@@ -76,7 +76,15 @@
       ],
       "forbiddenSnippets": [
         "DOCS_TOP_NAV_NOISE_TOKEN",
-        "DOCS_SIDEBAR_NOISE_TOKEN"
+        "DOCS_SIDEBAR_NOISE_TOKEN",
+        "| $ | npm install @openrouter/sdk |",
+        "| 1 | import { OpenRouter } from '@openrouter/sdk'; |",
+        "open ai.chat",
+        "npm install @openrouter/sdk\n```\n\nnpm install @openrouter/sdk",
+        "console.log(completion.choices[0].message.content);\nimport { OpenRouter } from '@openrouter/sdk';",
+        "main(); |",
+        "```\n## Using the OpenAI SDK\n```",
+        "main();\n```\n\n```\nimport OpenAI from 'openai';"
       ],
       "minQualityScore": 65,
       "minMarkdownLength": 1000,
@@ -95,7 +103,9 @@
       "requiredSnippets": [
         "# Trending",
         "See what the GitHub community is most excited about today.",
-        "D4Vinci / Scrapling"
+        "D4Vinci / Scrapling",
+        "## [muratcankoylan / Agent-Skills-for-Context-Engineering](https://github.com/muratcankoylan/Agent-Skills-for-Context-Engineering)",
+        "## [x1xhlol / system-prompts-and-models-of-ai-tools](https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools)"
       ],
       "forbiddenSnippets": [
         "[Skip to content](#start-of-content)",
@@ -127,7 +137,9 @@
       ],
       "forbiddenSnippets": [
         "NEWS_NAVIGATION_NOISE_TOKEN",
-        "RELATED_NEWS_NOISE_TOKEN"
+        "RELATED_NEWS_NOISE_TOKEN",
+        "- [\n\n![Steve Faulkner]",
+        "```\n [Steve Faulkner](https://blog.cloudflare.com/author/steve-faulkner/)\n```"
       ],
       "minQualityScore": 70,
       "minMarkdownLength": 1000,
@@ -177,7 +189,9 @@
       ],
       "forbiddenSnippets": [
         "ANNOYING POPUP AD",
-        "Accept all 500 tracking cookies to continue"
+        "Accept all 500 tracking cookies to continue",
+        "<div class=\"mt-6 flex flex-col items-center justify-between",
+        "Raw input en.wikipedia.org/wiki/Artificial_intelligence"
       ],
       "minQualityScore": 50,
       "minMarkdownLength": 900,
@@ -232,7 +246,10 @@
         "advanced search: by author, subreddit",
         "see the search faq for details",
         "Welcome to Reddit,the front page of the internet",
-        "[past hour](https://old.reddit.com/r/programming/top/)"
+        "[past hour](https://old.reddit.com/r/programming/top/)",
+        "[save](https://old.reddit.com/r/programming/top/?t=month#)",
+        "newslett er.eng-leadership.com",
+        "ope n.substack.com"
       ],
       "minQualityScore": 40,
       "minMarkdownLength": 500,

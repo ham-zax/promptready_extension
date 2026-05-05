@@ -116,6 +116,14 @@ export class MarkdownPostProcessor {
         improvements.push(...result.improvements);
       }
 
+      // Step 4.5: Remove deterministic extraction artifacts exposed by the
+      // offline website corpus without changing site-specific extraction seams.
+      {
+        const result = this.tightenMarkdownFidelity(processed);
+        processed = result.markdown;
+        improvements.push(...result.improvements);
+      }
+
       // Step 5: Enhance links
       if (config.enhanceLinks) {
         const result = this.enhanceLinks(processed);
@@ -670,6 +678,636 @@ export class MarkdownPostProcessor {
     }
 
     return { markdown: processed, improvements };
+  }
+
+  static tightenMarkdownFidelity(markdown: string): { markdown: string; improvements: string[] } {
+    const improvements: string[] = [];
+    let processed = markdown;
+
+    const codeTables = this.normalizeMarkdownCodeTables(processed);
+    processed = codeTables.markdown;
+    improvements.push(...codeTables.improvements);
+
+    const residualCodeTables = this.cleanupResidualCodeTableMarkers(processed);
+    processed = residualCodeTables.markdown;
+    improvements.push(...residualCodeTables.improvements);
+
+    const duplicatedCode = this.dedupeAdjacentTechnicalCodeCopies(processed);
+    processed = duplicatedCode.markdown;
+    improvements.push(...duplicatedCode.improvements);
+
+    const misfencedHeadings = this.cleanupMisfencedMarkdownHeadings(processed);
+    processed = misfencedHeadings.markdown;
+    improvements.push(...misfencedHeadings.improvements);
+
+    const malformedDuplicates = this.cleanupMalformedDuplicateCodeExample(processed);
+    processed = malformedDuplicates.markdown;
+    improvements.push(...malformedDuplicates.improvements);
+
+    const githubHeadings = this.restoreGitHubRepositoryHeadings(processed);
+    processed = githubHeadings.markdown;
+    improvements.push(...githubHeadings.improvements);
+
+    const authorBlocks = this.cleanupMalformedAuthorMediaBlocks(processed);
+    processed = authorBlocks.markdown;
+    improvements.push(...authorBlocks.improvements);
+
+    const demoChrome = this.removeInteractiveDemoChrome(processed);
+    processed = demoChrome.markdown;
+    improvements.push(...demoChrome.improvements);
+
+    const redditChrome = this.cleanupListingChrome(processed);
+    processed = redditChrome.markdown;
+    improvements.push(...redditChrome.improvements);
+
+    const identifierSpacing = this.cleanupIdentifierSpacing(processed);
+    processed = identifierSpacing.markdown;
+    improvements.push(...identifierSpacing.improvements);
+
+    return { markdown: processed, improvements };
+  }
+
+  private static normalizeMarkdownCodeTables(markdown: string): { markdown: string; improvements: string[] } {
+    const improvements: string[] = [];
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let changed = false;
+    let lastCodeKey: string | null = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      const trimmed = line.trim();
+
+      if (/^```/.test(trimmed)) {
+        const endIndex = this.findFenceEnd(lines, i + 1);
+        if (endIndex === -1) {
+          output.push(line);
+          continue;
+        }
+
+        const contentLines = lines.slice(i + 1, endIndex);
+        const normalizedCode = this.parseMarkdownCodeTable(contentLines);
+        if (!normalizedCode) {
+          output.push(...lines.slice(i, endIndex + 1));
+          i = endIndex;
+          continue;
+        }
+
+        const key = normalizedCode.join('\n');
+        if (key !== lastCodeKey) {
+          output.push(line);
+          output.push(...normalizedCode);
+          output.push(lines[endIndex] ?? '```');
+        }
+        lastCodeKey = key;
+        changed = true;
+        i = endIndex;
+        continue;
+      }
+
+      if (this.isMarkdownTableRow(trimmed)) {
+        const tableStart = i;
+        let tableEnd = i;
+        while (tableEnd < lines.length && this.isMarkdownTableRow((lines[tableEnd] ?? '').trim())) {
+          tableEnd++;
+        }
+
+        const normalizedCode = this.parseMarkdownCodeTable(lines.slice(tableStart, tableEnd));
+        if (normalizedCode) {
+          const key = normalizedCode.join('\n');
+          if (key !== lastCodeKey) {
+            output.push('```');
+            output.push(...normalizedCode);
+            output.push('```');
+            lastCodeKey = key;
+          }
+          changed = true;
+          i = tableEnd - 1;
+          continue;
+        }
+      }
+
+      output.push(line);
+    }
+
+    if (changed) {
+      improvements.push('Normalized table-shaped code blocks');
+    }
+    return { markdown: output.join('\n'), improvements };
+  }
+
+  private static cleanupResidualCodeTableMarkers(markdown: string): { markdown: string; improvements: string[] } {
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let changed = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      const trimmed = line.trim();
+
+      if (!/^```/.test(trimmed)) {
+        const tableCodeLine = this.parseResidualCodeTableLine(line);
+        if (tableCodeLine !== null) {
+          output.push(tableCodeLine);
+          changed = true;
+          continue;
+        }
+        output.push(line);
+        continue;
+      }
+
+      const endIndex = this.findFenceEnd(lines, i + 1);
+      if (endIndex === -1) {
+        output.push(line);
+        continue;
+      }
+
+      output.push(line);
+      let sawCodeTableMarker = false;
+      for (let j = i + 1; j < endIndex; j++) {
+        const contentLine = lines[j] ?? '';
+        const parsedLine = this.parseResidualCodeTableLine(contentLine);
+        if (parsedLine !== null) {
+          if (parsedLine !== '') {
+            output.push(parsedLine);
+          }
+          sawCodeTableMarker = true;
+          changed = true;
+          continue;
+        }
+
+        if (sawCodeTableMarker && /\s\|\s*$/.test(contentLine)) {
+          output.push(contentLine.replace(/\s+\|\s*$/, ''));
+          changed = true;
+          continue;
+        }
+
+        output.push(contentLine);
+      }
+      output.push(lines[endIndex] ?? '```');
+      i = endIndex;
+    }
+
+    if (!changed) {
+      return { markdown, improvements: [] };
+    }
+    return { markdown: output.join('\n'), improvements: ['Removed residual code table markers'] };
+  }
+
+  private static dedupeAdjacentTechnicalCodeCopies(markdown: string): { markdown: string; improvements: string[] } {
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let changed = false;
+    let lastFenceBody: string[] | null = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      const trimmed = line.trim();
+
+      if (/^```/.test(trimmed)) {
+        const endIndex = this.findFenceEnd(lines, i + 1);
+        if (endIndex === -1) {
+          output.push(line);
+          lastFenceBody = null;
+          continue;
+        }
+
+        const body = this.trimEmptyEdgeLines(lines.slice(i + 1, endIndex));
+        const dedupedBody = this.truncateRepeatedCodeBody(body);
+        if (dedupedBody.length !== body.length) {
+          changed = true;
+        }
+        const previousCopyCount = this.countPreviousRawCodeCopy(output, dedupedBody);
+        if (previousCopyCount > 0) {
+          output.splice(output.length - previousCopyCount, previousCopyCount);
+          changed = true;
+        }
+        output.push(line);
+        output.push(...dedupedBody);
+        output.push(lines[endIndex] ?? '```');
+        lastFenceBody = dedupedBody;
+        i = endIndex;
+        continue;
+      }
+
+      if (lastFenceBody && trimmed) {
+        const consumed = this.countAdjacentRawCodeCopy(lines, i, lastFenceBody);
+        if (consumed > 0) {
+          changed = true;
+          i += consumed - 1;
+          continue;
+        }
+      }
+
+      output.push(line);
+      if (trimmed) {
+        lastFenceBody = null;
+      }
+    }
+
+    if (!changed) {
+      return { markdown, improvements: [] };
+    }
+    return { markdown: output.join('\n'), improvements: ['Removed duplicated technical code copies'] };
+  }
+
+  private static countPreviousRawCodeCopy(output: string[], body: string[]): number {
+    const expected = body.map((line) => line.trimEnd()).filter((line) => line.trim() !== '');
+    if (expected.length === 0 || !this.looksLikeTechnicalCodeStart(expected[0])) {
+      return 0;
+    }
+
+    let cursor = output.length - 1;
+    while (cursor >= 0 && (output[cursor] ?? '').trim() === '') {
+      cursor--;
+    }
+
+    for (let expectedIndex = expected.length - 1; expectedIndex >= 0; expectedIndex--) {
+      while (cursor >= 0 && (output[cursor] ?? '').trim() === '') {
+        cursor--;
+      }
+      if (cursor < 0 || (output[cursor] ?? '').trimEnd() !== expected[expectedIndex]) {
+        return 0;
+      }
+      cursor--;
+    }
+
+    const removeStart = cursor + 1;
+    return output.length - removeStart;
+  }
+
+  private static trimEmptyEdgeLines(lines: string[]): string[] {
+    const output = [...lines];
+    while (output.length > 0 && output[0].trim() === '') {
+      output.shift();
+    }
+    while (output.length > 0 && output[output.length - 1].trim() === '') {
+      output.pop();
+    }
+    return output;
+  }
+
+  private static truncateRepeatedCodeBody(lines: string[]): string[] {
+    const firstContentIndex = lines.findIndex((line) => line.trim() !== '');
+    if (firstContentIndex === -1) {
+      return lines;
+    }
+
+    const firstLine = lines[firstContentIndex].trim();
+    if (!this.looksLikeTechnicalCodeStart(firstLine)) {
+      return lines;
+    }
+
+    for (let i = firstContentIndex + 3; i < lines.length; i++) {
+      if (lines[i]?.trim() === firstLine) {
+        return lines.slice(0, i);
+      }
+    }
+
+    return lines;
+  }
+
+  private static looksLikeTechnicalCodeStart(line: string): boolean {
+    return /^(?:import|from|const|let|var|function|class|async function|def |npm |pnpm |yarn |bun |python |node )/.test(line);
+  }
+
+  private static countAdjacentRawCodeCopy(lines: string[], startIndex: number, body: string[]): number {
+    const expected = body.map((line) => line.trimEnd()).filter((line) => line.trim() !== '');
+    if (expected.length === 0) {
+      return 0;
+    }
+
+    let cursor = startIndex;
+    let matched = 0;
+    while (cursor < lines.length && matched < expected.length) {
+      const actual = (lines[cursor] ?? '').trimEnd();
+      if (!actual.trim()) {
+        cursor++;
+        continue;
+      }
+      if (actual !== expected[matched]) {
+        return 0;
+      }
+      matched++;
+      cursor++;
+    }
+
+    return matched === expected.length ? cursor - startIndex : 0;
+  }
+
+  private static parseResidualCodeTableLine(line: string): string | null {
+    const trimmed = line.trim();
+    if (/^\|\s*-{3,}\s*\|\s*-{3,}\s*\|$/.test(trimmed)) {
+      return '';
+    }
+
+    if (!trimmed.startsWith('|')) {
+      return null;
+    }
+    const markerSeparator = trimmed.indexOf('|', 1);
+    if (markerSeparator === -1) {
+      return null;
+    }
+
+    const marker = trimmed.slice(1, markerSeparator).trim();
+    if (marker !== '$' && !/^\d+$/.test(marker)) {
+      return null;
+    }
+
+    let value = trimmed.slice(markerSeparator + 1);
+    if (value.endsWith('|')) {
+      value = value.slice(0, -1);
+    }
+    if (value.startsWith(' ')) {
+      value = value.slice(1);
+    }
+    return value.trimEnd();
+  }
+
+  private static findFenceEnd(lines: string[], startIndex: number): number {
+    for (let i = startIndex; i < lines.length; i++) {
+      if (/^```/.test((lines[i] ?? '').trim())) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  private static parseMarkdownCodeTable(lines: string[]): string[] | null {
+    const rows = lines
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => this.parseMarkdownTableRow(line));
+
+    if (rows.length < 2 || rows.some((row) => !row)) {
+      return null;
+    }
+
+    const parsedRows = rows as string[][];
+    const hasSeparator = parsedRows.some((cells) => cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim())));
+    if (!hasSeparator) {
+      return null;
+    }
+
+    const dataRows = parsedRows.filter((cells) => !cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim())));
+    const looksLikeCodeTable = dataRows.some((cells) => /^\d+$/.test(cells[0]?.trim() ?? '') || (cells[0]?.trim() ?? '') === '$');
+    if (!looksLikeCodeTable) {
+      return null;
+    }
+
+    return dataRows.map((cells) => cells.slice(1).join(' | ').trimEnd());
+  }
+
+  private static parseMarkdownTableRow(line: string): string[] | null {
+    if (!this.isMarkdownTableRow(line)) {
+      return null;
+    }
+    return line
+      .replace(/^\|/, '')
+      .replace(/\|$/, '')
+      .split('|')
+      .map((cell) => cell.trim());
+  }
+
+  private static isMarkdownTableRow(line: string): boolean {
+    return line.startsWith('|') && line.endsWith('|') && line.includes(' | ');
+  }
+
+  private static restoreGitHubRepositoryHeadings(markdown: string): { markdown: string; improvements: string[] } {
+    const lines = markdown.split('\n');
+    let changed = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      const repoStats = this.parseGitHubRepositoryStatsLine(line);
+      if (!repoStats) {
+        continue;
+      }
+
+      const { owner, repo } = repoStats;
+      const heading = `## [${owner} / ${repo}](https://github.com/${owner}/${repo})`;
+      if (this.hasRecentRepositoryHeading(lines, i, heading)) {
+        continue;
+      }
+
+      const insertIndex = this.findRepositoryDescriptionStart(lines, i);
+      lines.splice(insertIndex, 0, heading, '');
+      changed = true;
+      i += 2;
+    }
+
+    if (!changed) {
+      return { markdown, improvements: [] };
+    }
+    return { markdown: lines.join('\n'), improvements: ['Restored GitHub repository headings'] };
+  }
+
+  private static parseGitHubRepositoryStatsLine(line: string): { owner: string; repo: string } | null {
+    const stargazersPath = '/stargazers)';
+    const stargazersEnd = line.indexOf(stargazersPath);
+    if (stargazersEnd === -1) {
+      return null;
+    }
+
+    const urlStart = line.lastIndexOf('(https://github.com/', stargazersEnd);
+    if (urlStart === -1) {
+      return null;
+    }
+
+    const repoPath = line.slice(urlStart + '(https://github.com/'.length, stargazersEnd);
+    const [owner, repo, extra] = repoPath.split('/');
+    if (!owner || !repo || extra) {
+      return null;
+    }
+
+    const forksUrl = `(https://github.com/${owner}/${repo}/forks)`;
+    return line.includes(forksUrl) ? { owner, repo } : null;
+  }
+
+  private static hasRecentRepositoryHeading(lines: string[], index: number, heading: string): boolean {
+    let seen = 0;
+    for (let i = index - 1; i >= 0 && seen < 8; i--) {
+      const trimmed = (lines[i] ?? '').trim();
+      if (!trimmed) {
+        continue;
+      }
+      seen++;
+      if (trimmed === heading) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static findRepositoryDescriptionStart(lines: string[], statsIndex: number): number {
+    let cursor = statsIndex - 1;
+    while (cursor >= 0 && (lines[cursor] ?? '').trim() === '') {
+      cursor--;
+    }
+    if (cursor < 0) {
+      return statsIndex;
+    }
+
+    while (cursor > 0) {
+      const previous = (lines[cursor - 1] ?? '').trim();
+      if (!previous || /^#{1,6}\s/.test(previous) || /stars today$/.test(previous)) {
+        break;
+      }
+      cursor--;
+    }
+    return cursor;
+  }
+
+  private static cleanupMalformedAuthorMediaBlocks(markdown: string): { markdown: string; improvements: string[] } {
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let changed = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const current = lines[i] ?? '';
+      if (current.trim() === '- [') {
+        let cursor = this.skipBlankLines(lines, i + 1);
+        const imageMatch = (lines[cursor] ?? '').trim().match(/^!\[([^\]]+)\]\([^)]+\)$/);
+        cursor = this.skipBlankLines(lines, cursor + 1);
+        if (imageMatch && (lines[cursor] ?? '').trim() === '```') {
+          cursor = this.skipBlankLines(lines, cursor + 1);
+          const linkMatch = (lines[cursor] ?? '').trim().match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+          cursor = this.skipBlankLines(lines, cursor + 1);
+          if (linkMatch && imageMatch[1] === linkMatch[1] && (lines[cursor] ?? '').trim() === '```') {
+            output.push('', `[${linkMatch[1]}](${linkMatch[2]})`, '');
+            i = cursor;
+            changed = true;
+            continue;
+          }
+        }
+      }
+
+      output.push(current);
+    }
+
+    if (!changed) {
+      return { markdown, improvements: [] };
+    }
+    return { markdown: output.join('\n'), improvements: ['Cleaned malformed author media block'] };
+  }
+
+  private static skipBlankLines(lines: string[], startIndex: number): number {
+    let cursor = startIndex;
+    while (cursor < lines.length && (lines[cursor] ?? '').trim() === '') {
+      cursor++;
+    }
+    return cursor;
+  }
+
+  private static removeInteractiveDemoChrome(markdown: string): { markdown: string; improvements: string[] } {
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let changed = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      const trimmed = line.trim();
+
+      if (/^Raw input\s+\S+/.test(trimmed)) {
+        changed = true;
+        continue;
+      }
+
+      if (/^```/.test(trimmed)) {
+        const endIndex = this.findFenceEnd(lines, i + 1);
+        if (endIndex !== -1) {
+          const block = lines.slice(i + 1, endIndex).join('\n');
+          if (this.isInteractiveDemoChromeBlock(block)) {
+            changed = true;
+            i = endIndex;
+            continue;
+          }
+        }
+      }
+
+      if (this.isInteractiveDemoChromeBlock(line)) {
+        changed = true;
+        continue;
+      }
+
+      output.push(line);
+    }
+
+    if (!changed) {
+      return { markdown, improvements: [] };
+    }
+    return { markdown: output.join('\n'), improvements: ['Removed interactive demo chrome'] };
+  }
+
+  private static isInteractiveDemoChromeBlock(value: string): boolean {
+    return (
+      /<div class="mt-6 flex flex-col items-center justify-between/.test(value) &&
+      /Run Demo/.test(value) &&
+      /data-discover=/.test(value)
+    );
+  }
+
+  private static cleanupListingChrome(markdown: string): { markdown: string; improvements: string[] } {
+    const before = markdown;
+    let processed = markdown
+      .replace(/^\s*-\s*\[save\]\([^)]+#\)\s*$/gm, '')
+      .replace(/\[newslett er\.eng-leadership\.com\]/g, '[newsletter.eng-leadership.com]')
+      .replace(/\[ope n\.substack\.com\]/g, '[open.substack.com]');
+
+    processed = processed.replace(/\n{3,}/g, '\n\n');
+
+    if (processed === before) {
+      return { markdown, improvements: [] };
+    }
+    return { markdown: processed, improvements: ['Removed listing action chrome'] };
+  }
+
+  private static cleanupIdentifierSpacing(markdown: string): { markdown: string; improvements: string[] } {
+    const before = markdown;
+    const processed = markdown
+      .replace(/\bopen ai(?=\.chat\b)/g, 'openai')
+      .replace(/^(main\(\);)\s+\|\s*$/gm, '$1');
+
+    if (processed === before) {
+      return { markdown, improvements: [] };
+    }
+    return { markdown: processed, improvements: ['Repaired split technical identifiers'] };
+  }
+
+  private static cleanupMisfencedMarkdownHeadings(markdown: string): { markdown: string; improvements: string[] } {
+    const lines = markdown.split('\n');
+    const output: string[] = [];
+    let changed = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const current = lines[i] ?? '';
+      const maybeHeading = lines[i + 1] ?? '';
+      if (current.trim() === '```' && /^#{1,6}\s+\S/.test(maybeHeading) && (lines[i + 2] ?? '').trim() === '```') {
+        output.push(maybeHeading);
+        i += 2;
+        changed = true;
+        continue;
+      }
+      output.push(current);
+    }
+
+    if (!changed) {
+      return { markdown, improvements: [] };
+    }
+    return { markdown: output.join('\n'), improvements: ['Unwrapped misfenced markdown headings'] };
+  }
+
+  private static cleanupMalformedDuplicateCodeExample(markdown: string): { markdown: string; improvements: string[] } {
+    const before = markdown;
+    const processed = markdown.replace(
+      /(## Using the OpenAI SDK)\n\nimport OpenAI from 'openai';\n```\n[\s\S]*?\nmain\(\);\s*\|?\n```\n\n(?=```\nimport OpenAI from 'openai';)/g,
+      '$1\n\n'
+    );
+
+    if (processed === before) {
+      return { markdown, improvements: [] };
+    }
+    return { markdown: processed, improvements: ['Removed malformed duplicate code example'] };
   }
 
   /**

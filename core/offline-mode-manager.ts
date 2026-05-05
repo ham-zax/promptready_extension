@@ -5311,6 +5311,7 @@ export class OfflineModeManager {
     // was previously glued to malformed fence blocks is removed.
     result = this.stripUiNoiseCodeBlocks(result, warnings);
     result = this.stripResidualUiNoiseLines(result, warnings);
+    result = MarkdownPostProcessor.tightenMarkdownFidelity(result).markdown;
     result = this.stripSkipLinkTitlePrelude(result, normalizedMetadata.title, warnings);
     result = this.stripTerminalFooterCluster(result, warnings);
     result = this.ensurePrimaryHeading(result, normalizedMetadata.title);
