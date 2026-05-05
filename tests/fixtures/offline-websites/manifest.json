@@ -31,7 +31,11 @@
       "minQualityScore": 45,
       "minMarkdownLength": 900,
       "maxSuspiciousSingleTokenLines": 12,
-      "expectedPageType": "landing-page"
+      "expectedPageType": "landing-page",
+      "capture": {
+        "enabled": false,
+        "reason": "Pinned synthetic fixture for portfolio/landing-page fidelity."
+      }
     },
     {
       "id": "wikipedia-article",
@@ -51,7 +55,11 @@
         "WIKI_FOOTER_NOISE_TOKEN"
       ],
       "minQualityScore": 68,
-      "minMarkdownLength": 900
+      "minMarkdownLength": 900,
+      "capture": {
+        "enabled": false,
+        "reason": "Pinned legacy article fixture reused from the offline corpus."
+      }
     },
     {
       "id": "docs-code-heavy",
@@ -145,7 +153,11 @@
         "FORUM_SIDEBAR_AD_TOKEN"
       ],
       "minQualityScore": 60,
-      "minMarkdownLength": 700
+      "minMarkdownLength": 700,
+      "capture": {
+        "enabled": false,
+        "reason": "Pinned legacy forum fixture reused from the offline corpus."
+      }
     },
     {
       "id": "generic-landing",
@@ -253,7 +265,11 @@
       ],
       "minQualityScore": 40,
       "minMarkdownLength": 800,
-      "maxSuspiciousSingleTokenLines": 8
+      "maxSuspiciousSingleTokenLines": 8,
+      "capture": {
+        "enabled": false,
+        "reason": "Pinned synthetic Reddit thread fixture for deterministic thread-content review."
+      }
     }
   ]
 }

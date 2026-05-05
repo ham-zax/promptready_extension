@@ -11,8 +11,10 @@ This repo now has two repeatable loops:
 ```bash
 npm run iterate:offline:promptready
 npm run iterate:offline:corpus
-npm run test:offline:website-corpus
-npm run verify:offline:website-corpus
+npm run test:offline:website-manifest
+npm run test:offline:websites
+npm run docs:offline:websites
+npm run report:offline:websites
 ```
 
 By default the iteration scripts also dump the extracted Markdown outputs to:
@@ -33,23 +35,25 @@ What it does:
   - runs manifest-backed website fixtures through `tests/offline-fixture-regression.test.ts`
   - runs `tests/offline-news-fixture-regression.test.ts`
   - optionally refreshes fixtures before tests (see env vars below)
-- `test:offline:website-corpus`:
+- `test:offline:website-manifest`:
+  - validates the manifest before the heavier extraction test
+  - checks unique IDs, local existing fixture paths, snippet array shape, and explicit refreshable/pinned capture markers
+- `test:offline:websites`:
+  - runs the manifest validation test first
   - reads pinned checked-in fixtures from `tests/fixtures/offline-websites/manifest.json`
   - does not download live websites
   - runs the same local offline extraction seam used by the extension's offline processor
-- `verify:offline:website-corpus`:
-  - runs changed-file lint, TypeScript compile, and the pinned website corpus tests
-
-Compatibility aliases:
-
-- `test:offline:websites` and `test:offline:corpus` run the same website corpus test.
-- `capture:fixtures:websites` and `capture:fixtures:website-corpus` run the same optional corpus refresh script.
+- `docs:offline:websites`:
+  - regenerates `tests/fixtures/offline-websites/WEBSITES.md` from the manifest
+- `report:offline:websites`:
+  - writes `output/offline-website-corpus-report.md` for manual review
 
 ## Website Corpus Contract
 
 Normal tests never download websites. The website corpus is a pinned fixture gate:
 
 - manifest: `tests/fixtures/offline-websites/manifest.json`
+- generated index: `tests/fixtures/offline-websites/WEBSITES.md`
 - shared assertions: `tests/helpers/offline-website-harness.ts`
 - synthetic portfolio fixture: `tests/fixtures/offline-websites/portfolio-landing.html`
 - reused public captures: `tests/fixtures/offline-corpus/*.html`
@@ -57,6 +61,8 @@ Normal tests never download websites. The website corpus is a pinned fixture gat
 Each manifest case declares the source URL, checked-in fixture path, required snippets,
 forbidden snippets, quality floor, optional strategy/page-type expectations, and optional
 refresh metadata. Tests read only `fixturePath`; they do not call the network.
+Refreshable cases use `"capture": { "enabled": true, ... }`; pinned/manual cases
+must use `"capture": { "enabled": false, "reason": "..." }`.
 
 The gate verifies PromptReady Markdown fidelity, not pixel or layout parity. Each fixture
 is processed through `OfflineModeManager.getOptimalConfig(url)` and
@@ -104,12 +110,30 @@ Env vars:
 npm run capture:fixtures:websites -- --case github-trending
 npm run capture:fixtures:websites -- --all
 npm run capture:fixtures:websites -- --all --dry-run
-npm run capture:fixtures:website-corpus -- --all --dry-run
 ```
 
 Only manifest cases with `"capture": { "enabled": true }` are refreshable. Synthetic
 or manual-auth fixtures, such as portfolio/Facebook-like pages, should stay pinned and
 checked in by hand. Browser smoke coverage is optional and must not be part of default CI.
+
+### Regenerate website corpus index
+
+```bash
+npm run docs:offline:websites
+```
+
+This updates `tests/fixtures/offline-websites/WEBSITES.md`. The Markdown file is
+generated for humans; edit `manifest.json` instead.
+
+### Generate website corpus review report
+
+```bash
+npm run report:offline:websites
+```
+
+This writes one manual review file to `output/offline-website-corpus-report.md`.
+It contains pass/fail metadata and the extracted PromptReady Markdown for every
+fixture. The `output/` directory is gitignored by default.
 
 ### Refresh core fixtures
 

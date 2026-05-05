@@ -34,7 +34,7 @@ fi
 export OFFLINE_DUMP_DIR="$dump_dir"
 
 npm run test:offline:promptready
-npm run test:offline:corpus
+npm run test:offline:websites
 npm run test:offline:news
 
 report_args=(--current "$dump_dir" --out "$summary_path" --md-out "$summary_markdown_path")

@@ -22,6 +22,7 @@ export interface OfflineWebsiteCase {
     mode?: string;
     renderWaitMs?: number;
     renderViewport?: string;
+    reason?: string;
   };
 }
 
@@ -102,6 +103,7 @@ function assertCaptureConfig(value: unknown, id: string): OfflineWebsiteCase['ca
     mode: typeof raw.mode === 'string' ? raw.mode : undefined,
     renderWaitMs: typeof raw.renderWaitMs === 'number' ? raw.renderWaitMs : undefined,
     renderViewport: typeof raw.renderViewport === 'string' ? raw.renderViewport : undefined,
+    reason: typeof raw.reason === 'string' ? raw.reason : undefined,
   };
 }
 
