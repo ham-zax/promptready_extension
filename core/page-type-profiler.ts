@@ -3,6 +3,7 @@ export type PageTypeProfile =
   | 'documentation'
   | 'forum'
   | 'product'
+  | 'landing-page'
   | 'code-heavy'
   | 'generic';
 
@@ -19,6 +20,7 @@ export class PageTypeProfiler {
       documentation: 0,
       forum: 0,
       product: 0,
+      'landing-page': 0,
       'code-heavy': 0,
     };
     const signals: string[] = [];
@@ -75,6 +77,26 @@ export class PageTypeProfiler {
       scores.documentation += 2; // Academic often behaves like technical docs
       signals.push('url:academic');
     }
+    const isRootLikeUrl = (() => {
+      if (!normalizedUrl) {
+        return false;
+      }
+      try {
+        const parsed = new URL(normalizedUrl);
+        return parsed.pathname === '/' || parsed.pathname === '';
+      } catch {
+        return false;
+      }
+    })();
+    if (
+      isRootLikeUrl ||
+      normalizedUrl.includes('/portfolio') ||
+      normalizedUrl.includes('/resume') ||
+      normalizedUrl.includes('/work')
+    ) {
+      scores['landing-page'] += 2;
+      signals.push('url:landing');
+    }
 
     // DOM signals
     if (doc.querySelector('article')) {
@@ -106,6 +128,35 @@ export class PageTypeProfiler {
     if (headings >= 5) {
       scores.documentation += 1;
       signals.push(`dom:headings>=5`);
+    }
+
+    const sectionCount = doc.querySelectorAll('section').length;
+    const landingSectionMatches = doc.querySelectorAll(
+      [
+        '[id*=hero], [class*=hero]',
+        '[id*=about], [class*=about]',
+        '[id*=skill], [class*=skill]',
+        '[id*=project], [class*=project], [class*=work]',
+        '[id*=blog], [class*=blog], [class*=post]',
+        '[id*=contact], [class*=contact]',
+        '[id*=portfolio], [class*=portfolio]',
+      ].join(',')
+    ).length;
+    if (sectionCount >= 4 && landingSectionMatches >= 3) {
+      scores['landing-page'] += 4;
+      signals.push('dom:landing_sections>=3');
+    }
+    if (doc.querySelector('form') && doc.querySelector('[id*=contact], [class*=contact]')) {
+      scores['landing-page'] += 2;
+      signals.push('dom:contact_form');
+    }
+    if (doc.querySelector('footer a') || doc.querySelector('[class*=social] a')) {
+      scores['landing-page'] += 1;
+      signals.push('dom:footer_or_social_links');
+    }
+    if (doc.querySelector('.chip, .tag, .badge, .skill, [data-chip]')) {
+      scores['landing-page'] += 1;
+      signals.push('dom:chips');
     }
 
     const comments = doc.querySelectorAll(

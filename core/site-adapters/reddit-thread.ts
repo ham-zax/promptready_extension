@@ -6,6 +6,7 @@ export interface RedditPost {
   author?: string;
   score?: string;
   timestamp?: string;
+  url?: string;
   bodyHtml: string;
 }
 
@@ -30,7 +31,11 @@ export interface RedditThreadDiagnostics {
   winner: string;
   autoSummaryDetected: boolean;
   botLikeCommentsDetected: number;
-  contentRemoved: false;
+  contentRemoved: boolean;
+  truncated: boolean;
+  commentLimit: number;
+  maxDepthLimit: number;
+  omittedCommentCount: number;
 }
 
 export interface RedditThread {
@@ -45,22 +50,40 @@ export interface RedditThreadCandidateSet {
 }
 
 const COMMENT_LIMIT = 80;
+const MAX_COMMENT_DEPTH = 8;
+const REDDIT_JSON_POST_SOURCE = 'reddit-json:post';
+const REDDIT_JSON_COMMENTS_SOURCE = 'reddit-json:comments';
+const REDDIT_JSON_THREAD_SOURCE = 'reddit-json:thread';
+
+type JsonRecord = Record<string, unknown>;
+
+interface CommentParseState {
+  acceptedCount: number;
+  omittedCount: number;
+  maxDepthSeen: number;
+}
 
 export function parseRedditThreadFromJson(payload: unknown): RedditThread | null {
   const listings = Array.isArray(payload) ? payload : [payload];
   let post: RedditPost | null = null;
   const comments: RedditCommentNode[] = [];
+  const commentState: CommentParseState = {
+    acceptedCount: 0,
+    omittedCount: 0,
+    maxDepthSeen: 0,
+  };
 
   for (const listing of listings) {
-    const children = (listing as any)?.data?.children;
+    const children = getListingChildren(listing);
     if (!Array.isArray(children)) {
       continue;
     }
 
     for (const child of children) {
-      const kind = typeof child?.kind === 'string' ? child.kind : '';
-      const data = child?.data;
-      if (!data || typeof data !== 'object') {
+      const childRecord = asRecord(child);
+      const kind = getString(childRecord, 'kind') || '';
+      const data = asRecord(childRecord?.data);
+      if (!data) {
         continue;
       }
 
@@ -70,23 +93,26 @@ export function parseRedditThreadFromJson(payload: unknown): RedditThread | null
             ? data.selftext
             : (typeof data.selftext_html === 'string' ? stripHtml(data.selftext_html) : '')
         );
-        if (body.length < 40) {
+        const title = getString(data, 'title') || '';
+        const url = getPostUrl(data);
+        if (!body && !title.trim() && !url) {
           continue;
         }
 
         post = {
-          id: typeof data.id === 'string' ? data.id : undefined,
-          title: typeof data.title === 'string' ? data.title : '',
-          author: typeof data.author === 'string' ? data.author : undefined,
+          id: getString(data, 'id'),
+          title,
+          author: getString(data, 'author'),
           score: formatScore(data.score),
           timestamp: formatTimestamp(data.created_utc),
+          url,
           bodyHtml: renderMarkdownishBlocks(body),
         };
         continue;
       }
 
-      if (kind === 't1' && post && comments.length < COMMENT_LIMIT) {
-        const node = parseCommentNode(child, 0, () => countCommentNodes(comments));
+      if (kind === 't1' && post) {
+        const node = parseCommentNode(child, 0, commentState);
         if (node) {
           comments.push(node);
         }
@@ -99,43 +125,54 @@ export function parseRedditThreadFromJson(payload: unknown): RedditThread | null
   }
 
   const flattened = flattenComments(comments);
+  const truncated = commentState.omittedCount > 0;
   const diagnostics: RedditThreadDiagnostics = {
     redditMode: 'full_thread_default',
     postCaptured: true,
     commentCount: flattened.length,
-    maxDepth: flattened.reduce((max, comment) => Math.max(max, comment.depth), 0),
-    candidates: ['reddit:post', 'reddit:comments', 'reddit:thread'],
-    winner: 'reddit:thread',
+    maxDepth: commentState.maxDepthSeen,
+    candidates: [REDDIT_JSON_POST_SOURCE, REDDIT_JSON_COMMENTS_SOURCE, REDDIT_JSON_THREAD_SOURCE],
+    winner: REDDIT_JSON_THREAD_SOURCE,
     autoSummaryDetected: flattened.some((comment) => comment.isAutoSummary),
     botLikeCommentsDetected: flattened.filter((comment) => comment.isBotLike).length,
-    contentRemoved: false,
+    contentRemoved: truncated,
+    truncated,
+    commentLimit: COMMENT_LIMIT,
+    maxDepthLimit: MAX_COMMENT_DEPTH,
+    omittedCommentCount: commentState.omittedCount,
   };
 
   return { post, comments, diagnostics };
 }
 
 export function buildRedditThreadCandidates(thread: RedditThread): RedditThreadCandidateSet {
-  const postHtml = renderPostHtml(thread.post, 'reddit:post');
+  const postHtml = renderPostHtml(thread.post, REDDIT_JSON_POST_SOURCE);
   const commentsHtml = renderCommentsSectionHtml(thread.comments);
-  const threadHtml = `<article data-pr-source="reddit:thread">${renderPostInnerHtml(thread.post)}${commentsHtml}</article>`;
+  const threadHtml = `<article data-pr-source="${REDDIT_JSON_THREAD_SOURCE}">${renderPostInnerHtml(thread.post)}${commentsHtml}</article>`;
 
   return {
     diagnostics: thread.diagnostics,
     candidates: [
-      createCandidate('reddit:thread', threadHtml, 0.96),
-      createCandidate('reddit:post', postHtml, 0.9),
-      createCandidate('reddit:comments', commentsHtml, 0.78),
+      createCandidate(REDDIT_JSON_THREAD_SOURCE, threadHtml, 0.96),
+      createCandidate(REDDIT_JSON_POST_SOURCE, postHtml, 0.9),
+      createCandidate(REDDIT_JSON_COMMENTS_SOURCE, commentsHtml, 0.78),
     ],
   };
 }
 
-function parseCommentNode(child: any, depth: number, currentCount: () => number): RedditCommentNode | null {
-  if (currentCount() >= COMMENT_LIMIT || depth > 8) {
+function parseCommentNode(child: unknown, depth: number, state: CommentParseState): RedditCommentNode | null {
+  if (state.acceptedCount >= COMMENT_LIMIT || depth > MAX_COMMENT_DEPTH) {
+    state.omittedCount += countJsonCommentNodes(child);
     return null;
   }
 
-  const data = child?.data;
-  if (!data || typeof data !== 'object') {
+  const childRecord = asRecord(child);
+  if (getString(childRecord, 'kind') !== 't1') {
+    return null;
+  }
+
+  const data = asRecord(childRecord?.data);
+  if (!data) {
     return null;
   }
 
@@ -149,9 +186,12 @@ function parseCommentNode(child: any, depth: number, currentCount: () => number)
   }
 
   const isAutoSummary = /tl;dr of the discussion generated automatically/i.test(body);
-  const author = typeof data.author === 'string' ? data.author : undefined;
+  const author = getString(data, 'author');
+  state.acceptedCount += 1;
+  state.maxDepthSeen = Math.max(state.maxDepthSeen, depth);
+
   const node: RedditCommentNode = {
-    id: typeof data.id === 'string' ? data.id : undefined,
+    id: getString(data, 'id'),
     author,
     score: formatScore(data.score),
     timestamp: formatTimestamp(data.created_utc),
@@ -162,16 +202,10 @@ function parseCommentNode(child: any, depth: number, currentCount: () => number)
     isBotLike: Boolean(author && /bot$/i.test(author)),
   };
 
-  const replies = data.replies?.data?.children;
-  if (Array.isArray(replies)) {
-    for (const reply of replies) {
-      if (reply?.kind !== 't1') {
-        continue;
-      }
-      const childNode = parseCommentNode(reply, depth + 1, currentCount);
-      if (childNode) {
-        node.children.push(childNode);
-      }
+  for (const reply of getReplyChildren(data)) {
+    const childNode = parseCommentNode(reply, depth + 1, state);
+    if (childNode) {
+      node.children.push(childNode);
     }
   }
 
@@ -184,7 +218,8 @@ function renderPostHtml(post: RedditPost, source: string): string {
 
 function renderPostInnerHtml(post: RedditPost): string {
   const titleHtml = post.title.trim() ? `<h1>${escapeHtml(post.title.trim())}</h1>` : '';
-  return `${titleHtml}${post.bodyHtml}`;
+  const linkHtml = post.url ? `<p><a href="${escapeAttribute(post.url)}">${escapeHtml(post.url)}</a></p>` : '';
+  return `${titleHtml}${post.bodyHtml}${linkHtml}`;
 }
 
 function renderCommentsSectionHtml(comments: RedditCommentNode[]): string {
@@ -192,7 +227,7 @@ function renderCommentsSectionHtml(comments: RedditCommentNode[]): string {
     return '';
   }
 
-  return `<section data-pr-source="reddit:comments"><h2>Comments</h2>${comments
+  return `<section data-pr-source="${REDDIT_JSON_COMMENTS_SOURCE}"><h2>Comments</h2>${comments
     .map((comment) => renderCommentHtml(comment))
     .join('\n')}</section>`;
 }
@@ -292,10 +327,6 @@ function flattenComments(comments: RedditCommentNode[]): RedditCommentNode[] {
   return flattened;
 }
 
-function countCommentNodes(comments: RedditCommentNode[]): number {
-  return flattenComments(comments).length;
-}
-
 function normalizeRedditText(value: string): string {
   return value
     .replace(/\r/g, '\n')
@@ -349,4 +380,50 @@ function escapeHtml(value: string): string {
 
 function escapeAttribute(value: string): string {
   return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
+function asRecord(value: unknown): JsonRecord | null {
+  return value && typeof value === 'object' ? value as JsonRecord : null;
+}
+
+function getString(record: JsonRecord | null | undefined, key: string): string | undefined {
+  const value = record?.[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getListingChildren(listing: unknown): unknown[] | null {
+  const listingRecord = asRecord(listing);
+  const data = asRecord(listingRecord?.data);
+  const children = data?.children;
+  return Array.isArray(children) ? children : null;
+}
+
+function getReplyChildren(data: JsonRecord): unknown[] {
+  const replies = asRecord(data.replies);
+  const replyData = asRecord(replies?.data);
+  const children = replyData?.children;
+  return Array.isArray(children) ? children : [];
+}
+
+function getPostUrl(data: JsonRecord): string | undefined {
+  const url = getString(data, 'url_overridden_by_dest') || getString(data, 'url');
+  return url && /^https?:\/\//i.test(url) ? url : undefined;
+}
+
+function countJsonCommentNodes(value: unknown): number {
+  const record = asRecord(value);
+  if (getString(record, 'kind') !== 't1') {
+    return 0;
+  }
+
+  const data = asRecord(record?.data);
+  if (!data) {
+    return 0;
+  }
+
+  let childCount = 0;
+  for (const child of getReplyChildren(data)) {
+    childCount += countJsonCommentNodes(child);
+  }
+  return 1 + childCount;
 }

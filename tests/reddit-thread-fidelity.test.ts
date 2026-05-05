@@ -36,7 +36,10 @@ describe('Reddit Thread Fidelity', () => {
     vi.unstubAllGlobals();
   });
 
-  function redditPayload() {
+  function redditPayload(overrides: {
+    post?: Record<string, unknown>;
+    comments?: unknown[];
+  } = {}) {
     return [
       {
         data: {
@@ -54,6 +57,7 @@ describe('Reddit Thread Fidelity', () => {
                   'Results after 3 weeks: 1. Haven\'t hit limits once 2. Kimi total spend: $0.38 3. Documentation updates went from ~5000 tokens to ~200 tokens',
                   'Wrote up the full implementation with code: [https://example.com/full-setup](https://example.com/full-setup)',
                 ].join('\n\n'),
+                ...(overrides.post || {}),
               },
             },
           ],
@@ -61,7 +65,7 @@ describe('Reddit Thread Fidelity', () => {
       },
       {
         data: {
-          children: [
+          children: overrides.comments || [
             {
               kind: 't1',
               data: {
@@ -133,17 +137,21 @@ describe('Reddit Thread Fidelity', () => {
     ];
   }
 
-  async function processFixture() {
+  async function processFixture(options: {
+    payload?: unknown;
+    readabilityContent?: string;
+    html?: string;
+  } = {}) {
     vi.spyOn(ReadabilityConfigManager, 'extractContent').mockResolvedValue({
-      content: '<h1>I gave Claude Code a coworker</h1><p>Skip to Navigation Skip to Right Sidebar</p>',
+      content: options.readabilityContent || '<h1>I gave Claude Code a coworker</h1><p>Skip to Navigation Skip to Right Sidebar</p>',
     });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => redditPayload(),
+      json: async () => options.payload || redditPayload(),
     }));
 
     return OfflineModeManager.processContent(
-      `
+      options.html || `
         <main>
           <h1>I gave Claude Code a coworker</h1>
           <a href="#left-sidebar-container">Skip to Navigation</a>
@@ -159,7 +167,7 @@ describe('Reddit Thread Fidelity', () => {
   it('defaults Reddit JSON recovery to a full-thread candidate', async () => {
     const result = await processFixture();
 
-    expect(result.processingStats.strategyWinner).toBe('reddit:thread');
+    expect(result.processingStats.strategyWinner).toBe('reddit-json:thread');
     expect(result.markdown).toContain('Was hitting my weekly Pro limit');
     expect(result.markdown).toContain('## Comments');
     expect(result.markdown).toContain('Top comment text here.');
@@ -201,20 +209,105 @@ describe('Reddit Thread Fidelity', () => {
     const traces = result.processingStats.extractionDiagnostics?.candidateTraces || [];
 
     expect(traces).toEqual(expect.arrayContaining([
-      expect.objectContaining({ source: 'reddit:post' }),
-      expect.objectContaining({ source: 'reddit:comments' }),
-      expect.objectContaining({ source: 'reddit:thread', selected: true }),
+      expect.objectContaining({ source: 'reddit-json:post' }),
+      expect.objectContaining({ source: 'reddit-json:comments' }),
+      expect.objectContaining({ source: 'reddit-json:thread', selected: true }),
     ]));
     expect(result.processingStats.extractionDiagnostics?.redditThread).toEqual(expect.objectContaining({
       redditMode: 'full_thread_default',
       postCaptured: true,
       commentCount: 5,
       maxDepth: 2,
-      candidates: ['reddit:post', 'reddit:comments', 'reddit:thread'],
-      winner: 'reddit:thread',
+      candidates: ['reddit-json:post', 'reddit-json:comments', 'reddit-json:thread'],
+      winner: 'reddit-json:thread',
       autoSummaryDetected: true,
       botLikeCommentsDetected: 1,
       contentRemoved: false,
+      truncated: false,
+      commentLimit: 80,
+      maxDepthLimit: 8,
+      omittedCommentCount: 0,
     }));
+  });
+
+  it('recovers short Reddit posts when comments provide the visible thread body', async () => {
+    const payload = redditPayload({
+      post: {
+        title: 'Short link post with a discussion',
+        selftext: '',
+        url_overridden_by_dest: 'https://example.com/linked-resource',
+      },
+      comments: [
+        {
+          kind: 't1',
+          data: {
+            id: 'short_c1',
+            author: 'alice',
+            score: 12,
+            created_utc: 1_767_206_000,
+            body: 'This comment carries the visible discussion for a short link post.',
+            replies: '',
+          },
+        },
+      ],
+    });
+
+    const result = await processFixture({ payload });
+
+    expect(result.processingStats.strategyWinner).toBe('reddit-json:thread');
+    expect(result.markdown).toContain('Short link post with a discussion');
+    expect(result.markdown).toContain('https://example.com/linked-resource');
+    expect(result.markdown).toContain('This comment carries the visible discussion');
+  });
+
+  it('marks Reddit diagnostics as truncated when parser limits omit visible comments', async () => {
+    const comments = Array.from({ length: 82 }, (_, index) => ({
+      kind: 't1',
+      data: {
+        id: `overflow_${index}`,
+        author: `user${index}`,
+        score: index + 1,
+        created_utc: 1_767_207_000 + index,
+        body: `Visible overflow comment ${index} with enough text to be captured faithfully.`,
+        replies: '',
+      },
+    }));
+    const result = await processFixture({ payload: redditPayload({ comments }) });
+    const diagnostics = result.processingStats.extractionDiagnostics?.redditThread;
+
+    expect(diagnostics).toEqual(expect.objectContaining({
+      commentCount: 80,
+      truncated: true,
+      contentRemoved: true,
+      omittedCommentCount: 2,
+      commentLimit: 80,
+      maxDepthLimit: 8,
+    }));
+    expect(result.markdown).toContain('Visible overflow comment 79');
+    expect(result.markdown).not.toContain('Visible overflow comment 80');
+  });
+
+  it('records readability as the Reddit diagnostic winner when adoption rejects the thread candidate', async () => {
+    const strongReadability = `
+      <article>
+        <h1>I gave Claude Code a coworker</h1>
+        <p>${'High quality readability paragraph with real Reddit body context. '.repeat(20)}</p>
+      </article>
+    `;
+    const result = await processFixture({
+      readabilityContent: strongReadability,
+      html: '<main><a href="#left-sidebar-container">Skip to Navigation</a></main>',
+      payload: redditPayload({
+        post: {
+          selftext: 'Fallback thread body that is intentionally less useful than the readability output but long enough to become a ranked Reddit JSON thread candidate.',
+        },
+        comments: [],
+      }),
+    });
+
+    expect(result.processingStats.strategyWinner).toBe('readability');
+    expect(result.processingStats.extractionDiagnostics?.redditThread?.winner).toBe('readability');
+    expect(result.processingStats.extractionDiagnostics?.candidateTraces.find((trace) => trace.selected)?.source)
+      .toBe('readability-primary');
   });
 });

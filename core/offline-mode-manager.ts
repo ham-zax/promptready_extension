@@ -132,6 +132,7 @@ interface FallbackSelectionOptions {
   strategiesAttempted?: string[];
   fallbacksUsed?: string[];
   url?: string;
+  sourceHtml?: string;
 }
 
 export class OfflineModeManager {
@@ -520,7 +521,8 @@ export class OfflineModeManager {
             strategiesAttempted,
             warnings,
             config,
-            url
+            url,
+            cacheSourceHtml
           );
           extractedContent = resolution.content;
           candidateTraces = resolution.candidateTraces;
@@ -542,6 +544,7 @@ export class OfflineModeManager {
             strategiesAttempted,
             fallbacksUsed,
             url,
+            sourceHtml: cacheSourceHtml,
           });
           extractedContent = fallbackSelection?.html || extractionHtml;
           candidateTraces = fallbackSelection?.candidateTraces;
@@ -1773,7 +1776,8 @@ export class OfflineModeManager {
     strategiesAttempted: string[],
     warnings: string[],
     config: OfflineModeConfig,
-    url?: string
+    url?: string,
+    sourceHtml?: string
   ): Promise<{
     content: string;
     source?: string;
@@ -1796,6 +1800,7 @@ export class OfflineModeManager {
       strategiesAttempted,
       fallbacksUsed,
       url,
+      sourceHtml,
     });
     if (!selection || this.normalizeInputText(extractTextContent(selection.html)).length === 0) {
       return {
@@ -1803,7 +1808,7 @@ export class OfflineModeManager {
         source: 'readability',
         candidateTraces: selection?.candidateTraces,
         pageType: selection?.pageType,
-        redditThread: selection?.redditThread,
+        redditThread: this.withRedditThreadWinner(selection?.redditThread, 'readability'),
       };
     }
 
@@ -1817,7 +1822,7 @@ export class OfflineModeManager {
         source: 'readability',
         candidateTraces: selection.candidateTraces,
         pageType: selection.pageType,
-        redditThread: selection.redditThread,
+        redditThread: this.withRedditThreadWinner(selection.redditThread, 'readability'),
       };
     }
 
@@ -1832,7 +1837,7 @@ export class OfflineModeManager {
         source: selection.source,
         candidateTraces: selection.candidateTraces,
         pageType: selection.pageType,
-        redditThread: selection.redditThread,
+        redditThread: this.withRedditThreadWinner(selection.redditThread, selection.source),
       };
     }
 
@@ -1870,7 +1875,7 @@ export class OfflineModeManager {
         source: selection.source,
         candidateTraces: selection.candidateTraces,
         pageType: selection.pageType,
-        redditThread: selection.redditThread,
+        redditThread: this.withRedditThreadWinner(selection.redditThread, selection.source),
       };
     }
 
@@ -1899,8 +1904,15 @@ export class OfflineModeManager {
       source: 'readability',
       candidateTraces: finalTraces,
       pageType: selection.pageType,
-      redditThread: selection.redditThread,
+      redditThread: this.withRedditThreadWinner(selection.redditThread, 'readability'),
     };
+  }
+
+  private static withRedditThreadWinner(
+    diagnostics: RedditThreadDiagnostics | undefined,
+    winner: string
+  ): RedditThreadDiagnostics | undefined {
+    return diagnostics ? { ...diagnostics, winner } : undefined;
   }
 
   private static shouldAdoptFallbackCandidate(
@@ -2216,6 +2228,9 @@ export class OfflineModeManager {
         filtered.push(line);
         continue;
       }
+      if (trimmed === '-->') {
+        continue;
+      }
       if (/^#{1,6}\s/.test(trimmed)) {
         filtered.push(line);
         continue;
@@ -2266,11 +2281,16 @@ export class OfflineModeManager {
       const isVectorPathLine =
         /<path d=|stroke-width=|stroke-linecap=|stroke-linejoin=|transform="translate\(/i.test(trimmed) ||
         /<\/svg>/i.test(trimmed);
+      const socialActionLinkPattern = /^\[(share|save|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)\]\(([^)]+)\)$/i;
+      const trimmedSocialLink = trimmed.match(socialActionLinkPattern);
+      const bulletlessSocialLink = bulletless.match(socialActionLinkPattern);
+      const isShareActionUrl = (value?: string): boolean =>
+        Boolean(value && /(share|sharer|sharearticle|intent|submit|api\.whatsapp\.com\/send|telegram\.me\/share|t\.me\/share)/i.test(value));
       const isSocialActionLine =
         /^(share|save|sharesave|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)$/i.test(trimmed) ||
         /^(share|save|sharesave|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)$/i.test(bulletless) ||
-        /^\[(share|save|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)\]\([^)]+\)$/i.test(trimmed) ||
-        /^\[(share|save|copy link|print|reddit|whatsapp|twitter|facebook|instagram|linkedin|telegram|x)\]\([^)]+\)$/i.test(bulletless);
+        isShareActionUrl(trimmedSocialLink?.[2]) ||
+        isShareActionUrl(bulletlessSocialLink?.[2]);
       const isSocialIconMarkdown =
         /^!\[(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share|print|reddit)\]\(/i.test(trimmed) ||
         /^!\[(whatsapp|twitter|facebook|instagram|linkedin|telegram|x|share|print|reddit)\]\(/i.test(bulletless);
@@ -2561,6 +2581,15 @@ export class OfflineModeManager {
     }
 
     const lines = markdown.split('\n');
+    const normalizedMarkdown = this.normalizeInputText(markdown).toLowerCase();
+    const looksLikeLandingPage =
+      /latest blog posts?/.test(normalizedMarkdown) &&
+      /(^|\s)contact(\s|$)/.test(normalizedMarkdown) &&
+      /(^|\s)projects?(\s|$)/.test(normalizedMarkdown);
+    if (looksLikeLandingPage) {
+      return markdown;
+    }
+
     if (lines.length < 40) {
       return markdown;
     }
@@ -3104,7 +3133,13 @@ export class OfflineModeManager {
         }
       }
 
-      const pageType = PageTypeProfiler.classify(doc, options.url);
+      const rawSourceHtml = typeof options.sourceHtml === 'string' && options.sourceHtml.trim()
+        ? options.sourceHtml
+        : normalizedHtml;
+      const rawDoc = safeParseHTML(rawSourceHtml);
+      const preparedPageType = PageTypeProfiler.classify(doc, options.url);
+      const rawPageType = rawDoc ? PageTypeProfiler.classify(rawDoc, options.url) : preparedPageType;
+      const pageType = rawPageType.profile === 'landing-page' ? rawPageType : preparedPageType;
       const candidatePool: ExtractionCandidate[] = [];
       const strategiesAttempted = options.strategiesAttempted || [];
       const fallbacksUsed = options.fallbacksUsed || [];
@@ -3123,6 +3158,16 @@ export class OfflineModeManager {
           metrics: candidate.metrics
         });
       }
+
+      const landingPageCandidate = this.extractLandingPageCandidate(
+        pageType.profile === 'landing-page' && rawDoc ? rawDoc : doc,
+        pageType,
+        options.url
+      );
+      if (landingPageCandidate) {
+        candidatePool.push(landingPageCandidate);
+      }
+
       const primaryRoot = doc.querySelector('main, article, [role="main"], #content, .content, .main-content') as HTMLElement | null;
       if (primaryRoot && this.normalizeInputText(primaryRoot.textContent || '').length > 120) {
         candidatePool.push({
@@ -3377,11 +3422,11 @@ export class OfflineModeManager {
           const candidate = candidatePool.find(c => this.sanitizeFallbackCandidateHtml(c.html) === candidateHtml || c.html === candidateHtml);
           if (candidate?.source === 'reddit:dom-body') {
             score += 35;
-          } else if (candidate?.source === 'reddit:thread') {
+          } else if (candidate?.source === 'reddit-json:thread') {
             score += 45;
-          } else if (candidate?.source === 'reddit:post') {
+          } else if (candidate?.source === 'reddit-json:post') {
             score += 0;
-          } else if (candidate?.source === 'reddit:comments') {
+          } else if (candidate?.source === 'reddit-json:comments') {
             score += 18;
           } else if (candidate?.source.startsWith('adapter:')) {
             score += (candidate.metrics?.confidence ?? 0) * 8;
@@ -3569,13 +3614,221 @@ export class OfflineModeManager {
     return null;
   }
 
+  private static extractLandingPageCandidate(
+    doc: Document,
+    pageType: PageTypeClassification,
+    baseUrl?: string
+  ): ExtractionCandidate | null {
+    if (pageType.profile !== 'landing-page' || !doc.body) {
+      return null;
+    }
+
+    const clone = doc.body.cloneNode(true) as HTMLElement;
+    this.removeElementsBySelectorList(clone, [
+      'script',
+      'style',
+      'noscript',
+      'template',
+      'svg',
+      'path',
+      'symbol',
+      'defs',
+      'clipPath',
+      'mask',
+      'canvas',
+      'dialog',
+      '.cookie',
+      '.cookie-banner',
+      '.consent',
+      '.ad',
+      '.advertisement',
+      '[aria-hidden="true"]',
+    ]);
+    this.removeDanglingHtmlCommentText(clone);
+    this.normalizeInlineTextSpacing(clone);
+    this.rewriteChipGroupsAsLists(clone);
+    if (baseUrl) {
+      try {
+        fixRelativeUrls(clone, baseUrl);
+      } catch (urlError) {
+        console.warn('[OfflineModeManager] Failed to normalize landing page URLs:', urlError);
+      }
+    }
+    this.labelLandingLinkGroups(clone);
+    this.materializeFormControls(clone);
+    this.cleanupEmptyContainers(clone);
+
+    const textLength = this.normalizeInputText(extractTextContent(clone.innerHTML)).length;
+    if (textLength < 120) {
+      return null;
+    }
+
+    return {
+      source: 'generic:landing-page',
+      html: clone.innerHTML,
+      metrics: {
+        charCount: textLength,
+        paragraphCount: clone.querySelectorAll('p, li, article, section').length,
+        codeCharCount: Array.from(clone.querySelectorAll('pre, code'))
+          .reduce((sum, node) => sum + this.normalizeInputText(node.textContent || '').length, 0),
+        linkDensity: this.calculateLinkDensity(clone),
+        confidence: 0.9,
+      },
+    };
+  }
+
+  private static removeDanglingHtmlCommentText(root: HTMLElement): void {
+    const walker = root.ownerDocument.createTreeWalker(root, 4);
+    const removable: Node[] = [];
+    let current = walker.nextNode();
+    while (current) {
+      if ((current.textContent || '').trim() === '-->') {
+        removable.push(current);
+      }
+      current = walker.nextNode();
+    }
+    removable.forEach((node) => node.parentNode?.removeChild(node));
+  }
+
+  private static removeElementsBySelectorList(root: Element, selectors: string[]): void {
+    for (const selector of selectors) {
+      try {
+        root.querySelectorAll(selector).forEach((element) => element.remove());
+      } catch (selectorError) {
+        console.warn(`[OfflineModeManager] Failed to remove elements with selector "${selector}":`, selectorError);
+      }
+    }
+  }
+
+  private static rewriteChipGroupsAsLists(root: HTMLElement): void {
+    const containers = Array.from(root.querySelectorAll('.chips, .skills-list, .tags, .badges, [data-chip-list]')) as HTMLElement[];
+    for (const container of containers) {
+      const chipNodes = Array.from(container.querySelectorAll('.chip, .skill, .tag, .badge, [data-chip]')) as HTMLElement[];
+      const chipTexts = chipNodes
+        .map((node) => this.normalizeInputText(node.textContent || ''))
+        .filter((text) => text.length > 0);
+      if (chipTexts.length < 2) {
+        continue;
+      }
+
+      const list = root.ownerDocument.createElement('ul');
+      for (const text of chipTexts) {
+        const item = root.ownerDocument.createElement('li');
+        item.textContent = text;
+        list.appendChild(item);
+      }
+      container.replaceChildren(list);
+    }
+  }
+
+  private static labelLandingLinkGroups(root: HTMLElement): void {
+    for (const footer of Array.from(root.querySelectorAll('footer')) as HTMLElement[]) {
+      const links = Array.from(footer.querySelectorAll('a')) as HTMLAnchorElement[];
+      if (links.length < 1) {
+        continue;
+      }
+      this.replaceLinkClusterWithList(footer, 'Footer Links', links);
+    }
+
+    for (const social of Array.from(root.querySelectorAll('.social, [class*="social"]')) as HTMLElement[]) {
+      if (social.closest('footer')) {
+        continue;
+      }
+      const links = Array.from(social.querySelectorAll('a')) as HTMLAnchorElement[];
+      if (links.length < 1) {
+        continue;
+      }
+      this.replaceLinkClusterWithList(social, 'Social Links', links);
+    }
+  }
+
+  private static replaceLinkClusterWithList(root: HTMLElement, headingText: string, links: HTMLAnchorElement[]): void {
+    const linkEntries = links
+      .map((link) => ({
+        label: this.normalizeInputText(link.textContent || ''),
+        href: link.getAttribute('href') || '',
+      }))
+      .filter((entry) => entry.label || entry.href);
+    if (linkEntries.length === 0) {
+      return;
+    }
+
+    const wrapper = root.ownerDocument.createElement('section');
+    wrapper.setAttribute('data-landing-link-group', headingText.toLowerCase().replace(/\s+/g, '-'));
+    const heading = root.ownerDocument.createElement('h2');
+    heading.textContent = headingText;
+    const list = root.ownerDocument.createElement('ul');
+    for (const { label, href } of linkEntries) {
+      const item = root.ownerDocument.createElement('li');
+      if (href) {
+        const anchor = root.ownerDocument.createElement('a');
+        anchor.setAttribute('href', href);
+        anchor.textContent = label || href;
+        item.appendChild(anchor);
+      } else {
+        item.textContent = label;
+      }
+      list.appendChild(item);
+    }
+    wrapper.appendChild(heading);
+    wrapper.appendChild(list);
+    root.replaceWith(wrapper);
+  }
+
+  private static materializeFormControls(root: HTMLElement): void {
+    const controls = Array.from(root.querySelectorAll('input, textarea, select')) as Array<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>;
+    for (const control of controls) {
+      const type = control.tagName.toLowerCase() === 'input'
+        ? (control.getAttribute('type') || 'text').toLowerCase()
+        : '';
+      if (type === 'hidden' || type === 'submit' || type === 'button') {
+        continue;
+      }
+
+      const label = this.labelForFormControl(root, control);
+      const hint = control.getAttribute('placeholder') || control.getAttribute('aria-label') || control.getAttribute('name') || '';
+      const text = [label, hint].filter(Boolean).join(': ');
+      if (!text) {
+        continue;
+      }
+
+      const paragraph = root.ownerDocument.createElement('p');
+      paragraph.textContent = text;
+      control.replaceWith(paragraph);
+    }
+  }
+
+  private static labelForFormControl(
+    root: HTMLElement,
+    control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+  ): string {
+    const id = control.getAttribute('id');
+    if (id) {
+      const escapedId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id.replace(/"/g, '\\"');
+      const label = root.querySelector(`label[for="${escapedId}"]`);
+      const labelText = this.normalizeInputText(label?.textContent || '');
+      if (labelText) {
+        label?.remove();
+        return labelText;
+      }
+    }
+
+    const wrappingLabel = control.closest('label');
+    const wrappingText = this.normalizeInputText(wrappingLabel?.textContent || '');
+    if (wrappingText) {
+      return wrappingText;
+    }
+
+    return control.getAttribute('name') || control.getAttribute('aria-label') || '';
+  }
+
   private static async fetchRedditJsonFallbackCandidate(
     doc: Document,
     url?: string,
     options: { force?: boolean } = {}
   ): Promise<ExtractionCandidate | null> {
     const thread = await this.fetchRedditJsonThreadFallback(doc, url, options);
-    return thread?.candidates.find((candidate) => candidate.source === 'reddit:thread') || null;
+    return thread?.candidates.find((candidate) => candidate.source === 'reddit-json:thread') || null;
   }
 
   private static async fetchRedditJsonThreadFallback(
@@ -3616,7 +3869,7 @@ export class OfflineModeManager {
       }
 
       const candidateSet = buildRedditThreadCandidates(thread);
-      const threadCandidate = candidateSet.candidates.find((candidate) => candidate.source === 'reddit:thread');
+      const threadCandidate = candidateSet.candidates.find((candidate) => candidate.source === 'reddit-json:thread');
       const bodyChars = threadCandidate
         ? this.normalizeInputText(extractTextContent(threadCandidate.html)).length
         : 0;
@@ -3730,7 +3983,7 @@ export class OfflineModeManager {
     }
 
     const candidateSet = await this.fetchRedditJsonThreadFallback(doc, url, { force: true });
-    const candidate = candidateSet?.candidates.find((entry) => entry.source === 'reddit:thread');
+    const candidate = candidateSet?.candidates.find((entry) => entry.source === 'reddit-json:thread');
     if (!candidateSet || !candidate) {
       return null;
     }
@@ -3839,14 +4092,14 @@ export class OfflineModeManager {
     }
 
     if (pageType.profile === 'forum') {
-      if (source === 'reddit:thread') {
+      if (source === 'reddit-json:thread') {
         return 45;
       }
-      if (source === 'reddit:post') {
+      if (source === 'reddit-json:post') {
         return 0;
       }
       if (source.includes('comment')) {
-        return source === 'reddit:comments' ? 10 : -20;
+        return source === 'reddit-json:comments' ? 10 : -20;
       }
       if (source.includes('reddit:dom-body')) {
         return 45;
@@ -3859,6 +4112,16 @@ export class OfflineModeManager {
       }
       if (source === 'readability-primary' || source === 'body' || source === 'primary-root') {
         return -30;
+      }
+      return 0;
+    }
+
+    if (pageType.profile === 'landing-page') {
+      if (source === 'generic:landing-page') {
+        return 35;
+      }
+      if (source === 'body' || source === 'primary-root' || source === 'readability-primary') {
+        return -12;
       }
       return 0;
     }
@@ -3879,21 +4142,36 @@ export class OfflineModeManager {
       return candidateHtml;
     }
 
-    removeUnwantedElements(doc.body, [
-      'aside',
-      'nav',
-      'header',
-      'footer',
-      '.sidebar',
-      '.side',
-      '.search',
-      '.search-form',
-      '#search',
-      '[role="navigation"]',
-      '[role="banner"]',
-      '[role="contentinfo"]',
-      '[role="search"]'
-    ]);
+    const unwantedSelectors = pageType?.profile === 'landing-page'
+      ? [
+          'aside',
+          '.sidebar',
+          '.side',
+          '.search',
+          '.search-form',
+          '#search',
+          '[role="search"]'
+        ]
+      : [
+          'aside',
+          'nav',
+          'header',
+          'footer',
+          '.sidebar',
+          '.side',
+          '.search',
+          '.search-form',
+          '#search',
+          '[role="navigation"]',
+          '[role="banner"]',
+          '[role="contentinfo"]',
+          '[role="search"]'
+        ];
+    if (pageType?.profile === 'landing-page') {
+      this.removeElementsBySelectorList(doc.body, unwantedSelectors);
+    } else {
+      removeUnwantedElements(doc.body, unwantedSelectors);
+    }
     if (pageType?.profile === 'forum') {
       removeUnwantedElements(doc.body, [
         '.comment',

@@ -192,7 +192,7 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     expect(result.markdown).toContain('Was hitting my weekly Pro limit by Wednesday');
     expect(result.markdown).not.toContain('Skip to Navigation');
     expect(result.processingStats.fallbacksUsed).toContain('reddit-json-fallback');
-    expect(result.processingStats.strategyWinner).toMatch(/reddit:thread|fallback-content-selection/);
+    expect(result.processingStats.strategyWinner).toMatch(/reddit-json:thread|fallback-content-selection/);
     expect(result.processingStats.qualityScore).toBeGreaterThanOrEqual(60);
   });
 
@@ -259,13 +259,13 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     expect(result.markdown).toContain('Was hitting my weekly Pro limit');
     expect(result.markdown).toContain('Kimi total spend');
     expect(result.markdown).not.toContain('Skip to Navigation');
-    expect(result.processingStats.strategyWinner).toBe('reddit:thread');
+    expect(result.processingStats.strategyWinner).toBe('reddit-json:thread');
     expect(result.processingStats.fallbacksUsed).toContain('quality-gate:reddit-shell');
     expect(result.processingStats.fallbacksUsed).toContain('quality-gate-recovery:reddit-json');
     expect(result.processingStats.extractionDiagnostics?.candidateTraces).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          source: 'reddit:thread',
+          source: 'reddit-json:thread',
           selected: true,
         }),
       ])
@@ -340,7 +340,7 @@ describe('PR3 Generic Extractor Regression Fixtures', () => {
     expect(result.markdown).toContain('## Comments');
     expect(result.markdown).toContain('This is a useful top-level comment');
     expect(result.markdown).not.toContain('Skip to Navigation');
-    expect(result.processingStats.strategyWinner).toBe('reddit:thread');
+    expect(result.processingStats.strategyWinner).toBe('reddit-json:thread');
     expect(result.processingStats.fallbacksUsed).toContain('quality-gate-recovery:reddit-json');
     expect(result.processingStats.qualityScore).toBeGreaterThanOrEqual(60);
   });
