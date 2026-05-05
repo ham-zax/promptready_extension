@@ -3,7 +3,7 @@
 This repo now has two repeatable loops:
 
 1. Single-page fast loop (`promptready.app`) for tight tuning.
-2. Multi-site corpus loop (PromptReady, MindsDB, Reddit, GitHub) for regression safety.
+2. Multi-site website corpus loop (portfolio, Reddit, docs, GitHub, news, landing pages) for regression safety.
 3. Optional cross-publisher news fixture refresh.
 
 ## Primary Commands
@@ -11,6 +11,8 @@ This repo now has two repeatable loops:
 ```bash
 npm run iterate:offline:promptready
 npm run iterate:offline:corpus
+npm run test:offline:website-corpus
+npm run verify:offline:website-corpus
 ```
 
 By default the iteration scripts also dump the extracted Markdown outputs to:
@@ -24,13 +26,49 @@ Override or disable by setting:
 What it does:
 
 - `iterate:offline:promptready`:
-- captures PromptReady fixture
-- runs `tests/offline-promptready-iteration.test.ts`
+  - captures PromptReady fixture
+  - runs `tests/offline-promptready-iteration.test.ts`
 - `iterate:offline:corpus`:
-- runs `tests/offline-promptready-iteration.test.ts`
-- runs `tests/offline-fixture-regression.test.ts`
-- runs `tests/offline-news-fixture-regression.test.ts`
-- optionally refreshes fixtures before tests (see env vars below)
+  - runs `tests/offline-promptready-iteration.test.ts`
+  - runs manifest-backed website fixtures through `tests/offline-fixture-regression.test.ts`
+  - runs `tests/offline-news-fixture-regression.test.ts`
+  - optionally refreshes fixtures before tests (see env vars below)
+- `test:offline:website-corpus`:
+  - reads pinned checked-in fixtures from `tests/fixtures/offline-websites/manifest.json`
+  - does not download live websites
+  - runs the same local offline extraction seam used by the extension's offline processor
+- `verify:offline:website-corpus`:
+  - runs changed-file lint, TypeScript compile, and the pinned website corpus tests
+
+Compatibility aliases:
+
+- `test:offline:websites` and `test:offline:corpus` run the same website corpus test.
+- `capture:fixtures:websites` and `capture:fixtures:website-corpus` run the same optional corpus refresh script.
+
+## Website Corpus Contract
+
+Normal tests never download websites. The website corpus is a pinned fixture gate:
+
+- manifest: `tests/fixtures/offline-websites/manifest.json`
+- shared assertions: `tests/helpers/offline-website-harness.ts`
+- synthetic portfolio fixture: `tests/fixtures/offline-websites/portfolio-landing.html`
+- reused public captures: `tests/fixtures/offline-corpus/*.html`
+
+Each manifest case declares the source URL, checked-in fixture path, required snippets,
+forbidden snippets, quality floor, optional strategy/page-type expectations, and optional
+refresh metadata. Tests read only `fixturePath`; they do not call the network.
+
+The gate verifies PromptReady Markdown fidelity, not pixel or layout parity. Each fixture
+is processed through `OfflineModeManager.getOptimalConfig(url)` and
+`OfflineModeManager.processContent(...)`; the resulting Markdown must preserve the page's
+important text, headings, links, forms, code blocks, or thread content declared by
+`requiredSnippets`, while removing known clutter declared by `forbiddenSnippets`.
+
+The PR9 corpus keeps the original offline regression coverage and adds pinned
+portfolio and Reddit thread fixtures: Wikipedia-style article, docs/code-heavy,
+news/article, forum thread, GitHub trending, generic landing, MindsDB landing,
+old Reddit listing, Reddit thread, and portfolio landing. Deep Reddit JSON recovery
+remains covered by `tests/reddit-thread-fidelity.test.ts`.
 
 ## Why Rendered Capture Is Default
 
@@ -59,6 +97,19 @@ Env vars:
 - `OFFLINE_RENDER_AUTOTUNE=0|1` (default: `1`)
 - `OFFLINE_RENDER_RETRY_VIEWPORT=<width,height>` (default: `1920,30000`)
 - `OFFLINE_RENDER_RETRY_WAIT_MS=<ms>` (default: `12000`)
+
+### Refresh website corpus fixtures
+
+```bash
+npm run capture:fixtures:websites -- --case github-trending
+npm run capture:fixtures:websites -- --all
+npm run capture:fixtures:websites -- --all --dry-run
+npm run capture:fixtures:website-corpus -- --all --dry-run
+```
+
+Only manifest cases with `"capture": { "enabled": true }` are refreshable. Synthetic
+or manual-auth fixtures, such as portfolio/Facebook-like pages, should stay pinned and
+checked in by hand. Browser smoke coverage is optional and must not be part of default CI.
 
 ### Refresh core fixtures
 

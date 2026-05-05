@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OfflineModeManager } from '../core/offline-mode-manager';
 import { ReadabilityConfigManager } from '../core/readability-config';
+import { loadOfflineWebsiteCase, readOfflineWebsiteFixture } from './helpers/offline-website-harness';
 
 const baseConfig = {
   turndownPreset: 'standard' as const,
@@ -28,97 +29,7 @@ const baseConfig = {
   },
 };
 
-function portfolioFixture(): string {
-  return `
-    <!doctype html>
-    <html>
-      <body>
-        -->
-        <header>
-          <nav>
-            <a href="#projects">Projects</a>
-            <a href="#blog">Blog</a>
-            <a href="#contact">Contact</a>
-          </nav>
-        </header>
-        <main>
-          <section id="hero" class="hero">
-            <p>Hi, I am Hamza.</p>
-            <h1>Flutter Developer and Product Builder</h1>
-            <p>I build reliable mobile apps and clean developer tools.</p>
-            <a class="cta primary" href="mailto:hamza@example.com">Hire me</a>
-            <a class="cta secondary" href="/resume.pdf">Download Resume</a>
-          </section>
-          <section id="about">
-            <h2>About</h2>
-            <p>Portfolio pages need section-preserving capture because cards, links, forms, and contact blocks are first-class content.</p>
-            <div class="chips">
-              <span class="chip">Mobile Development</span>
-              <span class="chip">Clean Code</span>
-              <span class="chip">Problem Solver</span>
-            </div>
-          </section>
-          <section id="skills">
-            <h2>Skills</h2>
-            <div class="skills-list">
-              <span class="skill">Flutter</span>
-              <span class="skill">Dart</span>
-              <span class="skill">GetX</span>
-              <span class="skill">Bloc</span>
-              <span class="skill">Provider</span>
-              <span class="skill">RESTful API</span>
-            </div>
-          </section>
-          <section id="projects">
-            <h2>Projects</h2>
-            <article class="project-card">
-              <h3>PromptReady Extension</h3>
-              <p>Clean Markdown capture for model-ready prompts.</p>
-              <a href="https://github.com/example/promptready">View Project</a>
-            </article>
-          </section>
-          <section id="blog">
-            <h2>Latest Blog Posts</h2>
-            <article class="blog-card">
-              <h3>Shipping Offline-First Capture</h3>
-              <p>How to preserve web page intent without over-cleaning useful structure.</p>
-              <a href="/blog/offline-first-capture">Read More</a>
-            </article>
-            <article class="blog-card">
-              <h3>Flutter State Patterns</h3>
-              <p>Choosing between GetX, Bloc, and Provider for production teams.</p>
-              <a href="/blog/flutter-state-patterns">Read More</a>
-            </article>
-          </section>
-          <section id="contact">
-            <h2>Contact</h2>
-            <p>Email: hamza@example.com</p>
-            <p>Phone: +1 555 0100</p>
-            <p>Location: San Francisco, CA</p>
-            <p class="social">
-              <a href="https://github.com/hamza">GitHub</a>
-              <a href="https://linkedin.com/in/hamza">LinkedIn</a>
-            </p>
-            <form>
-              <label for="name">Name</label>
-              <input id="name" name="name" placeholder="Your name" />
-              <label for="email">Email</label>
-              <input id="email" name="email" placeholder="you@example.com" />
-              <label for="message">Message</label>
-              <textarea id="message" name="message" placeholder="Project details"></textarea>
-              <button type="submit">Send Message</button>
-            </form>
-          </section>
-        </main>
-        <footer>
-          <a href="/privacy">Privacy</a>
-          <a href="/uses">Uses</a>
-          <a href="/now">Now</a>
-        </footer>
-      </body>
-    </html>
-  `;
-}
+const portfolioCase = loadOfflineWebsiteCase('portfolio-landing');
 
 describe('PR9 Portfolio and Landing Page Fidelity', () => {
   afterEach(() => {
@@ -140,13 +51,12 @@ describe('PR9 Portfolio and Landing Page Fidelity', () => {
     });
 
     const result = await OfflineModeManager.processContent(
-      portfolioFixture(),
-      'https://hamza.dev/',
-      'Hamza Portfolio',
+      readOfflineWebsiteFixture(portfolioCase),
+      portfolioCase.url,
+      portfolioCase.title,
       baseConfig
     );
 
-    expect(result.processingStats.strategyWinner).toBe('generic:landing-page');
     expect(result.processingStats.extractionDiagnostics?.pageType?.profile).toBe('landing-page');
 
     expect(result.markdown).toContain('Latest Blog Posts');

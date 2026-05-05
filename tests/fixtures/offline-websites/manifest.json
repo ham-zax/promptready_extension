@@ -1,0 +1,259 @@
+{
+  "version": 1,
+  "description": "Pinned offline website fixtures for PromptReady's default offline extraction pipeline. Tests read these files only; live website refresh is an explicit script action.",
+  "cases": [
+    {
+      "id": "portfolio-landing",
+      "name": "portfolio landing page",
+      "fixturePath": "tests/fixtures/offline-websites/portfolio-landing.html",
+      "url": "https://hamza.dev/",
+      "title": "Hamza Portfolio",
+      "requiredSnippets": [
+        "Flutter Developer and Product Builder",
+        "Latest Blog Posts",
+        "Shipping Offline-First Capture",
+        "Flutter State Patterns",
+        "Email: hamza@example.com",
+        "Phone: +1 555 0100",
+        "Location: San Francisco, CA",
+        "[GitHub](https://github.com/hamza)",
+        "[LinkedIn](https://linkedin.com/in/hamza)",
+        "[Hire me](mailto:hamza@example.com)",
+        "[Download Resume](https://hamza.dev/resume.pdf)",
+        "Name: Your name",
+        "Send Message"
+      ],
+      "forbiddenSnippets": [
+        "-->",
+        "ANNOYING POPUP AD",
+        "Accept all 500 tracking cookies to continue"
+      ],
+      "minQualityScore": 45,
+      "minMarkdownLength": 900,
+      "maxSuspiciousSingleTokenLines": 12,
+      "expectedPageType": "landing-page"
+    },
+    {
+      "id": "wikipedia-article",
+      "name": "Wikipedia-style article",
+      "fixturePath": "tests/fixtures/offline-corpus/wikipedia-prompt-engineering.html",
+      "url": "https://en.wikipedia.org/wiki/Prompt_engineering",
+      "title": "Prompt engineering",
+      "requiredSnippets": [
+        "Prompt engineering",
+        "Context engineering",
+        "Common prompting techniques include",
+        "# Terminology",
+        "## Prompt"
+      ],
+      "forbiddenSnippets": [
+        "WIKI_NAVIGATION_NOISE_TOKEN",
+        "WIKI_FOOTER_NOISE_TOKEN"
+      ],
+      "minQualityScore": 68,
+      "minMarkdownLength": 900
+    },
+    {
+      "id": "docs-code-heavy",
+      "name": "technical docs page",
+      "fixturePath": "tests/fixtures/offline-corpus/docs-sdk-quickstart.html",
+      "url": "https://openrouter.ai/docs/quickstart",
+      "title": "OpenRouter Quickstart",
+      "requiredSnippets": [
+        "Quickstart",
+        "npm install @openrouter/sdk",
+        "import { OpenRouter } from '@openrouter/sdk';",
+        "https://openrouter.ai/api/v1/chat/completions",
+        "```"
+      ],
+      "forbiddenSnippets": [
+        "DOCS_TOP_NAV_NOISE_TOKEN",
+        "DOCS_SIDEBAR_NOISE_TOKEN"
+      ],
+      "minQualityScore": 65,
+      "minMarkdownLength": 1000,
+      "capture": {
+        "enabled": true,
+        "mode": "rendered",
+        "renderWaitMs": 12000
+      }
+    },
+    {
+      "id": "github-trending",
+      "name": "GitHub trending page",
+      "fixturePath": "tests/fixtures/offline-corpus/github-trending.html",
+      "url": "https://github.com/trending",
+      "title": "Trending repositories on GitHub today",
+      "requiredSnippets": [
+        "# Trending",
+        "See what the GitHub community is most excited about today.",
+        "D4Vinci / Scrapling"
+      ],
+      "forbiddenSnippets": [
+        "[Skip to content](#start-of-content)",
+        "[Sponsor](",
+        "![@D4Vinci](https://avatars.githubusercontent.com",
+        "Built by [",
+        "[](/"
+      ],
+      "minQualityScore": 40,
+      "minMarkdownLength": 600,
+      "maxSuspiciousSingleTokenLines": 15,
+      "capture": {
+        "enabled": true,
+        "mode": "rendered",
+        "renderWaitMs": 12000
+      }
+    },
+    {
+      "id": "news-article",
+      "name": "news article page",
+      "fixturePath": "tests/fixtures/offline-corpus/news-open-data-program.html",
+      "url": "https://blog.cloudflare.com/vinext/",
+      "title": "How we rebuilt Next.js with AI in one week",
+      "requiredSnippets": [
+        "How we rebuilt Next.js with AI in one week",
+        "cost about \\$1,100 in tokens.",
+        "vinext deploy",
+        "# The Next.js deployment problem"
+      ],
+      "forbiddenSnippets": [
+        "NEWS_NAVIGATION_NOISE_TOKEN",
+        "RELATED_NEWS_NOISE_TOKEN"
+      ],
+      "minQualityScore": 70,
+      "minMarkdownLength": 1000,
+      "capture": {
+        "enabled": true,
+        "mode": "rendered",
+        "renderWaitMs": 12000
+      }
+    },
+    {
+      "id": "forum-thread",
+      "name": "forum thread page",
+      "fixturePath": "tests/fixtures/offline-corpus/forum-prompt-strategy-thread.html",
+      "url": "https://en.wikipedia.org/wiki/Talk:Prompt_engineering",
+      "title": "Talk:Prompt engineering",
+      "requiredSnippets": [
+        "Talk:Prompt engineering",
+        "Restrictions of a Context Window",
+        "Context Window (or simply Context Length)",
+        "Maximum Fixed Allocation of Tokens"
+      ],
+      "forbiddenSnippets": [
+        "FORUM_SIDEBAR_AD_TOKEN"
+      ],
+      "minQualityScore": 60,
+      "minMarkdownLength": 700
+    },
+    {
+      "id": "generic-landing",
+      "name": "PromptReady landing page",
+      "fixturePath": "tests/fixtures/offline-corpus/promptready-homepage.html",
+      "url": "https://promptready.app/",
+      "title": "PromptReady - One-click clean Markdown from any page",
+      "requiredSnippets": [
+        "Cleaner input. Better model output.",
+        "Preserves code fences",
+        "See the transformation in one pass",
+        "Trusted by builders, researchers,",
+        "Simple pricing",
+        "Save 40% today!",
+        "Subscribe to our newsletter | Related links | Footer text",
+        "Source: example.com/rag-guide"
+      ],
+      "forbiddenSnippets": [
+        "ANNOYING POPUP AD",
+        "Accept all 500 tracking cookies to continue"
+      ],
+      "minQualityScore": 50,
+      "minMarkdownLength": 900,
+      "maxSuspiciousSingleTokenLines": 3,
+      "capture": {
+        "enabled": true,
+        "mode": "rendered",
+        "renderWaitMs": 12000
+      }
+    },
+    {
+      "id": "mindsdb-landing",
+      "name": "MindsDB landing page",
+      "fixturePath": "tests/fixtures/offline-corpus/mindsdb-homepage.html",
+      "url": "https://mindsdb.com/",
+      "title": "AI Analytics & Business Intelligence for any Data Source",
+      "requiredSnippets": [
+        "AI Analytics & Business Intelligence for any Data Source",
+        "From data to insights at the speed of thought.",
+        "Decision-Making in Real-Time"
+      ],
+      "forbiddenSnippets": [
+        "Privacy Policy",
+        "Cookie Policy",
+        "Legal Documents",
+        "framerusercontent.com/images/",
+        "<path d=",
+        "stroke-width="
+      ],
+      "minQualityScore": 45,
+      "minMarkdownLength": 800,
+      "maxSuspiciousSingleTokenLines": 10,
+      "capture": {
+        "enabled": true,
+        "mode": "rendered",
+        "renderWaitMs": 12000
+      }
+    },
+    {
+      "id": "reddit-listing",
+      "name": "old Reddit listing page",
+      "fixturePath": "tests/fixtures/offline-corpus/reddit-programming-top.html",
+      "url": "https://old.reddit.com/r/programming/top/?t=month",
+      "title": "top scoring links : programming",
+      "requiredSnippets": [
+        "Anthropic: AI assisted coding",
+        "Microsoft Has Killed Widgets Six Times",
+        "submitted 26 days ago by"
+      ],
+      "forbiddenSnippets": [
+        "limit my search to r/programming",
+        "advanced search: by author, subreddit",
+        "see the search faq for details",
+        "Welcome to Reddit,the front page of the internet",
+        "[past hour](https://old.reddit.com/r/programming/top/)"
+      ],
+      "minQualityScore": 40,
+      "minMarkdownLength": 500,
+      "maxSuspiciousSingleTokenLines": 8,
+      "capture": {
+        "enabled": true,
+        "mode": "rendered",
+        "renderWaitMs": 12000
+      }
+    },
+    {
+      "id": "reddit-thread",
+      "name": "Reddit thread page",
+      "fixturePath": "tests/fixtures/offline-websites/reddit-thread.html",
+      "url": "https://old.reddit.com/r/ClaudeAI/comments/1t1o43w/post_slug/",
+      "title": "I gave Claude Code a coworker",
+      "requiredSnippets": [
+        "I gave Claude Code a coworker",
+        "Was hitting my weekly Pro limit",
+        "Results after 3 weeks",
+        "## Comments",
+        "TL;DR of the discussion generated automatically",
+        "Top comment text here.",
+        "Nested reply text here.",
+        "I will be messaging you in 7 days"
+      ],
+      "forbiddenSnippets": [
+        "REDDIT_SIDEBAR_NOISE_TOKEN",
+        "Search Reddit"
+      ],
+      "minQualityScore": 40,
+      "minMarkdownLength": 800,
+      "maxSuspiciousSingleTokenLines": 8
+    }
+  ]
+}
