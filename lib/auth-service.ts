@@ -9,7 +9,7 @@ export interface AuthState {
   isDeveloperMode: boolean;
   hasUnlimitedAccess: boolean;
   canUseAIMode: boolean;
-  planType: 'developer' | 'unlocked' | 'free';
+  planType: 'developer' | 'free';
   hasApiKey: boolean;
   isUnlocked: boolean;
   remainingFreeByokUsesToday: number;
@@ -35,8 +35,6 @@ export class AuthService {
       let planType: AuthState['planType'] = 'free';
       if (entitlements.isDeveloperMode) {
         planType = 'developer';
-      } else if (entitlements.hasUnlimitedAccess || entitlements.isUnlocked) {
-        planType = 'unlocked';
       }
 
       return {
@@ -83,11 +81,9 @@ export class AuthService {
     switch (authState.planType) {
       case 'developer':
         return 'Developer Mode';
-      case 'unlocked':
-        return 'Unlocked Unlimited';
       case 'free':
       default:
-        return 'Free';
+        return 'Free BYOK';
     }
   }
 
@@ -97,39 +93,37 @@ export class AuthService {
       ? lockReason === 'missing_api_key'
         ? 'Add a BYOK API key to use AI mode.'
         : lockReason === 'daily_limit_reached'
-          ? 'Free daily AI limit reached. Enter an unlock code to continue.'
+          ? 'You have used 5 successful BYOK AI cleanups today. Try AI again tomorrow.'
           : 'AI mode is unavailable right now.'
       : undefined;
 
     return {
       aiDisabled: !authState.canUseAIMode,
       aiTooltip,
-      showUnlockBadge: authState.planType === 'unlocked' && !authState.isDeveloperMode,
       showDevBadge: authState.isDeveloperMode,
     };
   }
 
   getUsageDisplayText(authState: AuthState): string {
     if (authState.isDeveloperMode) {
-      return 'Unlimited (Developer)';
+      return 'Developer bypass active';
     }
 
-    if (authState.hasUnlimitedAccess || authState.isUnlocked) {
-      return 'Unlimited AI uses';
+    if (authState.hasUnlimitedAccess) {
+      return 'Developer bypass active';
     }
 
     if (!authState.hasApiKey) {
       return 'Add API key for AI mode';
     }
 
-    return `${authState.remainingFreeByokUsesToday} free uses left today`;
+    return `${authState.remainingFreeByokUsesToday} successful BYOK AI cleanups left today`;
   }
 
-  shouldShowUnlockPrompt(authState: AuthState): boolean {
+  shouldShowDailyLimitPrompt(authState: AuthState): boolean {
     return (
       !authState.isDeveloperMode &&
-      authState.aiLockReason === 'daily_limit_reached' &&
-      !authState.isUnlocked
+      authState.aiLockReason === 'daily_limit_reached'
     );
   }
 }

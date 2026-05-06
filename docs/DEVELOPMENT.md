@@ -218,7 +218,6 @@ export default defineConfig({
       'scripting',
       'offscreen'
     ],
-    host_permissions: ['<all_urls>'],
     action: {
       default_popup: 'popup.html',
       default_icon: {
@@ -596,8 +595,7 @@ unzip -l dist.zip
     "clipboardWrite",
     "scripting",
     "offscreen"
-  ],
-  "host_permissions": ["<all_urls>"]
+  ]
 }
 ```
 
@@ -613,20 +611,20 @@ unzip -l dist.zip
 
 ## Data Collection
 - No personal data is collected or stored
-- All processing happens locally on user's device
-- API keys are stored locally and encrypted
+- Offline capture and Markdown export run locally on the user's device
+- If BYOK AI cleanup is enabled, captured content and the user's OpenRouter API key are sent directly to OpenRouter for that request
+- API keys are stored in extension local storage
 - No analytics or telemetry data is transmitted
 
 ## Data Usage
 - Content is processed locally unless AI mode is explicitly chosen
 - API requests only made when user configures BYOK
-- No content is stored on external servers
+- PromptReady does not proxy or store BYOK AI cleanup requests
 - Temporary processing data is cleared after session
 
 ## Data Security
-- API keys encrypted with browser's secure storage API
 - HTTPS required for all API communications
-- No data sharing with third parties
+- PromptReady does not receive BYOK AI cleanup requests; OpenRouter receives captured content and the user's OpenRouter API key when AI cleanup is enabled
 - User has full control over all data
 ```
 
@@ -662,7 +660,7 @@ npm run build:firefox
     "activeTab",
     "clipboardWrite",
     "scripting",
-    "<all_urls>"
+    "offscreen"
   ]
 }
 ```
@@ -778,7 +776,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Fetch repository source
+        run: echo "Use your CI provider repository-fetch action here"
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -807,7 +806,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Fetch repository source
+        run: echo "Use your CI provider repository-fetch action here"
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:

@@ -125,12 +125,13 @@ export function resolveEntitlements(
   const hasApiKey = Boolean(settings.byok?.apiKey?.trim());
   const isUnlocked = Boolean(settings.byokUnlock?.isUnlocked);
   const isDeveloperMode = Boolean(flags.developerMode);
+  const canHonorLocalUnlock = profile.isDevelopment || profile.useMockMonetization;
   const hasUnlimitedAccess =
     profile.openAccessEnabled ||
     profile.premiumBypassEnabled ||
     profile.useMockMonetization ||
     isDeveloperMode ||
-    isUnlocked;
+    (isUnlocked && canHonorLocalUnlock);
 
   const successfulAiCountToday = Math.max(0, usage.successfulAiCount || 0);
   const inflightAiCount = Object.keys(usage.inflightRuns || {}).length;

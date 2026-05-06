@@ -596,7 +596,7 @@ export class EnhancedOffscreenProcessor {
 
       if (gateBlockedByDailyLimit) {
         const warningCode: AIFallbackCode = 'ai_fallback:daily_limit_reached';
-        this.sendProgress('Daily free AI limit reached. Using offline mode...', 50, 'fallback');
+        this.sendProgress('Daily BYOK AI limit reached. Using offline mode...', 50, 'fallback');
         const offlineResult = await this.processOfflineMode(
           html,
           url,

@@ -13,7 +13,6 @@ vi.mock('@/lib/runtime-profile', () => ({
     enforceDeveloperMode: false,
     useMockMonetization: false,
     monetizationApiBase: 'https://promptready.app',
-    byokProxyUrl: 'https://promptready.app/api/proxy',
     trafilaturaServiceUrl: '',
   }),
   validateRuntimeProfile: () => ({ warnings: [], errors: [] }),
@@ -53,12 +52,6 @@ describe('background BYOK usage idempotency', () => {
         apiBase: 'https://openrouter.ai/api/v1',
         apiKey: 'sk-or-v1-test',
         selectedByokModel: 'arcee-ai/trinity-large-preview:free',
-      },
-      byokUnlock: {
-        isUnlocked: false,
-        unlockCodeLast4: null,
-        unlockedAt: null,
-        unlockSchemeVersion: 1,
       },
       byokUsage: {
         dayKey,
@@ -119,12 +112,6 @@ describe('background BYOK usage idempotency', () => {
         apiKey: 'sk-or-v1-test',
         selectedByokModel: 'arcee-ai/trinity-large-preview:free',
       },
-      byokUnlock: {
-        isUnlocked: false,
-        unlockCodeLast4: null,
-        unlockedAt: null,
-        unlockSchemeVersion: 1,
-      },
       byokUsage: {
         dayKey,
         successfulAiCount: 4,
@@ -161,5 +148,63 @@ describe('background BYOK usage idempotency', () => {
     expect(reservation.lockReason).toBe('daily_limit_reached');
     expect(reservation.fallbackCode).toBe('ai_fallback:daily_limit_reached');
     expect(persistedSettings.byokUsage.inflightRuns.run_new).toBeUndefined();
+  });
+
+  it('does not count failed BYOK calls against the successful daily limit', async () => {
+    const { EnhancedContentProcessor } = await import('@/entrypoints/background');
+
+    const processor = Object.create((EnhancedContentProcessor as any).prototype) as any;
+    Object.assign(processor, {
+      usageWriteQueue: Promise.resolve(),
+      BYOK_STALE_INFLIGHT_TIMEOUT_MS: 10 * 60 * 1000,
+      COUNTED_SUCCESS_RING_SIZE: 20,
+    });
+
+    const dayKey = toLocalDayKey();
+
+    let persistedSettings: any = {
+      mode: 'ai',
+      templates: { bundles: [] },
+      byok: {
+        provider: 'openrouter',
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-or-v1-test',
+        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+      },
+      byokUsage: {
+        dayKey,
+        successfulAiCount: 4,
+        inflightRuns: {
+          run_failed: {
+            startedAt: Date.now(),
+            dayKey,
+          },
+        },
+        countedSuccessIds: ['run_a', 'run_b', 'run_c', 'run_d'],
+      },
+      privacy: { telemetryEnabled: false },
+      flags: {
+        aiModeEnabled: true,
+        byokEnabled: true,
+        trialEnabled: true,
+        developerMode: false,
+      },
+    };
+
+    vi.spyOn(Storage, 'getSettings').mockImplementation(async () => JSON.parse(JSON.stringify(persistedSettings)));
+    vi.spyOn(Storage, 'updateSettings').mockImplementation(async (updates: any) => {
+      if (updates.byokUsage) {
+        persistedSettings = {
+          ...persistedSettings,
+          byokUsage: updates.byokUsage,
+        };
+      }
+    });
+
+    await processor.settleAiRunCompletion('run_failed', 'fallback_request_failed');
+
+    expect(persistedSettings.byokUsage.successfulAiCount).toBe(4);
+    expect(persistedSettings.byokUsage.inflightRuns.run_failed).toBeUndefined();
+    expect(persistedSettings.byokUsage.countedSuccessIds).toEqual(['run_a', 'run_b', 'run_c', 'run_d']);
   });
 });

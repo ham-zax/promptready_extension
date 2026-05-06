@@ -1,12 +1,7 @@
 import { browser } from 'wxt/browser';
 import { ContentCapture } from '../content/capture.js';
 
-export default defineContentScript({
-  matches: ['<all_urls>'],
-  runAt: 'document_idle',
-  world: 'ISOLATED',
-
-  main(_ctx) {
+export default defineUnlistedScript(() => {
     console.log('PromptReady content script initializing...');
     console.log('ContentCapture module loaded');
 
@@ -396,5 +391,4 @@ export default defineContentScript({
     }
 
     console.log('PromptReady content script loaded');
-  },
 });

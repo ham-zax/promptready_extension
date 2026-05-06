@@ -21,6 +21,8 @@ The core promise is not "AI rewrites any page." The promise is reliable web-to-M
 - fall back to offline output when AI is unavailable, blocked, or lower fidelity,
 - export content in formats that are ready for LLM prompts, notes, docs, or review.
 
+Offline capture and Markdown export run locally. If BYOK AI cleanup is enabled, PromptReady sends captured content and the user's OpenRouter API key directly to OpenRouter for that request. PromptReady does not proxy or store the request.
+
 ## What PromptReady Is Not
 
 PromptReady deliberately avoids several tempting expansions:
@@ -80,17 +82,17 @@ PromptReady's current BYOK flow is OpenRouter-first:
 
 The runtime includes OpenAI-compatible plumbing for OpenRouter-style requests, but the current product contract should be described as OpenRouter BYOK rather than broad first-class Anthropic/OpenAI provider support.
 
-### 4. Local Daily BYOK Gate and Unlock Path
+### 4. Local Daily BYOK Gate
 
 PromptReady uses a local freemium gate for BYOK AI mode:
 
 - Offline mode remains free.
-- BYOK AI mode allows 5 successful AI runs per local day.
+- BYOK AI mode allows 5 successful AI cleanups per local day.
 - Successful AI runs are counted locally.
-- A local unlock-code path can remove the BYOK daily limit.
-- Server-verified licensing is not implemented yet.
+- Failed OpenRouter calls do not count.
+- Production ignores legacy local access state.
 
-This is an honor-system product boundary, not a SaaS billing enforcement system.
+This release does not include paid billing, server-verified licensing, or a provider marketplace.
 
 ### 5. Deep Capture Policy
 
@@ -262,7 +264,7 @@ PromptReady separates responsibilities across extension surfaces:
 - background service worker for orchestration,
 - offscreen processor for heavier processing,
 - popup UI for controls and export flows,
-- Cloudflare/proxy paths only where policy allows.
+- direct OpenRouter BYOK calls only when users enable AI cleanup.
 
 This keeps browser security constraints visible instead of hiding them behind generic "web scraper" language.
 
@@ -294,6 +296,7 @@ The offline website contract is explicit: normal tests use pinned fixtures, not 
 - PromptReady does not claim 150 monthly AI credits as current behavior.
 - PromptReady does not currently enforce server-verified licensing.
 - PromptReady does not claim first-class provider support beyond OpenRouter BYOK.
+- PromptReady does not proxy or store BYOK AI cleanup requests.
 - PromptReady does not guarantee pixel-perfect website or layout preservation.
 - PromptReady does not crawl linked pages or mirror websites.
 - PromptReady does not store user content on a server as part of the normal extension workflow.

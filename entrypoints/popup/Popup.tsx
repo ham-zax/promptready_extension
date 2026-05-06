@@ -24,12 +24,8 @@ import {
   AlertTriangle,
   Info,
   ChevronDown,
-  KeyRound,
-  CreditCard,
   X,
 } from 'lucide-react';
-
-const CHECKOUT_URL = 'https://promptready.app/';
 
 let devKeySequence = '';
 const DEV_MODE_SEQUENCE = 'devmode';
@@ -338,14 +334,6 @@ export default function RefactoredPopup() {
     }
   };
 
-  const openCheckout = async () => {
-    try {
-      await browser.tabs.create({ url: CHECKOUT_URL });
-    } catch (error) {
-      console.error('Failed to open checkout page:', error);
-    }
-  };
-
   const animationsEnabled = state.settings?.ui?.animations ?? true;
   const revealClass = animationsEnabled ? 'animate-in fade-in slide-in-from-bottom-2 duration-300' : '';
 
@@ -353,17 +341,13 @@ export default function RefactoredPopup() {
     ? 'Offline mode'
     : state.settings?.flags?.developerMode
       ? 'AI mode • Developer'
-      : state.isUnlocked
-        ? 'AI mode • Unlocked unlimited'
-        : 'AI mode • BYOK freemium';
+      : 'AI mode • BYOK daily limit';
 
   const aiUsageLabel = state.settings?.flags?.developerMode
-    ? 'Unlimited AI uses'
-    : state.isUnlocked
-      ? 'Unlimited AI unlocked'
-        : state.hasApiKey
-          ? `${Math.max(0, state.remainingFreeByokStartsToday)} free AI starts left today`
-          : 'Add BYOK API key to use AI mode';
+    ? 'Developer bypass active'
+    : state.hasApiKey
+      ? `${Math.max(0, state.remainingFreeByokUsesToday)} successful BYOK AI cleanups left today`
+      : 'Add BYOK API key to use AI mode';
 
   const truncateMessage = (value: string, max = 140): string => {
     if (!value) return '';
@@ -652,24 +636,24 @@ export default function RefactoredPopup() {
                 </>
               ) : (
                 <>
-                  <p className="text-sm font-semibold text-foreground">Daily free AI limit reached</p>
+                  <p className="text-sm font-semibold text-foreground">Daily BYOK AI limit reached</p>
                   <p className="text-xs text-muted-foreground mb-3 mt-1">
-                    Use Offline mode for free, or unlock unlimited BYOK usage.
+                    You’ve used 5 successful BYOK AI cleanups today. Offline mode is still available. Try AI again tomorrow.
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <button
-                      onClick={() => openSettings('byok')}
+                      onClick={() => handleModeToggle('offline')}
                       className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 bg-background text-brand-primary border border-brand-primary rounded-full hover:bg-brand-surface active:scale-[0.98] transition-all duration-200 ease-out text-sm font-semibold shadow-sm"
                     >
-                      <KeyRound className="w-4 h-4" />
-                      Enter unlock
+                      <Globe className="w-4 h-4" />
+                      Use Offline mode
                     </button>
                     <button
-                      onClick={openCheckout}
+                      onClick={() => openSettings('byok')}
                       className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 bg-brand-primary text-brand-primary-foreground border border-[#c90000] rounded-full hover:bg-[#d20000] active:scale-[0.98] transition-all duration-200 ease-out text-sm font-semibold shadow-sm"
                     >
-                      <CreditCard className="w-4 h-4" />
-                      Checkout
+                      <SettingsIcon className="w-4 h-4" />
+                      Open BYOK settings
                     </button>
                   </div>
                 </>

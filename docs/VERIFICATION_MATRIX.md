@@ -11,7 +11,7 @@
 ## Smoke Coverage
 
 1. Runtime profile guard validation.
-2. BYOK proxy CORS behavior and OpenRouter request shaping.
+2. Direct OpenRouter BYOK request shaping and error handling.
 3. Popup hooks/settings behavior for BYOK and entitlement transitions.
 4. Offline processor core sanity.
 

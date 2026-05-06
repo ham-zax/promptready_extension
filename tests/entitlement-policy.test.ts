@@ -53,7 +53,6 @@ function makeProfile(overrides: Partial<RuntimeProfile> = {}): RuntimeProfile {
     enforceDeveloperMode: false,
     useMockMonetization: false,
     monetizationApiBase: 'https://promptready.app',
-    byokProxyUrl: 'https://promptready.app/api/proxy',
     trafilaturaServiceUrl: '',
     ...overrides,
   };
@@ -140,8 +139,14 @@ describe('resolveEntitlements', () => {
     expect(result.remainingFreeByokStartsToday).toBe(0);
   });
 
-  it('grants unlimited access when local unlock is active', () => {
+  it('ignores local unlock state in production and still enforces the daily cap', () => {
     const settings = makeSettings({
+      byokUnlock: {
+        isUnlocked: true,
+        unlockCodeLast4: '5A91',
+        unlockedAt: '2026-02-28T01:23:45.000Z',
+        unlockSchemeVersion: 1,
+      },
       byok: {
         provider: 'openrouter',
         apiBase: 'https://openrouter.ai/api/v1',
@@ -149,12 +154,6 @@ describe('resolveEntitlements', () => {
         model: 'arcee-ai/trinity-large-preview:free',
         selectedByokModel: 'arcee-ai/trinity-large-preview:free',
         customPrompt: '',
-      },
-      byokUnlock: {
-        isUnlocked: true,
-        unlockCodeLast4: '5A91',
-        unlockedAt: '2026-02-28T01:23:45.000Z',
-        unlockSchemeVersion: 1,
       },
       byokUsage: {
         dayKey: toLocalDayKey(),
@@ -167,6 +166,72 @@ describe('resolveEntitlements', () => {
     const result = resolveEntitlements(settings, makeProfile());
 
     expect(result.isUnlocked).toBe(true);
+    expect(result.hasUnlimitedAccess).toBe(false);
+    expect(result.canUseAIMode).toBe(false);
+    expect(result.aiLockReason).toBe('daily_limit_reached');
+  });
+
+  it('honors local unlock state only in development builds', () => {
+    const settings = makeSettings({
+      byokUnlock: {
+        isUnlocked: true,
+        unlockCodeLast4: '5A91',
+        unlockedAt: '2026-02-28T01:23:45.000Z',
+        unlockSchemeVersion: 1,
+      },
+      byok: {
+        provider: 'openrouter',
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-or-v1-test',
+        model: 'arcee-ai/trinity-large-preview:free',
+        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+        customPrompt: '',
+      },
+      byokUsage: {
+        dayKey: toLocalDayKey(),
+        successfulAiCount: 5,
+        inflightRuns: {},
+        countedSuccessIds: ['a', 'b', 'c', 'd', 'e'],
+      },
+    });
+
+    const result = resolveEntitlements(settings, makeProfile({
+      isDevelopment: true,
+    }));
+
+    expect(result.isUnlocked).toBe(true);
+    expect(result.hasUnlimitedAccess).toBe(true);
+    expect(result.canUseAIMode).toBe(true);
+    expect(result.aiLockReason).toBe(null);
+  });
+
+  it('keeps runtime bypass flags as unlimited access paths', () => {
+    const settings = makeSettings({
+      byok: {
+        provider: 'openrouter',
+        apiBase: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-or-v1-test',
+        model: 'arcee-ai/trinity-large-preview:free',
+        selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+        customPrompt: '',
+      },
+      byokUsage: {
+        dayKey: toLocalDayKey(),
+        successfulAiCount: 5,
+        inflightRuns: {},
+        countedSuccessIds: ['a', 'b', 'c', 'd', 'e'],
+      },
+    });
+
+    const result = resolveEntitlements(settings, makeProfile({
+      isDevelopment: true,
+      openAccessEnabled: true,
+      premiumBypassEnabled: true,
+      enforceDeveloperMode: true,
+      useMockMonetization: true,
+    }));
+
+    expect(result.isDeveloperMode).toBe(true);
     expect(result.hasUnlimitedAccess).toBe(true);
     expect(result.canUseAIMode).toBe(true);
     expect(result.aiLockReason).toBe(null);

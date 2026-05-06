@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
 import Popup from '@/entrypoints/popup/Popup';
 
 const mocks = vi.hoisted(() => ({
@@ -36,12 +36,6 @@ vi.mock('@/lib/storage', () => ({
         apiKey: 'sk-or-v1-test',
         selectedByokModel: 'arcee-ai/trinity-large-preview:free',
         customPrompt: '',
-      },
-      byokUnlock: {
-        isUnlocked: false,
-        unlockCodeLast4: null,
-        unlockedAt: null,
-        unlockSchemeVersion: 1,
       },
       byokUsage: {
         dayKey: '2026-02-28',
@@ -92,6 +86,11 @@ vi.mock('@/entrypoints/popup/components/LoadingOverlay', () => ({
   LoadingOverlay: () => null,
 }));
 
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
 describe('Popup runtime copy', () => {
   it('does not render legacy credits/trial/pro-upgrade copy', () => {
     mocks.usePopupController.mockReturnValue({
@@ -106,12 +105,6 @@ describe('Popup runtime copy', () => {
             apiKey: 'sk-or-v1-test',
             selectedByokModel: 'arcee-ai/trinity-large-preview:free',
             customPrompt: '',
-          },
-          byokUnlock: {
-            isUnlocked: false,
-            unlockCodeLast4: null,
-            unlockedAt: null,
-            unlockSchemeVersion: 1,
           },
           byokUsage: {
             dayKey: '2026-02-28',
@@ -170,5 +163,83 @@ describe('Popup runtime copy', () => {
     expect(text).not.toContain('start free trial');
     expect(text).not.toContain('pro upgrade');
     expect(text).not.toContain('upgrade to pro');
+  });
+
+  it('renders the daily BYOK limit card without checkout or unlock actions', () => {
+    mocks.usePopupController.mockReturnValue({
+      state: {
+        mode: 'ai',
+        settings: {
+          mode: 'ai',
+          templates: { bundles: [] },
+          byok: {
+            provider: 'openrouter',
+            apiBase: 'https://openrouter.ai/api/v1',
+            apiKey: 'sk-or-v1-test',
+            selectedByokModel: 'arcee-ai/trinity-large-preview:free',
+            customPrompt: '',
+          },
+          byokUsage: {
+            dayKey: '2026-02-28',
+            successfulAiCount: 5,
+            inflightRuns: {},
+            countedSuccessIds: ['run_a', 'run_b', 'run_c', 'run_d', 'run_e'],
+          },
+          privacy: { telemetryEnabled: false },
+          ui: {
+            theme: 'auto',
+            animations: false,
+            compactMode: false,
+            keepPopupOpen: true,
+            autoCloseDelay: 3000,
+          },
+          flags: {
+            aiModeEnabled: true,
+            byokEnabled: true,
+            trialEnabled: true,
+            developerMode: false,
+          },
+        },
+        hasApiKey: true,
+        isUnlocked: false,
+        canUseAIMode: false,
+        aiLockReason: 'daily_limit_reached',
+        remainingFreeByokUsesToday: 0,
+        remainingFreeByokStartsToday: 0,
+        processing: { status: 'idle' },
+        exportData: null,
+        toast: null,
+      },
+      isProcessing: false,
+      hasContent: false,
+      handleModeToggle: vi.fn(),
+      handleCapture: vi.fn(),
+      handleCopy: vi.fn(),
+      handleExport: vi.fn(),
+      onSettingsChange: vi.fn(),
+    });
+
+    mocks.useByokManager.mockReturnValue({ hasApiKey: true });
+    mocks.useToastManager.mockReturnValue({
+      toasts: [],
+      hideToast: vi.fn(),
+      showSuccess: vi.fn(),
+      showError: vi.fn(),
+      showWarning: vi.fn(),
+      showInfo: vi.fn(),
+    });
+
+    const { container } = render(<Popup />);
+    const text = container.textContent?.toLowerCase() || '';
+
+    expect(text).toContain('used 5 successful byok ai cleanups today');
+    expect(text).toContain('daily byok ai limit reached');
+    expect(screen.getByText('Use Offline mode')).toBeTruthy();
+    expect(screen.getByText('Open BYOK settings')).toBeTruthy();
+    expect(text).not.toContain('starts left today');
+    expect(text).not.toContain('daily free ai limit reached');
+    expect(text).not.toContain('checkout');
+    expect(text).not.toContain('unlock');
+    expect(text).not.toContain('unlimited');
   });
 });

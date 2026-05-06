@@ -12,9 +12,6 @@ async function saveSettings() {
   const aiModeEnabledElement = document.getElementById('aiModeEnabled') as HTMLInputElement | null;
   const aiModeEnabled = aiModeEnabledElement ? aiModeEnabledElement.checked : false;
 
-  const devUnlockUnlimitedElement = document.getElementById('devUnlockUnlimited') as HTMLInputElement | null;
-  const devUnlockUnlimited = devUnlockUnlimitedElement ? devUnlockUnlimitedElement.checked : false;
-
   const existing = await browser.storage.local.get([SETTINGS_KEY]);
   const current = (existing?.[SETTINGS_KEY] || {}) as Record<string, any>;
 
@@ -30,13 +27,6 @@ async function saveSettings() {
       ...(current.flags || {}),
       aiModeEnabled,
       byokEnabled: true,
-    },
-    byokUnlock: {
-      ...(current.byokUnlock || {}),
-      isUnlocked: devUnlockUnlimited,
-      unlockCodeLast4: devUnlockUnlimited ? 'DEVU' : null,
-      unlockedAt: devUnlockUnlimited ? new Date().toISOString() : null,
-      unlockSchemeVersion: 1,
     },
   };
 
@@ -83,9 +73,5 @@ document.addEventListener('DOMContentLoaded', () => {
       aiModeEnabledElement.checked = Boolean(settings.flags?.aiModeEnabled);
     }
 
-    const devUnlockUnlimitedElement = document.getElementById('devUnlockUnlimited') as HTMLInputElement | null;
-    if (devUnlockUnlimitedElement) {
-      devUnlockUnlimitedElement.checked = Boolean(settings.byokUnlock?.isUnlocked);
-    }
   });
 });

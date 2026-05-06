@@ -23,6 +23,7 @@ import {
 import { normalizeInlineCodeSpacing } from '../lib/markdown-inline-code-normalizer.js';
 
 const OFFSCREEN_TARGET = 'promptready-offscreen';
+const CONTENT_RUNNER_SCRIPT = '/content-runner.js';
 
 export default defineBackground(() => {
   const runtimeProfile = getRuntimeProfile();
@@ -1144,7 +1145,7 @@ export class EnhancedContentProcessor {
         try {
 	          await browser.scripting.executeScript({
 	            target: { tabId },
-	            files: ['/content-scripts/content.js']
+	            files: [CONTENT_RUNNER_SCRIPT]
 	          });
 
           console.log('[Background] Content script injected, retrying message...');
@@ -1251,7 +1252,7 @@ export class EnhancedContentProcessor {
               try {
 	                await browser.scripting.executeScript({
 	                  target: { tabId },
-	                  files: ['/content-scripts/content.js'],
+	                  files: [CONTENT_RUNNER_SCRIPT],
 	                });
                 // Short delay to allow the content script to initialize
                 await new Promise((r) => setTimeout(r, 150));
@@ -1997,7 +1998,7 @@ export class EnhancedContentProcessor {
       try {
 	        await browser.scripting.executeScript({
 	          target: { tabId },
-	          files: ['/content-scripts/content.js'],
+	          files: [CONTENT_RUNNER_SCRIPT],
 	        });
         await new Promise((r) => setTimeout(r, 150));
         pingOk = await this.ensureContentScript(tabId);

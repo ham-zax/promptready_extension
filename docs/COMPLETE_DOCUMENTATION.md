@@ -787,7 +787,7 @@ Environment Variables Required:
 
 ### Data Protection
 - **Local Processing**: All content processed locally in offline mode
-- **Secure Storage**: API keys stored encrypted locally
+- **API Key Storage**: OpenRouter keys are stored in extension local storage
 - **No Telemetry**: No usage tracking or analytics collection
 - **Memory Cleanup**: Automatic cleanup of sensitive data
 

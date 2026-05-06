@@ -28,7 +28,7 @@ export function ModeToggle({ mode, onChange, onUpgradePrompt }: ModeToggleProps)
     ? authState.aiLockReason === 'missing_api_key'
       ? 'Add an OpenRouter API key to use AI mode.'
       : authState.aiLockReason === 'daily_limit_reached'
-        ? 'Daily free AI limit reached. Enter unlock code or go to checkout.'
+        ? 'You have used 5 successful BYOK AI cleanups today. Try AI again tomorrow.'
         : 'AI mode is temporarily unavailable.'
     : undefined;
 
@@ -49,10 +49,10 @@ export function ModeToggle({ mode, onChange, onUpgradePrompt }: ModeToggleProps)
   const aiStatusText = authState
     ? authState.isDeveloperMode
       ? 'Developer mode enabled'
-      : authState.isUnlocked || authState.hasUnlimitedAccess
-        ? 'Unlimited AI unlocked'
+      : authState.hasUnlimitedAccess
+        ? 'Developer bypass active'
         : authState.hasApiKey
-          ? `${authState.remainingFreeByokStartsToday} free AI starts left today`
+          ? `${authState.remainingFreeByokUsesToday} successful BYOK AI cleanups left today`
           : 'Add OpenRouter API key to enable AI mode'
     : 'Checking AI access…';
 

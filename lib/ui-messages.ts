@@ -19,10 +19,10 @@ export const UI_MESSAGES = {
   aiFallbackRequestFailed: 'AI processing failed — used offline output.',
   aiFallbackMissingKey: 'No OpenRouter key configured — used offline output.',
   aiFallbackProviderUnsupported: 'Unsupported AI provider — used offline output.',
-  aiFallbackDailyLimitReached: 'Daily free AI limit reached — used offline output.',
+  aiFallbackDailyLimitReached: 'Daily BYOK AI limit reached — used offline output.',
   aiFallbackQualityGateFailed: 'AI output failed fidelity checks — used offline output.',
   aiModeRequiresApiKey: 'AI mode requires an OpenRouter API key.',
-  dailyLimitReachedInline: 'Daily free AI limit reached. Enter unlock code or go to checkout for unlimited use.',
+  dailyLimitReachedInline: 'You’ve used 5 successful BYOK AI cleanups today. Offline mode is still available. Try AI again tomorrow.',
 
   // Export / copy
   contentProcessed: 'Content processed successfully!',

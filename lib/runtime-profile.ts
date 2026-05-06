@@ -5,7 +5,6 @@ export interface RuntimeProfile {
   enforceDeveloperMode: boolean;
   useMockMonetization: boolean;
   monetizationApiBase: string;
-  byokProxyUrl: string;
   trafilaturaServiceUrl: string;
 }
 
@@ -24,7 +23,6 @@ declare const __PROMPTREADY_USE_MOCK_MONETIZATION__: boolean | undefined;
 const DEV_DEFAULT_MONETIZATION_BASE = 'http://127.0.0.1:8788';
 const DEV_DEFAULT_TRAFILATURA_URL = 'http://127.0.0.1:8089';
 const PROD_DEFAULT_MONETIZATION_BASE = 'https://promptready.app';
-const PROD_DEFAULT_BYOK_PROXY = 'https://promptready.app/api/proxy';
 const PROD_DEFAULT_TRAFILATURA_URL = '';
 
 function readMetaEnv(name: string): string | undefined {
@@ -134,10 +132,6 @@ export function getRuntimeProfile(): RuntimeProfile {
     readString('WXT_MONETIZATION_API_BASE') ??
     (isDevelopment ? DEV_DEFAULT_MONETIZATION_BASE : PROD_DEFAULT_MONETIZATION_BASE);
 
-  const byokProxyUrl =
-    readString('WXT_BYOK_PROXY_URL') ??
-    PROD_DEFAULT_BYOK_PROXY;
-
   const trafilaturaServiceUrl =
     readString('WXT_TRAFILATURA_URL') ??
     (isDevelopment ? DEV_DEFAULT_TRAFILATURA_URL : PROD_DEFAULT_TRAFILATURA_URL);
@@ -149,7 +143,6 @@ export function getRuntimeProfile(): RuntimeProfile {
     enforceDeveloperMode,
     useMockMonetization,
     monetizationApiBase,
-    byokProxyUrl,
     trafilaturaServiceUrl,
   };
 
@@ -177,9 +170,6 @@ export function validateRuntimeProfile(
     }
     if (isLocalTarget(profile.monetizationApiBase)) {
       errors.push('monetizationApiBase cannot target localhost outside development');
-    }
-    if (isLocalTarget(profile.byokProxyUrl)) {
-      errors.push('byokProxyUrl cannot target localhost outside development');
     }
     if (profile.trafilaturaServiceUrl && isLocalTarget(profile.trafilaturaServiceUrl)) {
       errors.push('trafilaturaServiceUrl cannot target localhost outside development');

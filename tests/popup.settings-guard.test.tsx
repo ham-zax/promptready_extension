@@ -41,12 +41,6 @@ vi.mock('@/lib/storage', () => ({
         selectedByokModel: 'arcee-ai/trinity-large-preview:free',
         customPrompt: '',
       },
-      byokUnlock: {
-        isUnlocked: false,
-        unlockCodeLast4: null,
-        unlockedAt: null,
-        unlockSchemeVersion: 1,
-      },
       byokUsage: {
         dayKey: '2026-02-28',
         successfulAiCount: 0,

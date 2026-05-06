@@ -50,7 +50,6 @@ vi.mock('@/lib/runtime-profile', () => ({
     enforceDeveloperMode: false,
     useMockMonetization: false,
     monetizationApiBase: 'https://promptready.app',
-    byokProxyUrl: 'https://promptready.app/api/proxy',
     trafilaturaServiceUrl: '',
   }),
 }));
@@ -75,12 +74,6 @@ function makeSettings(overrides: Record<string, unknown> = {}) {
       model: 'arcee-ai/trinity-large-preview:free',
       selectedByokModel: 'arcee-ai/trinity-large-preview:free',
       customPrompt: '',
-    },
-    byokUnlock: {
-      isUnlocked: false,
-      unlockCodeLast4: null,
-      unlockedAt: null,
-      unlockSchemeVersion: 1,
     },
     byokUsage: {
       dayKey: toLocalDayKey(),

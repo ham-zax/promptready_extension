@@ -340,7 +340,7 @@ interface CacheSettings {
 - **Local Processing**: Preference for offline processing
 - **Data Retention**: Configure how long to store processed content
 - **Telemetry**: Control anonymous usage statistics
-- **Secure Storage**: Enable/disable encrypted API key storage
+- **API Key Storage**: OpenRouter keys are stored in extension local storage
 
 ### Import/Export Settings
 
@@ -629,7 +629,7 @@ Your processed markdown content
 4. **Create Literature Review**: Combine multiple processed documents
 
 #### Content Analysis
-1. **Batch Processing**: Use developer mode for unlimited processing
+1. **Batch Processing**: Use developer mode bypass for local testing
 2. **Quality Assessment**: Review quality scores for each source
 3. **Cross-Reference**: Use citation blocks to trace sources
 4. **Data Export**: Export aggregated data for analysis

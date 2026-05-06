@@ -8,16 +8,17 @@
 | `enforceDeveloperMode` | `true` (default) | `false` |
 | `useMockMonetization` | `true` (default) | `false` |
 | Monetization API base | `http://127.0.0.1:8788` (default) | `https://promptready.app` (default) |
-| BYOK proxy URL | `http://127.0.0.1:8788/byok/proxy` (default) | `https://promptready.app/api/proxy` (default) |
 | Trafilatura fallback URL | `http://127.0.0.1:8089` (default) | empty by default |
-| BYOK direct provider calls | Disabled (proxy required) | Disabled (proxy required) |
+| BYOK OpenRouter calls | Direct from extension | Direct from extension |
+| BYOK daily gate | Development bypass flags may override | 5 successful AI cleanups per local day |
 
 ## Enforcement Rules
 
 1. Production profiles cannot enable development bypass toggles.
-2. Production profiles cannot point to localhost monetization/BYOK endpoints.
+2. Production profiles cannot point to localhost monetization endpoints.
 3. Development profile warnings are emitted if premium bypass or forced dev mode is disabled.
 4. Startup self-check is executed in background and offscreen paths.
+5. Production ignores legacy local access state when calculating BYOK entitlement.
 
 ## Profile Sources
 
@@ -29,7 +30,7 @@
 ## OpenRouter Defaults
 
 - Default model: `arcee-ai/trinity-large-preview:free`
-- Recommended attribution headers applied via proxy:
+- Recommended attribution headers applied on direct OpenRouter requests:
   - `HTTP-Referer: https://promptready.app`
   - `X-Title: PromptReady Extension`
   - `X-OpenRouter-Title: PromptReady Extension` (compatibility)

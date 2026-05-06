@@ -32,7 +32,6 @@ const runtimeProfile = getRuntimeProfile();
 
 const SETTINGS_SCHEMA_VERSION = 2;
 const UNLOCK_SCHEME_VERSION = 1;
-
 function toLocalDayKey(date: Date = new Date()): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -294,7 +293,7 @@ export function applyRuntimePolicyOverrides(
 
   return {
     ...settings,
-    // Preserve explicit user choice; open-access should unlock modes, not force a mode.
+    // Preserve explicit user choice; open-access should enable modes, not force a mode.
     mode: settings.mode || defaultSettings.mode,
     flags: {
       ...flags,

@@ -1,38 +1,37 @@
 ---
 title: "System Architecture"
-description: "The single source of truth for PromptReady's architecture, translating the Master PRD into a concrete, implementable design for both the client-side extension and the serverless backend."
-context: "This document outlines the unified architecture for the PromptReady MVP, including the client-side WXT extension and the serverless backend. It details the system overview, design principles, component architecture, data flow, and security measures."
+description: "PromptReady's current Chrome/Chromium release architecture."
+context: "This document outlines the current extension release: local offline capture/export plus optional direct OpenRouter BYOK AI cleanup."
 ---
 
 ### **PromptReady MVP - Unified Architecture Blueprint v2.2**
 
 *   **Status:** IMPLEMENTED - 95% Complete (See README.md for current status)
 *   **Version:** 2.2 (Supersedes v2.1)
-*   **Purpose:** This document is the single source of truth for PromptReady's architecture. It translates the `Master PRD v3.0` into a concrete, implementable design for both the client-side extension and the serverless backend.
-*   **Note:** The architecture described herein has been successfully implemented. See the main README.md for the current development status and remaining work items.
+*   **Purpose:** This document records the current release architecture. Historical backend monetization and hosted-AI plans are not active in this release.
+*   **Note:** See `docs/prd.md` for the current release contract.
 
 #### **1. System Overview & Design Principles**
 
-This architecture supports a "Metered Freemium to BYOK" model for the PromptReady WXT extension.
+This architecture supports free local capture/export plus optional OpenRouter BYOK AI cleanup.
 
 *   **Design Principles:**
-    *   **Local-First & Private:** The Offline Mode is the foundation. User data remains on the client. AI Mode requests are proxied securely, and no user content is stored on our servers.
-    *   **Stateless Backend:** The serverless backend is limited to credit tracking and AI proxying. All user settings are stored client-side in `chrome.storage.local`.
-    *   **Financially Resilient:** A non-negotiable **Weekly Spend Cap** caps all financial risk from the free trial.
-    *   **Built for Validation:** The architecture natively supports A/B/C testing to validate our chosen AI models.
+    *   **Offline-first:** Offline capture and Markdown export run in the extension.
+    *   **Direct BYOK:** Optional AI cleanup sends captured content and the user's OpenRouter API key directly to OpenRouter for that request.
+    *   **No PromptReady request proxy:** PromptReady does not proxy or store BYOK AI cleanup requests.
+    *   **Narrow permissions:** Capture uses `activeTab` plus `scripting`; BYOK uses a narrow OpenRouter host permission.
 
 #### **2. Component Architecture**
 
-The system integrates the WXT extension with a new serverless backend.
+The release system is a WXT extension with optional direct OpenRouter network access.
 
 *   **Client-Side (WXT Extension):**
-    *   `Content Script`: Captures the selected DOM and metadata.
-    *   `Service Worker (background.ts)`: The central orchestrator. It manages the offline pipeline and makes calls to our backend when "AI Mode" is selected.
-    *   `Popup UI`: The user interface, containing the mode toggle, credit counter, and an inline BYOK settings interface.
+    *   `content-runner.ts`: Injected after a user gesture to capture active-tab DOM and metadata.
+    *   `Service Worker (background.ts)`: Orchestrates capture, offline processing, BYOK daily gating, and direct OpenRouter cleanup.
+    *   `Popup UI`: Mode toggle, capture action, BYOK settings, and daily BYOK limit state.
 
-*   **Server-Side (Serverless Functions):**
-    *   `/api/check-credits`: Checks a user's credit balance and assigns them to an A/B/C cohort on their first request.
-    *   `/api/process-ai`: The main AI proxy. It first validates the Weekly Spend Cap, then routes the request to the correct AI model based on the user's cohort, and finally decrements the user's credit upon a successful response.
+*   **External Service:**
+    *   `https://openrouter.ai/*`: Receives optional BYOK AI cleanup requests directly from the extension.
 
 ```mermaid
 flowchart TD
@@ -133,10 +132,10 @@ The current sophisticated pipeline is the result of a systematic, iterative debu
 {
   "mode": "offline" | "ai",
   "byok": {
-    "provider": "openrouter" | "manual",
-    "apiKey": "",         // MUST be encrypted-at-rest
-    "model": "",          // e.g., "meta-llama/Llama-3.1-8b-instant"
-    "apiBaseUrl": ""      // Optional: Only used for "manual" provider
+    "provider": "openrouter",
+    "apiKey": "",         // Stored in extension local storage
+    "model": "",
+    "apiBaseUrl": "https://openrouter.ai/api/v1"
   },
   "privacy": { "telemetryEnabled": false }
 }
@@ -174,9 +173,9 @@ type MessageType =
 
 #### **10. Security & Privacy**
 
-*   **Backend Security:** Our master API keys are stored as secure secrets on the backend and are never exposed to the client.
-*   **Client Security:** The user's BYOK `apiKey` **must** be encrypted at rest in `chrome.storage.local` using WebCrypto AES-GCM.
-*   **Privacy:** No user content is stored server-side. AI requests are proxied ephemerally. User identification is anonymous.
+*   **Backend Security:** This release does not use a PromptReady BYOK proxy or server-side licensing path.
+*   **Client Security:** The user's BYOK `apiKey` is stored in extension local storage.
+*   **Privacy:** Offline capture and Markdown export run locally. BYOK AI cleanup sends captured content and the user's OpenRouter API key directly to OpenRouter for that request.
 
 #### **11. Acceptance Criteria (Architecture)**
 

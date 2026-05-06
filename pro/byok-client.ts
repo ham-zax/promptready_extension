@@ -1,6 +1,6 @@
 /**
  * BYOK (Bring Your Own Key) Client
- * Handles secure communication with OpenAI-compatible endpoints with consent and safeguards.
+ * Handles direct OpenRouter communication with consent and safeguards.
  */
 
 export interface BYOKRequest {
@@ -18,8 +18,6 @@ export interface BYOKSettings {
 export interface BYOKOptions {
   showModal?: boolean;
   requireExplicitConsent?: boolean;
-  proxyUrl?: string;
-  transport?: 'direct' | 'proxy';
 }
 
 export interface BYOKResponse {
@@ -188,98 +186,19 @@ export class BYOKClient {
       console.log('[BYOK] Explicit consent required - proceeding with request');
     }
 
-    return this.callOpenAICompatibleAPI(request, settings, options);
+    return this.callOpenAICompatibleAPI(request, settings);
   }
 
   private static async callOpenAICompatibleAPI(
     request: BYOKRequest,
-    settings: BYOKSettings,
-    options: BYOKOptions = {}
+    settings: BYOKSettings
   ): Promise<BYOKResponse> {
     const normalizedApiKey = (settings.apiKey || '').trim();
     if (!normalizedApiKey) {
       throw new Error('BYOK API key is required');
     }
 
-    const transport = options.transport ?? (options.proxyUrl ? 'proxy' : 'direct');
-    if (transport === 'proxy') {
-      return this.callProxyAPI(request, settings, normalizedApiKey, options);
-    }
-
     return this.callDirectOpenRouterAPI(request, settings, normalizedApiKey);
-  }
-
-  private static async callProxyAPI(
-    request: BYOKRequest,
-    settings: BYOKSettings,
-    normalizedApiKey: string,
-    options: BYOKOptions,
-  ): Promise<BYOKResponse> {
-    if (!options.proxyUrl) {
-      throw new Error('proxyUrl is required for BYOK requests');
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT_MS);
-
-    try {
-      // Proxy path only: POST directly to proxy URL with proxy payload shape.
-      // The worker normalizes the response to { content, usage }.
-      const response = await fetch(options.proxyUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt: request.prompt,
-          temperature: request.temperature ?? 0,
-          maxTokens: request.maxTokens ?? 4000,
-          settings: {
-            apiBase: settings.apiBase,
-            apiKey: normalizedApiKey,
-            model: settings.model,
-          },
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const message = await readResponseError(response);
-        throw new Error(`BYOK request failed: ${message}`);
-      }
-
-      const payload = await readJsonPayload(response, 'proxy request');
-
-      // Proxy returns normalized { content, usage }.
-      const content = payload?.content;
-      if (typeof content !== 'string' || !content.trim()) {
-        throw new Error('BYOK returned empty content');
-      }
-
-      const usage = payload?.usage
-        ? {
-            promptTokens: payload.usage.promptTokens ?? 0,
-            completionTokens: payload.usage.completionTokens ?? 0,
-            totalTokens: payload.usage.totalTokens ?? 0,
-          }
-        : undefined;
-
-      return { content, usage };
-    } catch (error) {
-      clearTimeout(timeoutId);
-      if (isAbortError(error)) {
-        throw new Error('BYOK request timed out');
-      }
-      if (isNetworkFetchError(error)) {
-        throw new Error(
-          `BYOK proxy network request failed for ${options.proxyUrl}. ` +
-            'If this is a development extension build, run the local proxy on 127.0.0.1:8788 or set WXT_BYOK_PROXY_URL=https://promptready.app/api/proxy.',
-        );
-      }
-      throw error;
-    }
   }
 
   private static async callDirectOpenRouterAPI(
