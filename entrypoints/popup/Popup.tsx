@@ -11,9 +11,9 @@ import { PrimaryButton } from './components/PrimaryButton';
 import { Storage } from '@/lib/storage';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { derivePopupOutcome, type PopupOutcomeTone } from './lib/popup-outcome';
+import { LogoPixelatedSimple } from '@/assets/logo_pixelated_simple';
 import { browser } from 'wxt/browser';
 import {
-  LayoutTemplate,
   Settings as SettingsIcon,
   ClipboardCopy,
   Download,
@@ -500,11 +500,13 @@ export default function RefactoredPopup() {
     <div className="relative w-96 max-h-[600px] bg-background text-foreground antialiased flex flex-col overflow-hidden">
       <div className="bg-background/95 backdrop-blur-sm text-foreground p-4 shadow-sm border-b border-border z-20 relative shrink-0">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <LayoutTemplate className="w-6 h-6 text-brand-primary" />
-            <div className="flex flex-col leading-tight">
-              <h1 className="text-lg font-medium tracking-tight">PromptReady</h1>
-              <p className="text-[11px] text-muted-foreground">Clean, structure, and cite web content for perfect prompts</p>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-brand-border bg-brand-surface">
+              <LogoPixelatedSimple className="h-7 w-7" />
+            </div>
+            <div className="flex min-w-0 flex-col leading-tight">
+              <h1 className="linear-kicker truncate text-[1.75rem] font-normal text-foreground">PromptReady</h1>
+              <p className="truncate text-[11px] text-muted-foreground">Clean, structure, and cite web content for prompts</p>
             </div>
             {state.settings?.flags?.developerMode && (
               <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-yellow-500 text-black rounded font-bold uppercase tracking-wider">DEV</span>

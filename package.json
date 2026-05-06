@@ -55,6 +55,10 @@
     "knip": "knip"
   },
   "dependencies": {
+    "@fontsource/bebas-neue": "^5.2.7",
+    "@fontsource/ibm-plex-mono": "^5.2.7",
+    "@fontsource/space-grotesk": "^5.2.10",
+    "@fontsource/vt323": "^5.2.7",
     "@joplin/turndown": "^4.0.80",
     "@joplin/turndown-plugin-gfm": "^1.0.62",
     "@mozilla/readability": "^0.4.1",
