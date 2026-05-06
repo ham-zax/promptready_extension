@@ -2418,21 +2418,34 @@ export class OfflineModeManager {
 
       const blockLines: string[] = [line];
       const startFenceRaw = line.trim().slice(3).trim();
+      let closedFence = false;
       let cursor = index + 1;
       while (cursor < lines.length) {
         blockLines.push(lines[cursor]);
         if (isFence(lines[cursor])) {
+          closedFence = true;
           cursor++;
           break;
         }
         cursor++;
       }
 
-      const bodyLines = blockLines.slice(1, -1);
+      const bodyLines = closedFence ? blockLines.slice(1, -1) : blockLines.slice(1);
+      const fenceLanguage = languageLike(startFenceRaw) ? startFenceRaw.toLowerCase() : '';
+      const isGenericTextFence =
+        !fenceLanguage || /^(text|txt|plain|plaintext|md|markdown)$/.test(fenceLanguage);
+      const recoverAtBodyIndex =
+        isGenericTextFence
+          ? bodyLines.findIndex((candidateLine, candidateIndex) => (
+            candidateIndex > 0 && /^#{1,6}\s+\S/.test(candidateLine.trim())
+          ))
+          : -1;
+      const signalBodyLines =
+        recoverAtBodyIndex > 0 ? bodyLines.slice(0, recoverAtBodyIndex) : [...bodyLines];
       if (startFenceRaw && !languageLike(startFenceRaw)) {
-        bodyLines.unshift(startFenceRaw);
+        signalBodyLines.unshift(startFenceRaw);
       }
-      const normalizedBlock = this.normalizeInputText(bodyLines.join(' ')).toLowerCase();
+      const normalizedBlock = this.normalizeInputText(signalBodyLines.join(' ')).toLowerCase();
 
       const uiSignalCount = [
         /(donate|create account|log in|privacy policy|about wikipedia)/.test(normalizedBlock),
@@ -2443,7 +2456,7 @@ export class OfflineModeManager {
       ].filter(Boolean).length;
 
       const programmingSignalText = normalizedBlock.replace(/&lt;\/?[a-z][^&]*&gt;/gi, ' ');
-      const programmingRawText = bodyLines.join('\n').replace(/&lt;\/?[a-z][^&]*&gt;/gi, ' ');
+      const programmingRawText = signalBodyLines.join('\n').replace(/&lt;\/?[a-z][^&]*&gt;/gi, ' ');
       const programmingSignalCount = [
         /\b(import|export|function|const|let|var|class|interface|type)\b/.test(programmingSignalText),
         /\b(fetch|curl|npm|pnpm|yarn|pip|python|node|typescript|javascript)\b/.test(programmingSignalText),
@@ -2459,8 +2472,8 @@ export class OfflineModeManager {
       const hasComparisonContext =
         /(before\s*\/\s*after|comparison|same source,\s*cleaner context|promptready pass)/i.test(contextWindow);
       const containsHtmlExample =
-        /<\/?[a-z][^>]*>/i.test(bodyLines.join('\n')) ||
-        /&lt;\/?[a-z][^&]*&gt;/i.test(bodyLines.join('\n'));
+        /<\/?[a-z][^>]*>/i.test(signalBodyLines.join('\n')) ||
+        /&lt;\/?[a-z][^&]*&gt;/i.test(signalBodyLines.join('\n'));
       const preserveIntentionalDemoBlock =
         precededByRawLabel && hasComparisonContext && containsHtmlExample && uiSignalCount < 2;
 
@@ -2478,6 +2491,9 @@ export class OfflineModeManager {
         removedBlocks++;
         if (precededByRawLabel) {
           output.pop();
+        }
+        if (recoverAtBodyIndex > 0) {
+          output.push(...bodyLines.slice(recoverAtBodyIndex));
         }
       } else {
         output.push(...blockLines);

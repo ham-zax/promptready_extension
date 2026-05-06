@@ -434,6 +434,42 @@ Subscribe to our newsletter | Related links | Footer text
     expect(footerMatches).toHaveLength(1);
   });
 
+  it('removes generic text demo fences that contain captured page chrome', () => {
+    const warnings: string[] = [];
+    const markdown = `## See the transformation in one pass
+
+\`\`\`text
+Donate | Create account | Log in
+
+Contents [hide]
+(Top)
+Goals
+
+Artificial intelligence
+
+From Wikipedia, the free encyclopedia
+
+&lt;div class="navbox"&gt;Categories: Artificial intelligence&lt;/div&gt;
+
+## Built for people who prompt all day`;
+
+    const canonical = OfflineModeManager.canonicalizeDeliveredMarkdown(
+      markdown,
+      {
+        title: 'PromptReady - One-click clean Markdown from any page',
+        url: 'https://promptready.app/',
+        capturedAt: '2026-02-25T22:27:57.577Z',
+        selectionHash: 'promptready-hash',
+      },
+      warnings
+    );
+
+    expect(canonical).not.toContain('Donate | Create account | Log in');
+    expect(canonical).not.toContain('From Wikipedia, the free encyclopedia');
+    expect(canonical).not.toContain('&lt;div class="navbox"&gt;');
+    expect(canonical).toContain('## Built for people who prompt all day');
+  });
+
   it('removes low-signal media and empty-link artifacts while preserving meaningful text', () => {
     const warnings: string[] = [];
     const noisy = `# Trending

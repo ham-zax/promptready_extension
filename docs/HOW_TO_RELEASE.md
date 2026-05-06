@@ -78,9 +78,9 @@ Expected permission shape:
 
 `verify:dev` runs the main local smoke suite: changed-file lint, regex safety checks, TypeScript compile, regex tests, and smoke tests.
 
-`release:copy-gate:no-proxy` fails if public/runtime release surfaces still claim PromptReady proxies OpenRouter BYOK requests.
+`release:copy-gate:no-proxy` fails if public/runtime release surfaces still claim PromptReady routes BYOK requests through PromptReady servers.
 
-`release:copy-gate:no-stale-launch-copy` fails if public/runtime release surfaces still contain stale launch or monetization copy such as hosted credits, checkout flow, prelaunch copy, unlimited BYOK, encrypted API key claims, manual provider claims, or broad local-only claims.
+`release:copy-gate:no-stale-launch-copy` fails if public/runtime release surfaces still contain stale launch or monetization copy such as hosted credits, purchase flow, prelaunch language, unrestricted BYOK language, overstated key-storage claims, broad provider claims, or broad local-only claims.
 
 `verify:offline` runs the offline extraction corpus. It is useful before shipping extraction-quality changes, but it is not the command that creates the Chrome Store package.
 
