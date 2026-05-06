@@ -976,7 +976,12 @@ export class EnhancedOffscreenProcessor {
     }
 
     try {
-      await browser.storage.session.set({
+      const sessionStorage = (browser as any)?.storage?.session;
+      if (!sessionStorage?.set) {
+        return;
+      }
+
+      await sessionStorage.set({
         [`${OFFSCREEN_PROCESS_RESPONSE_PREFIX}${runId}`]: response,
       });
     } catch (error) {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, fireEvent, screen, cleanup } from '@testing-library/react';
+import { render, fireEvent, screen, cleanup, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ModeToggle } from '../entrypoints/popup/components/ModeToggle';
 import { authService } from '../lib/auth-service';
@@ -39,7 +39,7 @@ describe('ModeToggle', () => {
     expect(aiButton).toHaveAttribute('data-state', 'on');
   });
 
-  it('calls onChange when a new mode is selected', () => {
+  it('calls onChange when a new mode is selected', async () => {
     const handleChange = vi.fn();
     render(
       <ModeToggle
@@ -52,14 +52,16 @@ describe('ModeToggle', () => {
     const offlineButton = screen.getByLabelText('Offline Mode');
     fireEvent.click(offlineButton);
 
-    expect(handleChange).toHaveBeenCalledWith('offline');
+    await waitFor(() => {
+      expect(handleChange).toHaveBeenCalledWith('offline');
+    });
   });
 
   it('calls onUpgradePrompt when AI mode is locked', async () => {
     const handleUpgradePrompt = vi.fn();
     const handleChange = vi.fn();
 
-    vi.mocked(authService.getAuthState).mockResolvedValueOnce({
+    const lockedAuthState = {
       isAuthenticated: true,
       isDeveloperMode: false,
       hasUnlimitedAccess: false,
@@ -70,7 +72,10 @@ describe('ModeToggle', () => {
       remainingFreeByokUsesToday: 0,
       remainingFreeByokStartsToday: 0,
       aiLockReason: 'daily_limit_reached',
-    });
+    } as const;
+    vi.mocked(authService.getAuthState)
+      .mockResolvedValueOnce(lockedAuthState)
+      .mockResolvedValueOnce(lockedAuthState);
 
     render(
       <ModeToggle
@@ -84,7 +89,58 @@ describe('ModeToggle', () => {
     expect(aiButton).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(aiButton);
 
-    expect(handleUpgradePrompt).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(handleUpgradePrompt).toHaveBeenCalled();
+    });
     expect(handleChange).not.toHaveBeenCalled();
+  });
+
+  it('uses fresh auth state before routing AI clicks to settings', async () => {
+    const handleUpgradePrompt = vi.fn();
+    const handleChange = vi.fn();
+
+    vi.mocked(authService.getAuthState)
+      .mockResolvedValueOnce({
+        isAuthenticated: true,
+        isDeveloperMode: false,
+        hasUnlimitedAccess: false,
+        canUseAIMode: false,
+        planType: 'free',
+        hasApiKey: false,
+        isUnlocked: false,
+        remainingFreeByokUsesToday: 5,
+        remainingFreeByokStartsToday: 5,
+        aiLockReason: 'missing_api_key',
+      })
+      .mockResolvedValueOnce({
+        isAuthenticated: true,
+        isDeveloperMode: false,
+        hasUnlimitedAccess: false,
+        canUseAIMode: true,
+        planType: 'free',
+        hasApiKey: true,
+        isUnlocked: false,
+        remainingFreeByokUsesToday: 5,
+        remainingFreeByokStartsToday: 5,
+        aiLockReason: null,
+      });
+
+    render(
+      <ModeToggle
+        mode="offline"
+        onChange={handleChange}
+        onUpgradePrompt={handleUpgradePrompt}
+      />
+    );
+
+    const aiButton = await screen.findByLabelText('AI Mode');
+    expect(aiButton).toHaveAttribute('aria-disabled', 'true');
+
+    fireEvent.click(aiButton);
+
+    await waitFor(() => {
+      expect(handleChange).toHaveBeenCalledWith('ai');
+    });
+    expect(handleUpgradePrompt).not.toHaveBeenCalled();
   });
 });

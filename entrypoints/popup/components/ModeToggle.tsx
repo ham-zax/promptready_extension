@@ -32,14 +32,26 @@ export function ModeToggle({ mode, onChange, onUpgradePrompt }: ModeToggleProps)
         : 'AI mode is temporarily unavailable.'
     : undefined;
 
-  const handleValueChange = (newMode: Settings['mode']) => {
+  const handleValueChange = async (newMode: Settings['mode']) => {
     if (!newMode) {
       return;
     }
 
-    if (newMode === 'ai' && aiDisabled) {
-      onUpgradePrompt();
-      return;
+    if (newMode === 'ai') {
+      try {
+        const latestAuthState = await authService.getAuthState();
+        setAuthState(latestAuthState);
+
+        if (!latestAuthState.canUseAIMode) {
+          onUpgradePrompt();
+          return;
+        }
+      } catch {
+        if (aiDisabled) {
+          onUpgradePrompt();
+          return;
+        }
+      }
     }
 
     onChange(newMode);
